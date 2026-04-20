@@ -99,6 +99,20 @@ internal static class ResourceViewModelExtensions
         return resource.TryGetCustomDataBoolArray(KnownProperties.Resource.AppArgsSensitivity, out argParams);
     }
 
+    /// <summary>
+    /// Returns <c>true</c> if the resource has an interactive terminal session available.
+    /// </summary>
+    public static bool HasTerminal(this ResourceViewModel resource)
+    {
+        return resource.Properties.ContainsKey(KnownProperties.Terminal.Enabled);
+    }
+
+    /// <summary>
+    /// Tries to get the terminal socket path for the resource.
+    /// </summary>
+    public static bool TryGetTerminalSocketPath(this ResourceViewModel resource, [NotNullWhen(returnValue: true)] out string? socketPath)
+    {
+        return resource.TryGetCustomDataString(KnownProperties.Terminal.SocketPath, out socketPath);
     public static bool TryGetWaitingForDependencies(this ResourceViewModel resource, out ImmutableArray<string> dependencies)
     {
         return resource.TryGetCustomDataStringArray(KnownProperties.Resource.WaitingFor, out dependencies) && dependencies.Length > 0;

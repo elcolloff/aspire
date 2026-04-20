@@ -162,6 +162,9 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
     private Task? _showNoLogsMessageDelayTask;
     private AIContext? _aiContext;
     private LogViewer? _logViewerRef;
+    private Controls.TerminalView? _terminalViewRef;
+    private bool _selectedResourceHasTerminal;
+    private string? _terminalSocketPath;
 
     // UI
     private SelectViewModel<ResourceTypeDetails> _allResource = null!;
@@ -408,6 +411,26 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
     {
         Logger.LogDebug("Subscription change needed. IsAllSelected: {IsAllSelected}, SelectedResource: {SelectedResource}", isAllSelected, selectedResourceName);
         _aiContext?.ContextHasChanged();
+
+        // Detect whether the selected resource has terminal support
+        _selectedResourceHasTerminal = false;
+        _terminalSocketPath = null;
+
+        if (!isAllSelected && selectedResourceName is not null &&
+            _resourceByName.TryGetValue(selectedResourceName, out var selectedResource) &&
+            selectedResource.HasTerminal() &&
+            selectedResource.TryGetTerminalSocketPath(out var socketPath))
+        {
+            _selectedResourceHasTerminal = true;
+            _terminalSocketPath = socketPath;
+            Logger.LogDebug("Resource '{ResourceName}' has terminal at {SocketPath}", selectedResourceName, socketPath);
+
+            // Don't subscribe to console logs for terminal resources —
+            // the terminal view replaces the log viewer.
+            await CancelAllSubscriptionsAsync();
+            _isSubscribedToAll = false;
+            return;
+        }
 
         // Cancel all existing subscriptions
         await CancelAllSubscriptionsAsync();
