@@ -148,6 +148,7 @@ internal sealed class RootCommand : BaseRootCommand
         DescribeCommand describeCommand,
         LogsCommand logsCommand,
         IntegrationCommand integrationCommand,
+        TerminalCommand terminalCommand,
         AddCommand addCommand,
         PublishCommand publishCommand,
         DeployCommand deployCommand,
@@ -247,6 +248,7 @@ internal sealed class RootCommand : BaseRootCommand
         Subcommands.Add(describeCommand);
         Subcommands.Add(logsCommand);
         Subcommands.Add(integrationCommand);
+        Subcommands.Add(terminalCommand);
         Subcommands.Add(addCommand);
         Subcommands.Add(publishCommand);
         Subcommands.Add(configCommand);
