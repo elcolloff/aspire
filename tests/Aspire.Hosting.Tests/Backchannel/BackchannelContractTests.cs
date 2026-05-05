@@ -48,6 +48,9 @@ public class BackchannelContractTests
         typeof(ExecuteResourceCommandResponse),
         typeof(WaitForResourceResponse),
         typeof(GetPipelineStepsResponse),
+        typeof(GetTerminalInfoRequest),
+        typeof(GetTerminalInfoResponse),
+        typeof(TerminalReplicaInfo),
         typeof(ResourceSnapshot),
         typeof(ResourceSnapshotUrl),
         typeof(ResourceSnapshotUrlDisplayProperties),
@@ -97,7 +100,8 @@ public class BackchannelContractTests
                 type != typeof(BackchannelTraceContext) &&
                 type.Name != "McpToolContentItem" &&
                 type.Name != "ResourceLogLine" &&
-                type.Name != "ResourceLogBatch")
+                type.Name != "ResourceLogBatch" &&
+                type.Name != "TerminalReplicaInfo")
             {
                 if (!type.Name.EndsWith("Request") && !type.Name.EndsWith("Response"))
                 {
