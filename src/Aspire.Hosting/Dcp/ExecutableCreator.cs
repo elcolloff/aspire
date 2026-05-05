@@ -348,6 +348,12 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             exe.Annotate(CustomResource.OtelServiceNameAnnotation, executable.Name);
             exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, executable.GetOtelServiceInstanceId(exeInstance));
             exe.Annotate(CustomResource.ResourceNameAnnotation, executable.Name);
+            // Plain executables are always single-replica today, but the terminal wire-up
+            // (and any other replica-aware downstream logic) needs both annotations to be
+            // present. Without them WithTerminal() can't resolve the producer UDS for the
+            // replica and silently falls back to a no-op.
+            exe.Annotate(CustomResource.ResourceReplicaCount, "1");
+            exe.Annotate(CustomResource.ResourceReplicaIndex, "0");
 
             var persistent = executable.GetLifetimeType() == Lifetime.Persistent;
             if (persistent)
