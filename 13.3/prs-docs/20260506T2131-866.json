@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Documents HTTP command result support (aspire#15664)",
+  "mergedAt": "2026-05-06T21:31:07Z",
+  "number": 866,
+  "runDate": "2026-05-06T22:21:23Z",
+  "status": "included",
+  "title": "docs: document HTTP command result mode"
+}

@@ -7,7 +7,8 @@
   "description": "The MCP (Model Context Protocol) server, authentication, and related UI have been removed from the Aspire Dashboard. The dashboard-hosted MCP endpoint is replaced by the CLI MCP server. The `ASPIRE_DASHBOARD_MCP_ENDPOINT_URL` environment variable and related configuration are no longer supported.",
   "docsPrs": [
     784,
-    825
+    825,
+    865
   ],
   "docsRequired": true,
   "emoji": "\ud83e\uddf9",

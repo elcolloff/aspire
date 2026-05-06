@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Documents ASPIRE_ENVIRONMENT variable support (aspire#16098)",
+  "mergedAt": "2026-05-06T21:32:26Z",
+  "number": 868,
+  "runDate": "2026-05-06T22:21:23Z",
+  "status": "included",
+  "title": "Document ASPIRE_ENVIRONMENT for AppHost"
+}

@@ -1,12 +1,15 @@
 {
   "area": "Dashboard",
-  "areaEmoji": "📊",
+  "areaEmoji": "\ud83d\udcca",
   "breaking": false,
   "changeType": "Bug fixes",
   "communityContributors": [],
   "description": "Fixed multiple unbounded collection growth issues in the dashboard's OTLP telemetry storage that could cause memory exhaustion in long-running sessions. Adds a MaxResourceCount limit and ensures collections are properly cleaned up when logs, traces, and metrics are cleared.",
+  "docsPrs": [
+    797
+  ],
   "docsRequired": true,
-  "emoji": "💾",
+  "emoji": "\ud83d\udcbe",
   "firstMergedAt": "2026-05-01T18:39:24Z",
   "lastMergedAt": "2026-05-01T18:39:24Z",
   "name": "Fix memory exhaustion in TelemetryRepository",

@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents unified withEnvironment API (aspire#15649)",
+  "mergedAt": "2026-05-06T21:48:40Z",
+  "number": 814,
+  "runDate": "2026-05-06T22:21:23Z",
+  "status": "included",
+  "title": "[docs] Document unified withEnvironment API and IExpressionValue for multi-language AppHosts (Aspire 13.3)"
+}
