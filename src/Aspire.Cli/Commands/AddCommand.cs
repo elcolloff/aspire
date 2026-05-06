@@ -22,6 +22,8 @@ internal sealed class AddCommand : BaseCommand
 {
     internal override HelpGroup HelpGroup => HelpGroup.AppCommands;
 
+    private const double FuzzyMatchThreshold = 0.3;
+
     private readonly IPackagingService _packagingService;
     private readonly IProjectLocator _projectLocator;
     private readonly IAddCommandPrompter _prompter;
@@ -43,6 +45,18 @@ internal sealed class AddCommand : BaseCommand
     {
         Description = AddCommandStrings.SourceArgumentDescription
     };
+    private static readonly Option<bool> s_listOption = new("--list")
+    {
+        Description = AddCommandStrings.ListOptionDescription
+    };
+    private static readonly Option<string?> s_searchOption = new("--search")
+    {
+        Description = AddCommandStrings.SearchOptionDescription
+    };
+    private static readonly Option<OutputFormat> s_formatOption = new("--format")
+    {
+        Description = AddCommandStrings.FormatOptionDescription
+    };
 
     public AddCommand(IPackagingService packagingService, IInteractionService interactionService, IProjectLocator projectLocator, IAddCommandPrompter prompter, AspireCliTelemetry telemetry, IDotNetSdkInstaller sdkInstaller, IFeatures features, ICliUpdateNotifier updateNotifier, CliExecutionContext executionContext, ICliHostEnvironment hostEnvironment, IAppHostProjectFactory projectFactory)
         : base("add", AddCommandStrings.Description, features, updateNotifier, executionContext, interactionService, telemetry)
@@ -58,6 +72,9 @@ internal sealed class AddCommand : BaseCommand
         Options.Add(s_appHostOption);
         Options.Add(s_versionOption);
         Options.Add(s_sourceOption);
+        Options.Add(s_listOption);
+        Options.Add(s_searchOption);
+        Options.Add(s_formatOption);
     }
 
     protected override async Task<int> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -69,8 +86,53 @@ internal sealed class AddCommand : BaseCommand
         try
         {
             var integrationName = parseResult.GetValue(s_integrationArgument);
-
             var passedAppHostProjectFile = parseResult.GetValue(s_appHostOption);
+            var version = parseResult.GetValue(s_versionOption);
+            var source = parseResult.GetValue(s_sourceOption);
+            var listRequested = parseResult.GetValue(s_listOption);
+            var searchTerm = parseResult.GetValue(s_searchOption);
+            var format = parseResult.GetValue(s_formatOption);
+            var jsonRequested = format == OutputFormat.Json;
+            var discoveryRequested = listRequested || searchTerm is not null;
+
+            if (jsonRequested && !discoveryRequested)
+            {
+                InteractionService.DisplayError(AddCommandStrings.JsonRequiresListOrSearch);
+                return ExitCodeConstants.MissingRequiredArgument;
+            }
+
+            if (discoveryRequested)
+            {
+                if (integrationName is not null || version is not null || source is not null)
+                {
+                    InteractionService.DisplayError(AddCommandStrings.DiscoveryOptionsCannotBeCombinedWithAddOptions);
+                    return ExitCodeConstants.MissingRequiredArgument;
+                }
+
+                var workingDirectory = passedAppHostProjectFile?.Directory ?? ExecutionContext.WorkingDirectory;
+                var discoveryPackagesWithChannels = await InteractionService.ShowStatusAsync(
+                    AddCommandStrings.SearchingForAspirePackages,
+                    async () => await GetIntegrationPackagesWithChannelsAsync(workingDirectory, configuredChannel: null, cancellationToken));
+
+                if (!discoveryPackagesWithChannels.Any())
+                {
+                    throw new EmptyChoicesException(AddCommandStrings.NoIntegrationPackagesFound);
+                }
+
+                var discoveryPackagesWithShortName = discoveryPackagesWithChannels
+                    .Select(GenerateFriendlyName)
+                    .OrderBy(p => p.FriendlyName, new CommunityToolkitFirstComparer())
+                    .ToArray();
+
+                if (discoveryPackagesWithShortName.Length == 0)
+                {
+                    InteractionService.DisplayError(AddCommandStrings.NoPackagesFound);
+                    return ExitCodeConstants.FailedToAddPackage;
+                }
+
+                return DisplayIntegrationDiscoveryResults(discoveryPackagesWithShortName, searchTerm, jsonRequested);
+            }
+
             var searchResult = await _projectLocator.UseOrFindAppHostProjectFileAsync(passedAppHostProjectFile, MultipleAppHostProjectsFoundBehavior.Prompt, createSettingsFile: true, cancellationToken);
             var effectiveAppHostProjectFile = searchResult.SelectedProjectFile;
 
@@ -90,8 +152,6 @@ internal sealed class AddCommand : BaseCommand
                     return ExitCodeConstants.SdkNotInstalled;
                 }
             }
-
-            var source = parseResult.GetValue(s_sourceOption);
 
             // For non-.NET projects, read the channel from the local Aspire configuration if available.
             // Unlike .NET projects which have a nuget.config, polyglot apphosts persist the channel
@@ -120,42 +180,7 @@ internal sealed class AddCommand : BaseCommand
 
             var packagesWithChannels = await InteractionService.ShowStatusAsync(
                 AddCommandStrings.SearchingForAspirePackages,
-                async () =>
-                {
-                    // Get channels and find the implicit channel, similar to how templates are handled
-                    var allChannels = await _packagingService.GetChannelsAsync(cancellationToken);
-
-                    // If a channel is configured in settings.json, use that specific channel
-                    if (!string.IsNullOrEmpty(configuredChannel))
-                    {
-                        allChannels = allChannels.Where(c => string.Equals(c.Name, configuredChannel, StringComparison.OrdinalIgnoreCase));
-                    }
-
-                    // If there are hives (PR build directories), include all channels.
-                    // If a channel is configured in settings.json, use that (already filtered above).
-                    // Otherwise, only use the implicit/default channel to avoid prompting.
-                    var hasHives = ExecutionContext.GetPrHiveCount() > 0;
-                    var channels = hasHives || !string.IsNullOrEmpty(configuredChannel)
-                        ? allChannels
-                        : allChannels.Where(c => c.Type is PackageChannelType.Implicit);
-
-                    var packages = new List<(NuGetPackage Package, PackageChannel Channel)>();
-                    var packagesLock = new object();
-
-                    await Parallel.ForEachAsync(channels, cancellationToken, async (channel, ct) =>
-                    {
-                        var integrationPackages = await channel.GetIntegrationPackagesAsync(
-                            workingDirectory: effectiveAppHostProjectFile.Directory!,
-                            cancellationToken: ct);
-                        lock (packagesLock)
-                        {
-                            packages.AddRange(integrationPackages.Select(p => (p, channel)));
-                        }
-                    });
-
-                    return packages;
-
-                });
+                async () => await GetIntegrationPackagesWithChannelsAsync(effectiveAppHostProjectFile.Directory!, configuredChannel, cancellationToken));
 
             if (!packagesWithChannels.Any())
             {
@@ -173,8 +198,6 @@ internal sealed class AddCommand : BaseCommand
             var filteredPackagesWithShortName = packagesWithShortName
                 .Where(p => p.FriendlyName == integrationName || p.Package.Id == integrationName);
 
-            var version = parseResult.GetValue(s_versionOption);
-
             if (!filteredPackagesWithShortName.Any() && integrationName is not null && version is not null && !_hostEnvironment.SupportsInteractiveInput)
             {
                 throw new EmptyChoicesException(string.Format(CultureInfo.CurrentCulture, AddCommandStrings.SpecifiedVersionRequiresExactPackageMatch, integrationName));
@@ -190,11 +213,10 @@ internal sealed class AddCommand : BaseCommand
                         .Select(p => new
                         {
                             Package = p,
-                            FriendlyNameScore = StringUtils.CalculateFuzzyScore(integrationName, p.FriendlyName),
-                            PackageIdScore = StringUtils.CalculateFuzzyScore(integrationName, p.Package.Id)
+                            Score = GetIntegrationSearchScore(integrationName, p)
                         })
-                        .Where(x => x.FriendlyNameScore > 0.3 || x.PackageIdScore > 0.3)
-                        .OrderByDescending(x => Math.Max(x.FriendlyNameScore, x.PackageIdScore))
+                        .Where(x => x.Score > FuzzyMatchThreshold)
+                        .OrderByDescending(x => x.Score)
                         .ThenByDescending(x => x.Package.FriendlyName, new CommunityToolkitFirstComparer())
                         .Select(x => x.Package)
                         .ToList();
@@ -317,6 +339,113 @@ internal sealed class AddCommand : BaseCommand
         }
     }
 
+    private async Task<IEnumerable<(NuGetPackage Package, PackageChannel Channel)>> GetIntegrationPackagesWithChannelsAsync(DirectoryInfo workingDirectory, string? configuredChannel, CancellationToken cancellationToken)
+    {
+        var allChannels = await _packagingService.GetChannelsAsync(cancellationToken);
+
+        if (!string.IsNullOrEmpty(configuredChannel))
+        {
+            allChannels = allChannels.Where(c => string.Equals(c.Name, configuredChannel, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var hasHives = ExecutionContext.GetPrHiveCount() > 0;
+        var channels = hasHives || !string.IsNullOrEmpty(configuredChannel)
+            ? allChannels
+            : allChannels.Where(c => c.Type is PackageChannelType.Implicit);
+
+        var packages = new List<(NuGetPackage Package, PackageChannel Channel)>();
+        var packagesLock = new object();
+
+        await Parallel.ForEachAsync(channels, cancellationToken, async (channel, ct) =>
+        {
+            var integrationPackages = await channel.GetIntegrationPackagesAsync(
+                workingDirectory: workingDirectory,
+                cancellationToken: ct);
+            lock (packagesLock)
+            {
+                packages.AddRange(integrationPackages.Select(p => (p, channel)));
+            }
+        });
+
+        return packages;
+    }
+
+    private int DisplayIntegrationDiscoveryResults(IEnumerable<(string FriendlyName, NuGetPackage Package, PackageChannel Channel)> packages, string? searchTerm, bool jsonRequested)
+    {
+        var matches = packages
+            .Select(p => (Package: p, SearchScore: searchTerm is null ? 0 : GetIntegrationSearchScore(searchTerm, p)))
+            .Where(p => searchTerm is null || p.SearchScore > FuzzyMatchThreshold)
+            .GroupBy(p => p.Package.Package.Id)
+            .Select(g => g.OrderByDescending(p => SemVersion.Parse(p.Package.Package.Version), SemVersion.PrecedenceComparer).First());
+
+        var orderedMatches = searchTerm is null
+            ? matches.OrderBy(p => p.Package.FriendlyName, new CommunityToolkitFirstComparer()).ThenBy(p => p.Package.Package.Id, StringComparer.OrdinalIgnoreCase)
+            : matches.OrderByDescending(p => p.SearchScore).ThenBy(p => p.Package.FriendlyName, new CommunityToolkitFirstComparer())
+                .ThenBy(p => p.Package.Package.Id, StringComparer.OrdinalIgnoreCase);
+
+        var results = orderedMatches
+            .Select(p => new AddCommandIntegrationResult
+            {
+                Name = p.Package.FriendlyName,
+                Package = p.Package.Package.Id,
+                Version = p.Package.Package.Version
+            })
+            .ToArray();
+
+        if (jsonRequested)
+        {
+            var json = JsonSerializer.Serialize(results, JsonSourceGenerationContext.RelaxedEscaping.AddCommandIntegrationResultArray);
+            InteractionService.DisplayRawText(json, ConsoleOutput.Standard);
+            return ExitCodeConstants.Success;
+        }
+
+        if (results.Length == 0)
+        {
+            if (searchTerm is not null)
+            {
+                InteractionService.DisplayError(string.Format(CultureInfo.CurrentCulture, AddCommandStrings.NoIntegrationPackagesMatchedSearchTerm, searchTerm));
+            }
+            else
+            {
+                InteractionService.DisplayError(AddCommandStrings.NoPackagesFound);
+            }
+
+            return ExitCodeConstants.Success;
+        }
+
+        if (searchTerm is not null)
+        {
+            InteractionService.DisplaySuccess(string.Format(CultureInfo.CurrentCulture, AddCommandStrings.FoundIntegrationPackagesMatchingSearchTerm, results.Length, searchTerm));
+        }
+        else
+        {
+            InteractionService.DisplaySuccess(string.Format(CultureInfo.CurrentCulture, AddCommandStrings.FoundIntegrationPackages, results.Length));
+        }
+
+        var table = new Table();
+        table.AddBoldColumn(AddCommandStrings.HeaderName);
+        table.AddBoldColumn(AddCommandStrings.HeaderPackage);
+        table.AddBoldColumn(AddCommandStrings.HeaderVersion);
+
+        foreach (var result in results)
+        {
+            table.AddRow(
+                Markup.Escape(result.Name),
+                Markup.Escape(result.Package),
+                Markup.Escape(result.Version));
+        }
+
+        InteractionService.DisplayRenderable(table);
+        return ExitCodeConstants.Success;
+    }
+
+    private static double GetIntegrationSearchScore(string searchTerm, (string FriendlyName, NuGetPackage Package, PackageChannel Channel) package)
+    {
+        return Math.Max(
+            StringUtils.CalculateFuzzyScore(searchTerm, package.FriendlyName),
+            StringUtils.CalculateFuzzyScore(searchTerm, package.Package.Id));
+    }
+
     private static async Task<IEnumerable<(string FriendlyName, NuGetPackage Package, PackageChannel Channel)>> GetAllPackageVersions(DirectoryInfo workingDirectory, IEnumerable<(string FriendlyName, NuGetPackage Package, PackageChannel Channel)> possiblePackages, CancellationToken cancellationToken)
     {
         var distinctPackageIds = possiblePackages.DistinctBy(package => package.Package.Id);
@@ -423,6 +552,15 @@ internal sealed class AddCommand : BaseCommand
 
         return (friendlyName, packageWithChannel.Package, packageWithChannel.Channel);
     }
+}
+
+internal sealed class AddCommandIntegrationResult
+{
+    public required string Name { get; init; }
+
+    public required string Package { get; init; }
+
+    public required string Version { get; init; }
 }
 
 internal interface IAddCommandPrompter

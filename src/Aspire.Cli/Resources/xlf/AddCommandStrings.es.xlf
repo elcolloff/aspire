@@ -12,9 +12,44 @@
         <target state="needs-review-translation">Agregue una integración de hospedaje a Aspire AppHost.</target>
         <note />
       </trans-unit>
+      <trans-unit id="DiscoveryOptionsCannotBeCombinedWithAddOptions">
+        <source>The --list and --search options cannot be combined with an integration name, --version, or --source.</source>
+        <target state="new">The --list and --search options cannot be combined with an integration name, --version, or --source.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="ErrorOccurredWhileAddingPackage">
         <source>An error occurred while adding the package: {0}</source>
         <target state="translated">Se produjo un error al agregar el paquete: {0}</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="FormatOptionDescription">
+        <source>Output format (Table or Json)</source>
+        <target state="new">Output format (Table or Json)</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="FoundIntegrationPackages">
+        <source>Found {0} integration package(s).</source>
+        <target state="new">Found {0} integration package(s).</target>
+        <note>{0} is the number of integration packages found.</note>
+      </trans-unit>
+      <trans-unit id="FoundIntegrationPackagesMatchingSearchTerm">
+        <source>Found {0} integration package(s) matching '{1}'.</source>
+        <target state="new">Found {0} integration package(s) matching '{1}'.</target>
+        <note>{0} is the number of integration packages found, {1} is the search term provided by the user.</note>
+      </trans-unit>
+      <trans-unit id="HeaderName">
+        <source>Name</source>
+        <target state="new">Name</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="HeaderPackage">
+        <source>Package</source>
+        <target state="new">Package</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="HeaderVersion">
+        <source>Version</source>
+        <target state="new">Version</target>
         <note />
       </trans-unit>
       <trans-unit id="IntegrationArgumentDescription">
@@ -22,10 +57,25 @@
         <target state="needs-review-translation">El nombre de la integración que se va a agregar (por ejemplo, redis, postgres).</target>
         <note />
       </trans-unit>
+      <trans-unit id="JsonRequiresListOrSearch">
+        <source>JSON output must be used with --list or --search.</source>
+        <target state="new">JSON output must be used with --list or --search.</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="ListOptionDescription">
+        <source>List available integrations without adding one</source>
+        <target state="new">List available integrations without adding one</target>
+        <note />
+      </trans-unit>
       <trans-unit id="NoIntegrationPackagesFound">
         <source>No integration packages were found. Please check your internet connection or NuGet source configuration.</source>
         <target state="translated">No se encontraron paquetes de integración. Compruebe la conexión a Internet o la configuración de origen de NuGet.</target>
         <note />
+      </trans-unit>
+      <trans-unit id="NoIntegrationPackagesMatchedSearchTerm">
+        <source>No integration packages matched '{0}'.</source>
+        <target state="new">No integration packages matched '{0}'.</target>
+        <note>{0} is the search term provided by the user.</note>
       </trans-unit>
       <trans-unit id="NoPackagesFound">
         <source>No packages found.</source>
@@ -50,6 +100,11 @@
       <trans-unit id="ProjectArgumentDescription">
         <source>The Aspire AppHost project file, or a directory to search, to add the integration to</source>
         <target state="needs-review-translation">La ruta al archivo del proyecto al que se agregará la integración.</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="SearchOptionDescription">
+        <source>Search available integrations without adding one</source>
+        <target state="new">Search available integrations without adding one</target>
         <note />
       </trans-unit>
       <trans-unit id="SearchingForAspirePackages">

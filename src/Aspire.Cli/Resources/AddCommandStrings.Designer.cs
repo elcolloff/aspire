@@ -93,6 +93,30 @@ namespace Aspire.Cli.Resources {
             }
         }
 
+        public static string ListOptionDescription
+        {
+            get
+            {
+                return ResourceManager.GetString("ListOptionDescription", resourceCulture);
+            }
+        }
+
+        public static string SearchOptionDescription
+        {
+            get
+            {
+                return ResourceManager.GetString("SearchOptionDescription", resourceCulture);
+            }
+        }
+
+        public static string FormatOptionDescription
+        {
+            get
+            {
+                return ResourceManager.GetString("FormatOptionDescription", resourceCulture);
+            }
+        }
+
         public static string SearchingForAspirePackages
         {
             get
@@ -186,6 +210,70 @@ namespace Aspire.Cli.Resources {
             get
             {
                 return ResourceManager.GetString("NoPackagesMatchedSearchTerm", resourceCulture);
+            }
+        }
+
+        public static string NoIntegrationPackagesMatchedSearchTerm
+        {
+            get
+            {
+                return ResourceManager.GetString("NoIntegrationPackagesMatchedSearchTerm", resourceCulture);
+            }
+        }
+
+        public static string FoundIntegrationPackages
+        {
+            get
+            {
+                return ResourceManager.GetString("FoundIntegrationPackages", resourceCulture);
+            }
+        }
+
+        public static string FoundIntegrationPackagesMatchingSearchTerm
+        {
+            get
+            {
+                return ResourceManager.GetString("FoundIntegrationPackagesMatchingSearchTerm", resourceCulture);
+            }
+        }
+
+        public static string HeaderName
+        {
+            get
+            {
+                return ResourceManager.GetString("HeaderName", resourceCulture);
+            }
+        }
+
+        public static string HeaderPackage
+        {
+            get
+            {
+                return ResourceManager.GetString("HeaderPackage", resourceCulture);
+            }
+        }
+
+        public static string HeaderVersion
+        {
+            get
+            {
+                return ResourceManager.GetString("HeaderVersion", resourceCulture);
+            }
+        }
+
+        public static string JsonRequiresListOrSearch
+        {
+            get
+            {
+                return ResourceManager.GetString("JsonRequiresListOrSearch", resourceCulture);
+            }
+        }
+
+        public static string DiscoveryOptionsCannotBeCombinedWithAddOptions
+        {
+            get
+            {
+                return ResourceManager.GetString("DiscoveryOptionsCannotBeCombinedWithAddOptions", resourceCulture);
             }
         }
 

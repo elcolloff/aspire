@@ -132,6 +132,15 @@
   <data name="SourceArgumentDescription" xml:space="preserve">
     <value>The NuGet source to use for the integration</value>
   </data>
+  <data name="ListOptionDescription" xml:space="preserve">
+    <value>List available integrations without adding one</value>
+  </data>
+  <data name="SearchOptionDescription" xml:space="preserve">
+    <value>Search available integrations without adding one</value>
+  </data>
+  <data name="FormatOptionDescription" xml:space="preserve">
+    <value>Output format (Table or Json)</value>
+  </data>
   <data name="SearchingForAspirePackages" xml:space="preserve">
     <value>Searching for Aspire integrations...</value>
   </data>
@@ -172,6 +181,33 @@
   <data name="NoPackagesMatchedSearchTerm" xml:space="preserve">
     <value>No packages matched your search term '{0}'. Showing all available packages.</value>
     <comment>{0} is the search term provided by the user.</comment>
+  </data>
+  <data name="NoIntegrationPackagesMatchedSearchTerm" xml:space="preserve">
+    <value>No integration packages matched '{0}'.</value>
+    <comment>{0} is the search term provided by the user.</comment>
+  </data>
+  <data name="FoundIntegrationPackages" xml:space="preserve">
+    <value>Found {0} integration package(s).</value>
+    <comment>{0} is the number of integration packages found.</comment>
+  </data>
+  <data name="FoundIntegrationPackagesMatchingSearchTerm" xml:space="preserve">
+    <value>Found {0} integration package(s) matching '{1}'.</value>
+    <comment>{0} is the number of integration packages found, {1} is the search term provided by the user.</comment>
+  </data>
+  <data name="HeaderName" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="HeaderPackage" xml:space="preserve">
+    <value>Package</value>
+  </data>
+  <data name="HeaderVersion" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="JsonRequiresListOrSearch" xml:space="preserve">
+    <value>JSON output must be used with --list or --search.</value>
+  </data>
+  <data name="DiscoveryOptionsCannotBeCombinedWithAddOptions" xml:space="preserve">
+    <value>The --list and --search options cannot be combined with an integration name, --version, or --source.</value>
   </data>
   <data name="SpecifiedVersionNotFoundForPackage" xml:space="preserve">
     <value>The requested version '{1}' was not found for package '{0}'.</value>
