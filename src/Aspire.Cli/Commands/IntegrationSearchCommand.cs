@@ -67,21 +67,10 @@ internal abstract class IntegrationDiscoveryCommand : BaseCommand
                 async () => await _integrationPackageSearchService.GetIntegrationPackagesWithChannelsAsync(workingDirectory, configuredChannel, cancellationToken)))
                 .ToArray();
 
-            if (packagesWithChannels.Length == 0)
-            {
-                throw new EmptyChoicesException(AddCommandStrings.NoIntegrationPackagesFound);
-            }
-
             var packagesWithShortName = packagesWithChannels
                 .Select(IntegrationPackageSearchService.GenerateFriendlyName)
                 .OrderBy(p => p.FriendlyName, new CommunityToolkitFirstComparer())
                 .ToArray();
-
-            if (packagesWithShortName.Length == 0)
-            {
-                InteractionService.DisplayError(AddCommandStrings.NoPackagesFound);
-                return ExitCodeConstants.FailedToAddPackage;
-            }
 
             return DisplayIntegrationResults(packagesWithShortName, searchTerm, format);
         }
@@ -92,20 +81,14 @@ internal abstract class IntegrationDiscoveryCommand : BaseCommand
         catch (OperationCanceledException)
         {
             InteractionService.DisplayCancellationMessage();
-            return ExitCodeConstants.FailedToAddPackage;
-        }
-        catch (EmptyChoicesException ex)
-        {
-            Telemetry.RecordError(ex.Message, ex);
-            InteractionService.DisplayError(ex.Message);
-            return ExitCodeConstants.FailedToAddPackage;
+            return ExitCodeConstants.FailedToSearchIntegrations;
         }
         catch (Exception ex)
         {
             var errorMessage = string.Format(CultureInfo.CurrentCulture, AddCommandStrings.ErrorOccurredWhileSearchingIntegrations, ex.Message);
             Telemetry.RecordError(errorMessage, ex);
             InteractionService.DisplayError(errorMessage);
-            return ExitCodeConstants.FailedToAddPackage;
+            return ExitCodeConstants.FailedToSearchIntegrations;
         }
     }
 
