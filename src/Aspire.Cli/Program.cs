@@ -870,7 +870,8 @@ public class Program
         }
 
         var updateNotifier = services.GetRequiredService<ICliUpdateNotifier>();
-        await updateNotifier.NotifyIfUpdateAvailableAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+        var executionContext = services.GetRequiredService<CliExecutionContext>();
+        await updateNotifier.NotifyIfUpdateAvailableAsync(executionContext.WorkingDirectory, TimeSpan.FromMilliseconds(250), cancellationToken);
     }
 
     private static string GetCommandName(ParseResult r)

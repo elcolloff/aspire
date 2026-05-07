@@ -426,7 +426,8 @@ public class CliUpdateNotificationServiceTests(ITestOutputHelper outputHelper)
             new NuGetPackage { Id = "Aspire.Cli", Version = "9.5.0", Source = "nuget.org" }
         ]);
 
-        await notifier.NotifyIfUpdateAvailableAsync(TimeSpan.FromSeconds(1), CancellationToken.None).DefaultTimeout();
+        await notifier.NotifyIfUpdateAvailableAsync(workspace.WorkspaceRoot, TimeSpan.FromSeconds(1), CancellationToken.None).DefaultTimeout();
+        Assert.True(suggestedVersionTcs.Task.IsCompleted);
         await checkForUpdatesTask.DefaultTimeout();
 
         var suggestedVersion = await suggestedVersionTcs.Task.DefaultTimeout();
@@ -471,11 +472,14 @@ public class CliUpdateNotificationServiceTests(ITestOutputHelper outputHelper)
 
         var checkForUpdatesTask = notifier.CheckForCliUpdatesAsync(workspace.WorkspaceRoot, cancellationTokenSource.Token);
 
-        await notifier.NotifyIfUpdateAvailableAsync(TimeSpan.Zero, CancellationToken.None).DefaultTimeout();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await notifier.NotifyIfUpdateAvailableAsync(workspace.WorkspaceRoot, TimeSpan.Zero, CancellationToken.None).DefaultTimeout();
+        stopwatch.Stop();
 
         cancellationTokenSource.Cancel();
         await Assert.ThrowsAsync<TaskCanceledException>(() => checkForUpdatesTask).DefaultTimeout();
         Assert.False(callbackInvoked);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
     }
 
     private static string CreateCustomToolPathInstall(string toolPath)
