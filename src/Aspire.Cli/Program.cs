@@ -766,6 +766,7 @@ public class Program
             // Disable default exception handler so we can log exceptions to telemetry.
             EnableDefaultExceptionHandler = false
         };
+        var versionOption = GetVersionOption(rootCommand);
 
         using var mainActivity = telemetry.StartReportedActivity(name: TelemetryConstants.Activities.Main, kind: ActivityKind.Internal);
 
@@ -787,7 +788,7 @@ public class Program
             var parseResult = rootCommand.Parse(args);
             var executionContext = app.Services.GetRequiredService<CliExecutionContext>();
             CaptureParsedCommand(parseResult, executionContext);
-            var versionUpdateNotificationTask = IsVersionOptionRequested(rootCommand, parseResult)
+            var versionUpdateNotificationTask = IsVersionOptionRequested(versionOption, parseResult)
                 ? TryNotifyVersionUpdateAsync(app.Services, executionContext, cts.Token)
                 : Task.CompletedTask;
 
@@ -856,9 +857,13 @@ public class Program
     internal static bool IsVersionOptionRequested(RootCommand rootCommand, ParseResult parseResult)
     {
         ArgumentNullException.ThrowIfNull(rootCommand);
-        ArgumentNullException.ThrowIfNull(parseResult);
 
-        var versionOption = rootCommand.Options.OfType<VersionOption>().FirstOrDefault();
+        return IsVersionOptionRequested(GetVersionOption(rootCommand), parseResult);
+    }
+
+    internal static bool IsVersionOptionRequested(VersionOption? versionOption, ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
         return versionOption is not null && parseResult.GetResult(versionOption) is { Implicit: false };
     }
 
@@ -872,6 +877,11 @@ public class Program
 
         var updateNotifier = services.GetRequiredService<ICliUpdateNotifier>();
         await updateNotifier.NotifyIfUpdateAvailableAsync(executionContext.WorkingDirectory, TimeSpan.FromMilliseconds(250), cancellationToken);
+    }
+
+    private static VersionOption? GetVersionOption(RootCommand rootCommand)
+    {
+        return rootCommand.Options.OfType<VersionOption>().FirstOrDefault();
     }
 
     private static string GetCommandName(ParseResult r)

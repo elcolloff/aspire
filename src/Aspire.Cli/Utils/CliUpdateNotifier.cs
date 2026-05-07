@@ -29,12 +29,13 @@ internal class CliUpdateNotifier(
     public async Task CheckForCliUpdatesAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
     {
         var updateCheckTask = GetOrStartUpdateCheckTask(workingDirectory, cancellationToken);
-        _availablePackages = await updateCheckTask;
+        SetAvailablePackages(await updateCheckTask);
     }
 
     public void NotifyIfUpdateAvailable()
     {
-        if (_availablePackages is null)
+        var availablePackages = GetAvailablePackages();
+        if (availablePackages is null)
         {
             return;
         }
@@ -46,7 +47,7 @@ internal class CliUpdateNotifier(
             return;
         }
 
-        var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, _availablePackages);
+        var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, availablePackages);
 
         if (newerVersion is not null)
         {
@@ -68,7 +69,7 @@ internal class CliUpdateNotifier(
             try
             {
                 var availablePackages = await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
-                _availablePackages = availablePackages;
+                SetAvailablePackages(availablePackages);
             }
             catch (OperationCanceledException) when (timeoutCancellationTokenSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -85,7 +86,8 @@ internal class CliUpdateNotifier(
 
     public bool IsUpdateAvailable()
     {
-        if (_availablePackages is null)
+        var availablePackages = GetAvailablePackages();
+        if (availablePackages is null)
         {
             return false;
         }
@@ -96,7 +98,7 @@ internal class CliUpdateNotifier(
             return false;
         }
 
-        var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, _availablePackages);
+        var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, availablePackages);
         return newerVersion is not null;
     }
 
@@ -119,6 +121,22 @@ internal class CliUpdateNotifier(
             }
 
             return _updateCheckTask;
+        }
+    }
+
+    private IEnumerable<Shared.NuGetPackageCli>? GetAvailablePackages()
+    {
+        lock (_updateCheckLock)
+        {
+            return _availablePackages;
+        }
+    }
+
+    private void SetAvailablePackages(IEnumerable<Shared.NuGetPackageCli> availablePackages)
+    {
+        lock (_updateCheckLock)
+        {
+            _availablePackages = availablePackages;
         }
     }
 }
