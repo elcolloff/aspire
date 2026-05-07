@@ -480,7 +480,7 @@ public class CliUpdateNotificationServiceTests(ITestOutputHelper outputHelper)
         cancellationTokenSource.Cancel();
         await Assert.ThrowsAsync<TaskCanceledException>(() => checkForUpdatesTask).DefaultTimeout();
         Assert.False(callbackInvoked);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(100));
     }
 
     private static string CreateCustomToolPathInstall(string toolPath)

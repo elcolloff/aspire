@@ -71,7 +71,7 @@ internal class CliUpdateNotifier(
                 var availablePackages = await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
                 SetAvailablePackages(availablePackages);
             }
-            catch (OperationCanceledException) when (timeoutCancellationTokenSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && ex.CancellationToken == timeoutCancellationTokenSource.Token)
             {
                 return;
             }
@@ -111,7 +111,7 @@ internal class CliUpdateNotifier(
     {
         lock (_updateCheckLock)
         {
-            if (_updateCheckTask is null || _updateCheckTask.IsCanceled || _updateCheckTask.IsFaulted)
+            if (_updateCheckTask is null || _updateCheckTask.IsCanceled || _updateCheckTask.IsFaulted || _updateCheckTask.IsCompletedSuccessfully)
             {
                 _updateCheckTask = nuGetPackageCache.GetCliPackagesAsync(
                     workingDirectory: workingDirectory,
