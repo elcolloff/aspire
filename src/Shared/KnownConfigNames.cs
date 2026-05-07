@@ -53,10 +53,10 @@ internal static class KnownConfigNames
 
     // W3C trace context propagated from the launching process to child processes so their spans
     // attach to the same profiling trace.
-    public const string ProfilingTraceParent = "ASPIRE_PROFILING_TRACEPARENT";
+    public const string ProfilingTraceParent = "traceparent";
 
-    // Optional W3C tracestate companion value for ASPIRE_PROFILING_TRACEPARENT.
-    public const string ProfilingTraceState = "ASPIRE_PROFILING_TRACESTATE";
+    // Optional W3C tracestate companion value for traceparent.
+    public const string ProfilingTraceState = "tracestate";
 
     // When set, the CLI adds MSBuild binary log arguments to supported dotnet commands and records
     // the emitted binlog path on the profiling span.
@@ -107,7 +107,7 @@ internal static class KnownConfigNames
         // Legacy profiling session identifier, formerly named for startup-only profiling.
         public const string StartupOperationId = "ASPIRE_STARTUP_OPERATION_ID";
 
-        // Legacy W3C trace context propagated to DCP for resource lifecycle correlation.
+        // Startup-named W3C trace context propagated to DCP for resource lifecycle correlation.
         public const string StartupTraceParent = "ASPIRE_STARTUP_TRACEPARENT";
         public const string StartupTraceState = "ASPIRE_STARTUP_TRACESTATE";
     }
