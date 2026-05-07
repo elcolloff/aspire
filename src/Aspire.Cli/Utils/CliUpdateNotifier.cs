@@ -13,6 +13,7 @@ internal interface ICliUpdateNotifier
 {
     Task CheckForCliUpdatesAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken);
     void NotifyIfUpdateAvailable();
+    Task NotifyIfUpdateAvailableAsync(TimeSpan waitTimeout, CancellationToken cancellationToken);
     bool IsUpdateAvailable();
 }
 
@@ -22,14 +23,17 @@ internal class CliUpdateNotifier(
     IInteractionService interactionService) : ICliUpdateNotifier
 {
     private IEnumerable<Shared.NuGetPackageCli>? _availablePackages;
+    private Task<IEnumerable<Shared.NuGetPackageCli>>? _updateCheckTask;
 
     public async Task CheckForCliUpdatesAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
     {
-        _availablePackages = await nuGetPackageCache.GetCliPackagesAsync(
+        var updateCheckTask = nuGetPackageCache.GetCliPackagesAsync(
             workingDirectory: workingDirectory,
             prerelease: true,
             nugetConfigFile: null,
             cancellationToken: cancellationToken);
+        _updateCheckTask = updateCheckTask;
+        _availablePackages = await updateCheckTask;
     }
 
     public void NotifyIfUpdateAvailable()
@@ -54,6 +58,32 @@ internal class CliUpdateNotifier(
 
             interactionService.DisplayVersionUpdateNotification(newerVersion.ToString(), updateCommand);
         }
+    }
+
+    public async Task NotifyIfUpdateAvailableAsync(TimeSpan waitTimeout, CancellationToken cancellationToken)
+    {
+        var updateCheckTask = _updateCheckTask;
+
+        if (updateCheckTask is not null && !updateCheckTask.IsCompleted)
+        {
+            using var timeoutCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCancellationTokenSource.CancelAfter(waitTimeout);
+
+            try
+            {
+                await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                return;
+            }
+        }
+
+        NotifyIfUpdateAvailable();
     }
 
     public bool IsUpdateAvailable()

@@ -785,6 +785,7 @@ public class Program
 
             logger.LogDebug("Parsing arguments: {Args}", string.Join(" ", args));
             var parseResult = rootCommand.Parse(args);
+            CaptureParsedCommand(rootCommand, parseResult, app.Services.GetRequiredService<CliExecutionContext>());
 
             var commandName = GetCommandName(parseResult);
             logger.LogDebug("Executing command: {CommandName}", commandName);
@@ -795,6 +796,11 @@ public class Program
 
             // Log exit code for debugging
             logger.LogInformation("Exit code: {ExitCode}", exitCode);
+
+            if (IsVersionOptionRequested(rootCommand, parseResult))
+            {
+                await TryNotifyVersionUpdateAsync(app.Services, cts.Token);
+            }
 
             mainActivity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, exitCode);
             mainActivity?.Stop();
@@ -836,6 +842,36 @@ public class Program
             await app.StopAsync().ConfigureAwait(false);
             await shutdownTelemetryTask;
         }
+    }
+
+    internal static void CaptureParsedCommand(RootCommand rootCommand, ParseResult parseResult, CliExecutionContext executionContext)
+    {
+        ArgumentNullException.ThrowIfNull(rootCommand);
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentNullException.ThrowIfNull(executionContext);
+
+        executionContext.Command = parseResult.CommandResult.Command;
+    }
+
+    internal static bool IsVersionOptionRequested(RootCommand rootCommand, ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(rootCommand);
+        ArgumentNullException.ThrowIfNull(parseResult);
+
+        var versionOption = rootCommand.Options.OfType<VersionOption>().FirstOrDefault();
+        return versionOption is not null && parseResult.GetResult(versionOption) is { Implicit: false };
+    }
+
+    private static async Task TryNotifyVersionUpdateAsync(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        var features = services.GetRequiredService<IFeatures>();
+        if (!features.IsFeatureEnabled(KnownFeatures.UpdateNotificationsEnabled, true))
+        {
+            return;
+        }
+
+        var updateNotifier = services.GetRequiredService<ICliUpdateNotifier>();
+        await updateNotifier.NotifyIfUpdateAvailableAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
     }
 
     private static string GetCommandName(ParseResult r)

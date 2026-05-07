@@ -388,6 +388,94 @@ public class CliUpdateNotificationServiceTests(ITestOutputHelper outputHelper)
         service.NotifyIfUpdateAvailable();
     }
 
+    [Fact]
+    public async Task NotifyIfUpdateAvailableAsync_WaitsBrieflyForRunningUpdateCheck()
+    {
+        TaskCompletionSource<IEnumerable<NuGetPackage>> packagesTcs = new();
+        TaskCompletionSource<string> suggestedVersionTcs = new();
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, configure =>
+        {
+            configure.NuGetPackageCacheFactory = _ => new FakeNuGetPackageCache
+            {
+                GetCliPackagesAsyncCallback = (_, _, _, _) => packagesTcs.Task
+            };
+
+            configure.InteractionServiceFactory = _ =>
+            {
+                var interactionService = new TestInteractionService();
+                interactionService.DisplayVersionUpdateNotificationCallback = newerVersion => suggestedVersionTcs.SetResult(newerVersion);
+                return interactionService;
+            };
+
+            configure.CliUpdateNotifierFactory = sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<CliUpdateNotifier>>();
+                var nuGetPackageCache = sp.GetRequiredService<INuGetPackageCache>();
+                var interactionService = sp.GetRequiredService<IInteractionService>();
+                return new CliUpdateNotifierWithPackageVersionOverride("9.4.0", logger, nuGetPackageCache, interactionService);
+            };
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var notifier = provider.GetRequiredService<ICliUpdateNotifier>();
+
+        var checkForUpdatesTask = notifier.CheckForCliUpdatesAsync(workspace.WorkspaceRoot, CancellationToken.None);
+        packagesTcs.SetResult([
+            new NuGetPackage { Id = "Aspire.Cli", Version = "9.5.0", Source = "nuget.org" }
+        ]);
+
+        await notifier.NotifyIfUpdateAvailableAsync(TimeSpan.FromSeconds(1), CancellationToken.None).DefaultTimeout();
+        await checkForUpdatesTask.DefaultTimeout();
+
+        var suggestedVersion = await suggestedVersionTcs.Task.DefaultTimeout();
+        Assert.Equal("9.5.0", suggestedVersion);
+    }
+
+    [Fact]
+    public async Task NotifyIfUpdateAvailableAsync_DoesNotBlockPastTimeout()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, configure =>
+        {
+            configure.NuGetPackageCacheFactory = _ => new FakeNuGetPackageCache
+            {
+                GetCliPackagesAsyncCallback = async (_, _, _, cancellationToken) =>
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return Array.Empty<NuGetPackage>();
+                }
+            };
+
+            configure.InteractionServiceFactory = _ =>
+            {
+                var interactionService = new TestInteractionService();
+                interactionService.DisplayVersionUpdateNotificationCallback = _ => Assert.Fail("Update notification should not be displayed when the wait times out.");
+                return interactionService;
+            };
+
+            configure.CliUpdateNotifierFactory = sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<CliUpdateNotifier>>();
+                var nuGetPackageCache = sp.GetRequiredService<INuGetPackageCache>();
+                var interactionService = sp.GetRequiredService<IInteractionService>();
+                return new CliUpdateNotifierWithPackageVersionOverride("9.4.0", logger, nuGetPackageCache, interactionService);
+            };
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var notifier = provider.GetRequiredService<ICliUpdateNotifier>();
+
+        var checkForUpdatesTask = notifier.CheckForCliUpdatesAsync(workspace.WorkspaceRoot, cancellationTokenSource.Token);
+
+        await notifier.NotifyIfUpdateAvailableAsync(TimeSpan.Zero, CancellationToken.None).DefaultTimeout();
+
+        cancellationTokenSource.Cancel();
+        await Assert.ThrowsAsync<TaskCanceledException>(() => checkForUpdatesTask).DefaultTimeout();
+    }
+
     private static string CreateCustomToolPathInstall(string toolPath)
     {
         var processPath = Path.Combine(toolPath, GetAspireExecutableName());
