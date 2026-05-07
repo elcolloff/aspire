@@ -785,9 +785,10 @@ public class Program
 
             logger.LogDebug("Parsing arguments: {Args}", string.Join(" ", args));
             var parseResult = rootCommand.Parse(args);
-            CaptureParsedCommand(parseResult, app.Services.GetRequiredService<CliExecutionContext>());
+            var executionContext = app.Services.GetRequiredService<CliExecutionContext>();
+            CaptureParsedCommand(parseResult, executionContext);
             var versionUpdateNotificationTask = IsVersionOptionRequested(rootCommand, parseResult)
-                ? TryNotifyVersionUpdateAsync(app.Services, cts.Token)
+                ? TryNotifyVersionUpdateAsync(app.Services, executionContext, cts.Token)
                 : Task.CompletedTask;
 
             var commandName = GetCommandName(parseResult);
@@ -861,7 +862,7 @@ public class Program
         return versionOption is not null && parseResult.GetResult(versionOption) is { Implicit: false };
     }
 
-    private static async Task TryNotifyVersionUpdateAsync(IServiceProvider services, CancellationToken cancellationToken)
+    private static async Task TryNotifyVersionUpdateAsync(IServiceProvider services, CliExecutionContext executionContext, CancellationToken cancellationToken)
     {
         var features = services.GetRequiredService<IFeatures>();
         if (!features.IsFeatureEnabled(KnownFeatures.UpdateNotificationsEnabled, true))
@@ -870,7 +871,6 @@ public class Program
         }
 
         var updateNotifier = services.GetRequiredService<ICliUpdateNotifier>();
-        var executionContext = services.GetRequiredService<CliExecutionContext>();
         await updateNotifier.NotifyIfUpdateAvailableAsync(executionContext.WorkingDirectory, TimeSpan.FromMilliseconds(250), cancellationToken);
     }
 

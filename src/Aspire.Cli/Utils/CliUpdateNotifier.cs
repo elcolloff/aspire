@@ -58,7 +58,7 @@ internal class CliUpdateNotifier(
 
     public async Task NotifyIfUpdateAvailableAsync(DirectoryInfo workingDirectory, TimeSpan waitTimeout, CancellationToken cancellationToken)
     {
-        var updateCheckTask = Volatile.Read(ref _updateCheckTask) ?? GetOrStartUpdateCheckTask(workingDirectory, cancellationToken);
+        var updateCheckTask = GetOrStartUpdateCheckTask(workingDirectory, cancellationToken);
 
         if (updateCheckTask is not null)
         {
@@ -67,9 +67,7 @@ internal class CliUpdateNotifier(
 
             try
             {
-                var availablePackages = updateCheckTask.IsCompleted
-                    ? await updateCheckTask
-                    : await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
+                var availablePackages = await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
                 _availablePackages = availablePackages;
             }
             catch (OperationCanceledException) when (timeoutCancellationTokenSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
