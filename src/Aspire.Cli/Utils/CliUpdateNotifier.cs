@@ -73,7 +73,7 @@ internal class CliUpdateNotifier(
             {
                 await updateCheckTask.WaitAsync(timeoutCancellationTokenSource.Token);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (timeoutCancellationTokenSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
                 return;
             }

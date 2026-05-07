@@ -786,6 +786,9 @@ public class Program
             logger.LogDebug("Parsing arguments: {Args}", string.Join(" ", args));
             var parseResult = rootCommand.Parse(args);
             CaptureParsedCommand(rootCommand, parseResult, app.Services.GetRequiredService<CliExecutionContext>());
+            var versionUpdateNotificationTask = IsVersionOptionRequested(rootCommand, parseResult)
+                ? TryNotifyVersionUpdateAsync(app.Services, cts.Token)
+                : Task.CompletedTask;
 
             var commandName = GetCommandName(parseResult);
             logger.LogDebug("Executing command: {CommandName}", commandName);
@@ -797,10 +800,7 @@ public class Program
             // Log exit code for debugging
             logger.LogInformation("Exit code: {ExitCode}", exitCode);
 
-            if (IsVersionOptionRequested(rootCommand, parseResult))
-            {
-                await TryNotifyVersionUpdateAsync(app.Services, cts.Token);
-            }
+            await versionUpdateNotificationTask;
 
             mainActivity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, exitCode);
             mainActivity?.Stop();

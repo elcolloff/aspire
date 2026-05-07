@@ -444,7 +444,7 @@ public class CliUpdateNotificationServiceTests(ITestOutputHelper outputHelper)
             {
                 GetCliPackagesAsyncCallback = async (_, _, _, cancellationToken) =>
                 {
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
                     return Array.Empty<NuGetPackage>();
                 }
             };
