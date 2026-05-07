@@ -416,8 +416,14 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
             return;
         }
 
+        // Profiling spans can be siblings under short-lived reported/diagnostic activities.
+        // Seed the ambient ancestor chain with baggage so later profiling siblings reuse the
+        // same session after an intermediate parent activity has ended.
         var sessionId = GetProfilingSessionIdFromAncestors(ambientActivity) ?? GetProfilingSessionId(activity) ?? GetConfiguredSessionId() ?? Guid.NewGuid().ToString("N");
         AddProfilingSessionBaggage(ambientActivity, sessionId);
+
+        // Keep profiling tags on profiling spans only. Reported/customer activities only
+        // carry the session as baggage so it can flow across async and process boundaries.
         activity.SetBaggage(SessionIdBaggageName, sessionId);
         activity.SetTag(Tags.ProfilingSessionId, sessionId);
         activity.SetTag(Tags.LegacyStartupOperationId, sessionId);
