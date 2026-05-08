@@ -26,6 +26,15 @@ if (OperatingSystem.IsWindows())
     builder.AddExecutable("shell", "cmd.exe", ".")
         .WithTerminal();
 
+    // A/B control resource: same cmd.exe but WITHOUT WithTerminal(). Used to
+    // bisect whether the "Stop kills the dashboard" symptom is specific to
+    // PTY-attached resources or applies to any DCP-managed Windows process.
+    // Without a PTY, cmd.exe with redirected stdin would exit immediately, so
+    // we wrap it in `/c ping -t 127.0.0.1` (continuous ping to localhost
+    // until killed) so the resource stays in the Running state long enough
+    // for "Stop" to be clicked from the dashboard.
+    builder.AddExecutable("shell2", "cmd.exe", ".", "/c", "ping -t 127.0.0.1 > NUL");
+
     // Container resource exercising the container-side WithTerminal() path.
     // Launches a long-running Node.js LTS image with an interactive bash so
     // the terminal attaches to a shell where `npx`, `node`, and friends are
