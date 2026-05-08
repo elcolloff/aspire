@@ -432,6 +432,8 @@ internal sealed class ResourceContainerImageManager(
 
     private static string? GetLocalRegistryName(IContainerRuntime containerRuntime)
     {
+        // The .NET SDK container targets require these exact LocalRegistry values;
+        // lower-case executable names fail with CONTAINER2002.
         if (string.Equals(containerRuntime.Name, KnownContainerRuntimes.Docker, StringComparison.OrdinalIgnoreCase))
         {
             return "Docker";
