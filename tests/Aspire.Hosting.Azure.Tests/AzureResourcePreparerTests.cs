@@ -18,6 +18,22 @@ namespace Aspire.Hosting.Azure.Tests;
 
 public class AzureResourcePreparerTests
 {
+    [Fact]
+    public void AzureRoleAssignmentResourceThrowsWhenOwnerAndIdentityAreInconsistent()
+    {
+        var target = new TestProvisioningResource("target");
+        var identity = new AzureUserAssignedIdentityResource("identity");
+        var owner = new TestProvisioningResource("owner");
+
+        Assert.Throws<ArgumentException>("identityResource", () =>
+            new AzureRoleAssignmentResource("roles", target, owner, identityResource: null, _ => { }));
+
+        Assert.Throws<ArgumentException>("ownerResource", () =>
+            new AzureRoleAssignmentResource("roles", target, ownerResource: null, identity, _ => { }));
+    }
+
+    private sealed class TestProvisioningResource(string name) : AzureProvisioningResource(name, _ => { });
+
     [Theory]
     [InlineData(DistributedApplicationOperation.Publish)]
     [InlineData(DistributedApplicationOperation.Run)]

@@ -42,11 +42,23 @@ public sealed class AzureRoleAssignmentResource(
     /// When <c>WithRoleAssignments</c> is called using an <see cref="AzureUserAssignedIdentityResource"/>,
     /// OwnerResource and IdentityResource are the same.
     /// </remarks>
-    public IResource? OwnerResource { get; } = ownerResource;
+    public IResource? OwnerResource { get; } = ValidateOwnerAndIdentity(ownerResource, identityResource);
 
     /// <summary>
     /// Gets the user-assigned managed identity whose principal receives the role assignments,
     /// or <see langword="null"/> for global role assignments that are granted to the deployment principal.
     /// </summary>
     public AzureUserAssignedIdentityResource? IdentityResource { get; } = identityResource;
+
+    private static IResource? ValidateOwnerAndIdentity(IResource? ownerResource, AzureUserAssignedIdentityResource? identityResource)
+    {
+        if ((ownerResource is null) != (identityResource is null))
+        {
+            throw new ArgumentException(
+                $"'{nameof(ownerResource)}' and '{nameof(identityResource)}' must both be null (for global role assignments) or both be non-null (for targeted role assignments).",
+                ownerResource is null ? nameof(ownerResource) : nameof(identityResource));
+        }
+
+        return ownerResource;
+    }
 }
