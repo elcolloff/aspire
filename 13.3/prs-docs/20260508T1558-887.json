@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Documents defaultWatchEnabled CLI feature flag and hot reload/watch guidance. No matching changelog entry found for this feature in milestone 13.3.",
+  "mergedAt": "2026-05-08T15:58:37Z",
+  "number": 887,
+  "runDate": "2026-05-08T16:31:47Z",
+  "status": "excluded",
+  "title": "Add Hot Reload and watch guidance"
+}
