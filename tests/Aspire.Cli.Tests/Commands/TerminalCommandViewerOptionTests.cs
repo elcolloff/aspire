@@ -23,7 +23,7 @@ public class TerminalCommandViewerOptionTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("terminal --help");
+        var result = command.Parse("terminal attach --help");
 
         var output = CaptureHelpOutput(() => result.Invoke());
         Assert.Contains("--viewer", output, StringComparison.Ordinal);
@@ -38,7 +38,7 @@ public class TerminalCommandViewerOptionTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("terminal myresource");
+        var result = command.Parse("terminal attach myresource");
 
         Assert.Empty(result.Errors);
         var viewerValue = result.GetValue<bool>("--viewer");
@@ -53,7 +53,7 @@ public class TerminalCommandViewerOptionTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("terminal myresource --viewer");
+        var result = command.Parse("terminal attach myresource --viewer");
 
         Assert.Empty(result.Errors);
         var viewerValue = result.GetValue<bool>("--viewer");

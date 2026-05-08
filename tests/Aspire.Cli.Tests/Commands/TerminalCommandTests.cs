@@ -27,14 +27,30 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task TerminalCommand_WhenNoResourceArgument_FailsParsing()
+    public async Task TerminalCommand_WhenNoSubcommand_PrintsHelpAndFails()
     {
+        // The 'terminal' parent command is non-runnable; it prints help when invoked
+        // alone and returns InvalidCommand to mirror the DashboardCommand pattern.
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper);
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
         var result = command.Parse("terminal");
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.NotEqual(ExitCodeConstants.Success, exitCode);
+    }
+
+    [Fact]
+    public async Task TerminalAttachCommand_WhenNoResourceArgument_FailsParsing()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper);
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("terminal attach");
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.NotEqual(ExitCodeConstants.Success, exitCode);
@@ -48,7 +64,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("terminal myresource");
+        var result = command.Parse("terminal attach myresource");
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         // Mirrors the LogsCommand behavior: no running AppHost is informational, not an error.
@@ -68,7 +84,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource");
+            var result = command.Parse("terminal attach myresource");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             Assert.Equal(ExitCodeConstants.AppHostIncompatible, exitCode);
@@ -88,7 +104,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal does-not-exist");
+            var result = command.Parse("terminal attach does-not-exist");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
@@ -113,7 +129,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource");
+            var result = command.Parse("terminal attach myresource");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
@@ -138,7 +154,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource");
+            var result = command.Parse("terminal attach myresource");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
@@ -179,7 +195,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource --replica 99");
+            var result = command.Parse("terminal attach myresource --replica 99");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
@@ -218,7 +234,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
             monitor.AddConnection("hash1", "socket.hash1", capturing);
 
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource");
+            var result = command.Parse("terminal attach myresource");
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
             // IsAvailable=false → InvalidCommand, but we should see the canonical
@@ -264,7 +280,7 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         using (provider)
         {
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("terminal myresource");
+            var result = command.Parse("terminal attach myresource");
             // Tests run with both stdout and stdin redirected (xUnit pipes them), so
             // Console.IsInputRedirected and Console.IsOutputRedirected are both true.
             var exitCode = await result.InvokeAsync().DefaultTimeout();
@@ -358,6 +374,9 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
             => _inner.CallResourceMcpToolAsync(resourceName, toolName, arguments, cancellationToken);
         public Task<GetDashboardInfoResponse?> GetDashboardInfoV2Async(CancellationToken cancellationToken = default)
             => _inner.GetDashboardInfoV2Async(cancellationToken);
+
+        public Task<GetAppHostInfoResponse?> GetAppHostInfoV2Async(CancellationToken cancellationToken = default)
+            => _inner.GetAppHostInfoV2Async(cancellationToken);
 
         public void Dispose() => _inner.Dispose();
     }
