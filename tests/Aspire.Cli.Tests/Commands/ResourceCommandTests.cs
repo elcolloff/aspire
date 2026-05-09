@@ -814,6 +814,35 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task ResourceCommand_ForwardsCommandOptionsAfterDelimiter()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("message"),
+                        CreateArgument("timeoutMilliseconds", inputType: "Number")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure -- --message "from delimiter" --timeout-milliseconds 10""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("message", "from delimiter"), ("timeoutMilliseconds", "10"));
+    }
+
+    [Fact]
     public async Task ResourceCommand_DoesNotForwardCommandOptionWithoutDelimiterWhenNameCollidesWithCliOption()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -987,6 +1016,71 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         Assert.Equal(ExitCodeConstants.Success, exitCode);
         Assert.Contains("aspire resource web-browser-automation configure -- [command-options]", helpOutput);
         Assert.Contains("--log-level <value>  Log level for the resource command. Use `-- --log-level <value>` to pass this command option.", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpShowsVisibleCliOptions()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand("configure", "Configures the browser.", CreateArgument("selector")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("--apphost <apphost>", helpOutput);
+        Assert.Contains("-?, -h, --help", helpOutput);
+        Assert.Contains("-l, --log-level <log-level>", helpOutput);
+        Assert.Contains("--non-interactive", helpOutput);
+        Assert.Contains("--nologo", helpOutput);
+        Assert.Contains("--banner", helpOutput);
+        Assert.Contains("--wait-for-debugger", helpOutput);
+        Assert.DoesNotContain("--debug", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpDoesNotMarkDefaultedRequiredArgumentsAsRequired()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        "Configures the browser.",
+                        CreateArgument("count", description: "Count value.", inputType: "Number", required: true, value: "5")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("--count <value>  Count value. Default: 5.", helpOutput);
+        Assert.DoesNotContain("--count <value>  Count value. Required.", helpOutput);
     }
 
     [Fact]
