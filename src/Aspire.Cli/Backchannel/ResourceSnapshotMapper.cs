@@ -110,6 +110,7 @@ internal static class ResourceSnapshotMapper
                  c => c.Name,
                   c => new ResourceCommandJson
                   {
+                      DisplayName = c.DisplayName,
                       Description = c.Description,
                       Visibility = IsDefaultCommandVisibility(c.Visibility) ? null : c.Visibility,
                       ArgumentInputs = c.ArgumentInputs.Length > 0

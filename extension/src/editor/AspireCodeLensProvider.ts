@@ -287,11 +287,11 @@ export class AspireCodeLensProvider implements vscode.CodeLensProvider {
         if (resource.commands) {
             for (const [cmdName, cmd] of Object.entries(resource.commands) as [string, ResourceCommandJson][]) {
                 if (!standardCommands.has(cmdName)) {
-                    const label = codeLensCommand(cmd.description ?? cmdName);
+                    const label = codeLensCommand(cmd.displayName ?? cmdName);
                     lenses.push(new vscode.CodeLens(range, {
                         title: label,
                         command: 'aspire-vscode.codeLensResourceAction',
-                        tooltip: cmd.description ?? cmdName,
+                        tooltip: cmd.description ?? cmd.displayName ?? cmdName,
                         arguments: [resource.name, cmdName, appHost.appHostPath],
                     }));
                 }
