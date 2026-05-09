@@ -9,6 +9,7 @@ using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.DependencyInjection;
+using InvocationConfiguration = System.CommandLine.InvocationConfiguration;
 
 namespace Aspire.Cli.Tests.Commands;
 
@@ -127,13 +128,22 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsOrderedArguments()
+    public async Task ResourceCommand_DoesNotBindPositionalArgumentsByName()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
         var backchannel = new TestAppHostAuxiliaryBackchannel
         {
-            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true }
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "fill-browser",
+                        CreateArgument("selector"),
+                        CreateArgument("value")))
+            ]
         };
         var monitor = new TestAuxiliaryBackchannelMonitor();
         monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
@@ -149,9 +159,8 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "#name", "Aspire");
-        Assert.True(backchannel.ExecuteResourceCommandOptions?.NonInteractive == true);
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
     }
 
     [Fact]
@@ -183,13 +192,22 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsEqualsArgumentsByOrder()
+    public async Task ResourceCommand_ForwardsOptionEqualsArgumentsByName()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
         var backchannel = new TestAppHostAuxiliaryBackchannel
         {
-            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true }
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "wait-for-browser",
+                        CreateArgument("text"),
+                        CreateArgument("timeoutMilliseconds", inputType: "Number")))
+            ]
         };
         var monitor = new TestAuxiliaryBackchannelMonitor();
         monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
@@ -201,22 +219,28 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("""resource web-browser-automation wait-for-browser "text=Submitted Aspire!" timeoutMilliseconds=500""");
+        var result = command.Parse("""resource web-browser-automation wait-for-browser "--text=Submitted Aspire!" --timeoutMilliseconds=500""");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "text=Submitted Aspire!", "timeoutMilliseconds=500");
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("text", "Submitted Aspire!"), ("timeoutMilliseconds", "500"));
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsJsonLookingArgumentByOrder()
+    public async Task ResourceCommand_DoesNotBindJsonLookingPositionalArgumentByName()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
         var backchannel = new TestAppHostAuxiliaryBackchannel
         {
-            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true }
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand("click-browser", CreateArgument("selector")))
+            ]
         };
         var monitor = new TestAuxiliaryBackchannelMonitor();
         monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
@@ -232,12 +256,12 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "{\"selector\":\"#submit\"}");
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsPositionalArgumentContainingEquals()
+    public async Task ResourceCommand_DoesNotForwardPositionalArgumentContainingEqualsAsArray()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
@@ -260,11 +284,11 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "https://example.com/?q=aspire");
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("https://example.com/?q=aspire", null));
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsExtraArguments()
+    public async Task ResourceCommand_DoesNotForwardExtraArgumentsAsArray()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
@@ -287,11 +311,11 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "#submit", "extra");
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("#submit", null), ("extra", null));
     }
 
     [Fact]
-    public async Task ResourceCommand_ForwardsOptionLookingArgumentsByOrder()
+    public async Task ResourceCommand_DoesNotInferOptionLookingArgumentsWithoutMetadata()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
@@ -314,21 +338,840 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(ExitCodeConstants.Success, exitCode);
-        AssertJsonStringArray(backchannel.ExecuteResourceCommandArguments, "--selector", "#submit", "--count", "2");
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("--selector", null), ("#submit", null), ("--count", null), ("2", null));
     }
 
-    private static void AssertJsonStringArray(JsonNode? actual, params string[] expected)
+    [Fact]
+    public async Task ResourceCommand_DoesNotInferBareOptionWithoutMetadata()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true }
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --verbose""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("--verbose", null));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsOptionalArgumentsByName()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "wait-for-browser",
+                        CreateArgument("selector"),
+                        CreateArgument("timeoutMilliseconds", inputType: "Number")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation wait-for-browser --timeout-milliseconds 500""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("timeoutMilliseconds", "500"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsKebabCaseEqualsAndBareBooleanArgumentsByName()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("timeoutMilliseconds", inputType: "Number"),
+                        CreateArgument("proxy", inputType: "Boolean")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --timeout-milliseconds=500 --proxy""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("timeoutMilliseconds", "500"), ("proxy", "true"));
+    }
+
+    [Theory]
+    [InlineData("--proxy true", "true")]
+    [InlineData("--proxy false", "false")]
+    [InlineData("--proxy=false", "false")]
+    public async Task ResourceCommand_ForwardsExplicitBooleanCommandOptionValues(string arguments, string expectedValue)
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("proxy", inputType: "Boolean")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse($"""resource web-browser-automation configure {arguments}""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("proxy", expectedValue));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsValidChoiceCommandOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument(
+                            "flavor",
+                            inputType: "Choice",
+                            options: new Dictionary<string, string?>
+                            {
+                                ["vanilla"] = "Vanilla",
+                                ["chocolate"] = "Chocolate"
+                            })))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --flavor chocolate""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("flavor", "chocolate"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ReturnsInvalidCommandForInvalidChoiceCommandOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var interactionService = new TestInteractionService();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument(
+                            "flavor",
+                            inputType: "Choice",
+                            options: new Dictionary<string, string?>
+                            {
+                                ["vanilla"] = "Vanilla",
+                                ["chocolate"] = "Chocolate"
+                            })))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel, interactionService);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --flavor strawberry""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+        var error = Assert.Single(interactionService.DisplayedErrors);
+        Assert.Contains("--flavor", error);
+        Assert.Contains("vanilla, chocolate", error);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsCustomChoiceCommandOptionWhenAllowed()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument(
+                            "flavor",
+                            inputType: "Choice",
+                            options: new Dictionary<string, string?>
+                            {
+                                ["vanilla"] = "Vanilla",
+                                ["chocolate"] = "Chocolate"
+                            },
+                            allowCustomChoice: true)))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --flavor strawberry""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("flavor", "strawberry"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_DoesNotSerializeOmittedCommandOptionDefaults()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("message", value: "hello"),
+                        CreateArgument("count", inputType: "Number", required: true, value: "5"),
+                        CreateArgument("enabled", inputType: "Boolean", value: "true")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments);
+    }
+
+    [Theory]
+    [InlineData("--message", "--message")]
+    [InlineData("--count", "--count")]
+    public async Task ResourceCommand_ReturnsInvalidCommandForMissingCommandOptionValue(string arguments, string expectedOptionName)
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var interactionService = new TestInteractionService();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("message"),
+                        CreateArgument("count", inputType: "Number")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel, interactionService);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse($"""resource web-browser-automation configure {arguments}""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+        var error = Assert.Single(interactionService.DisplayedErrors);
+        Assert.Contains(expectedOptionName, error);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ReturnsInvalidCommandForDuplicateCommandOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand("configure", CreateArgument("message")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --message first --message second""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ReturnsInvalidCommandForMissingRequiredCommandOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "wait-for-browser",
+                        CreateArgument("selector", required: true),
+                        CreateArgument("timeoutMilliseconds", inputType: "Number")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation wait-for-browser --timeout-milliseconds 500""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ReturnsInvalidCommandForInvalidNumberCommandOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "wait-for-browser",
+                        CreateArgument("timeoutMilliseconds", inputType: "Number")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation wait-for-browser --timeout-milliseconds not-a-number""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_DoesNotBindMixedNamedAndPositionalArgumentsByName()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "fill-browser",
+                        CreateArgument("selector"),
+                        CreateArgument("value")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation fill-browser --selector "#name" Aspire""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsCommandOptionAfterDelimiterWhenNameCollidesWithCliOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("logLevel")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure -- --log-level Debug""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("logLevel", "Debug"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_DoesNotForwardCommandOptionWithoutDelimiterWhenNameCollidesWithCliOption()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("logLevel")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --log-level Debug""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_ForwardsExactArgumentNameThatStartsWithNo()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("noProxy")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --no-proxy localhost""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("noProxy", "localhost"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_DoesNotSynthesizeNegatedBooleanArgument()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("proxy", inputType: "Boolean")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --no-proxy""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpShowsArgumentInputs()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "wait-for-browser",
+                        "Waits for text in the browser.",
+                        CreateArgument("selector", description: "Selector to wait for.", required: true),
+                        CreateArgument("timeoutMilliseconds", description: "Timeout in milliseconds.", inputType: "Number")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation wait-for-browser --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("Waits for text in the browser.", helpOutput);
+        Assert.Contains("--selector <value>  Selector to wait for. Required.", helpOutput);
+        Assert.Contains("--timeout-milliseconds <value>  Timeout in milliseconds.", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpShowsDelimiterForArgumentNamesThatCollideWithCliOptions()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        "Configures the browser.",
+                        CreateArgument("logLevel", description: "Log level for the resource command.")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("aspire resource web-browser-automation configure -- [command-options]", helpOutput);
+        Assert.Contains("--log-level <value>  Log level for the resource command. Use `-- --log-level <value>` to pass this command option.", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpFallsBackToDefaultHelpWhenAppHostIsNotRunning()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper);
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("Usage:", helpOutput);
+        Assert.DoesNotContain("Command options:", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpFallsBackToDefaultHelpWhenCommandMetadataIsMissing()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot("web-browser-automation")
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation configure --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+        var helpOutput = helpWriter.ToString();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Contains("Usage:", helpOutput);
+        Assert.DoesNotContain("Command options:", helpOutput);
+    }
+
+    [Fact]
+    public async Task ResourceCommand_CommandSpecificHelpForAllArgumentTypesMatchesSnapshot()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var helpWriter = new StringWriter();
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "argument-commands",
+                    CreateCommand(
+                        "all-argument-types",
+                        "Exercises command help for every supported resource command argument shape.",
+                        CreateArgument("message", description: "Text input shown as a value option.", required: true),
+                        CreateArgument("secret", description: "Secret text input shown as a value option.", inputType: "SecretText"),
+                        CreateArgument("count", description: "Number input with a default.", inputType: "Number", required: true, value: "5"),
+                        CreateArgument("enabled", description: "Boolean input shown as a flag.", inputType: "Boolean", value: "true"),
+                        CreateArgument(
+                            "flavor",
+                            description: "Choice input with fixed allowed values.",
+                            inputType: "Choice",
+                            options: new Dictionary<string, string?>
+                            {
+                                ["vanilla"] = "Vanilla",
+                                ["chocolate"] = "Chocolate"
+                            }),
+                        CreateArgument("logLevel", description: "Command option colliding with a CLI option.")))
+            ]
+        };
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource argument-commands all-argument-types --help""");
+
+        var exitCode = await result.InvokeAsync(new InvocationConfiguration { Output = helpWriter }).DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        await Verify(helpWriter.ToString(), extension: "txt");
+    }
+
+    private static void AssertJsonObject(JsonNode? actual, params (string Name, string? Value)[] expected)
     {
         Assert.NotNull(actual);
-        var actualArray = Assert.IsType<JsonArray>(actual);
-        var actualElements = actualArray.ToArray();
-        Assert.Equal(expected.Length, actualElements.Length);
+        var actualObject = Assert.IsType<JsonObject>(actual);
+        Assert.Equal(expected.Length, actualObject.Count);
 
-        for (var i = 0; i < expected.Length; i++)
+        foreach (var (name, value) in expected)
         {
-            var actualElement = Assert.IsAssignableFrom<JsonValue>(actualElements[i]);
-            Assert.Equal(JsonValueKind.String, actualElement.GetValueKind());
-            Assert.Equal(expected[i], actualElement.GetValue<string>());
+            Assert.True(actualObject.TryGetPropertyValue(name, out var actualValue), $"Expected argument '{name}' to exist.");
+            if (value is null)
+            {
+                Assert.Null(actualValue);
+            }
+            else
+            {
+                var actualElement = Assert.IsAssignableFrom<JsonValue>(actualValue);
+                Assert.Equal(JsonValueKind.String, actualElement.GetValueKind());
+                Assert.Equal(value, actualElement.GetValue<string>());
+            }
         }
+    }
+
+    private static ResourceSnapshot CreateResourceSnapshot(string name, params ResourceSnapshotCommand[] commands)
+    {
+        return new ResourceSnapshot
+        {
+            Name = name,
+            DisplayName = name,
+            State = "Running",
+            Commands = commands
+        };
+    }
+
+    private static ServiceProvider CreateServiceProvider(
+        TemporaryWorkspace workspace,
+        ITestOutputHelper outputHelper,
+        TestAppHostAuxiliaryBackchannel backchannel,
+        TestInteractionService? interactionService = null)
+    {
+        var monitor = new TestAuxiliaryBackchannelMonitor();
+        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
+            if (interactionService is not null)
+            {
+                options.InteractionServiceFactory = _ => interactionService;
+            }
+        });
+
+        return services.BuildServiceProvider();
+    }
+
+    private static ResourceSnapshotCommand CreateCommand(string name, params ResourceSnapshotCommandArgument[] argumentInputs)
+    {
+        return CreateCommand(name, description: null, argumentInputs);
+    }
+
+    private static ResourceSnapshotCommand CreateCommand(string name, string? description, params ResourceSnapshotCommandArgument[] argumentInputs)
+    {
+        return new ResourceSnapshotCommand
+        {
+            Name = name,
+            Description = description,
+            State = "Enabled",
+            ArgumentInputs = argumentInputs
+        };
+    }
+
+    private static ResourceSnapshotCommandArgument CreateArgument(
+        string name,
+        string? description = null,
+        string inputType = "Text",
+        bool required = false,
+        string? value = null,
+        Dictionary<string, string?>? options = null,
+        bool allowCustomChoice = false)
+    {
+        return new ResourceSnapshotCommandArgument
+        {
+            Name = name,
+            Description = description,
+            InputType = inputType,
+            Required = required,
+            Value = value,
+            Options = options,
+            AllowCustomChoice = allowCustomChoice
+        };
     }
 }
