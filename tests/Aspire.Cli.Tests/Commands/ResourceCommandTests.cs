@@ -675,6 +675,7 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
     public async Task ResourceCommand_ReturnsInvalidCommandForMissingRequiredCommandOption()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var interactionService = new TestInteractionService();
 
         var backchannel = new TestAppHostAuxiliaryBackchannel
         {
@@ -689,14 +690,7 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
                         CreateArgument("timeoutMilliseconds", inputType: "Number")))
             ]
         };
-        var monitor = new TestAuxiliaryBackchannelMonitor();
-        monitor.AddConnection("hash", "/tmp/test.sock", backchannel);
-
-        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
-        {
-            options.AuxiliaryBackchannelMonitorFactory = _ => monitor;
-        });
-        using var provider = services.BuildServiceProvider();
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel, interactionService);
 
         var command = provider.GetRequiredService<RootCommand>();
         var result = command.Parse("""resource web-browser-automation wait-for-browser --timeout-milliseconds 500""");
@@ -705,6 +699,8 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
 
         Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
         Assert.Equal(0, backchannel.ExecuteResourceCommandCallCount);
+        var error = Assert.Single(interactionService.DisplayedErrors);
+        Assert.Contains("--selector", error);
     }
 
     [Fact]

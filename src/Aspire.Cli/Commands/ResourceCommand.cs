@@ -140,6 +140,8 @@ internal sealed class ResourceCommand : BaseCommand
 
     private static (JsonNode? Arguments, string? ErrorMessage) CreateCommandArguments(ResourceSnapshotCommand? command, string[] capturedArguments)
     {
+        capturedArguments = RemoveDelimiter(capturedArguments);
+
         if (capturedArguments.Length == 0)
         {
             if (command?.ArgumentInputs is { Length: > 0 } inputs)
@@ -176,25 +178,30 @@ internal sealed class ResourceCommand : BaseCommand
             parserCommand.Options.Add(option);
         }
 
+        parserCommand.Validators.Add(result =>
+        {
+            var missingRequiredOptions = argumentInputs
+                .Where(argument => argument.Required && string.IsNullOrEmpty(argument.Value) && result.GetResult(options[argument]) is not { Implicit: false })
+                .Select(argument => $"--{ToKebabCase(argument.Name)}")
+                .ToArray();
+
+            if (missingRequiredOptions.Length == 1)
+            {
+                result.AddError($"Required option '{missingRequiredOptions[0]}' was not provided.");
+            }
+            else if (missingRequiredOptions.Length > 1)
+            {
+                result.AddError($"Required options were not provided: {string.Join(", ", missingRequiredOptions.Select(static optionName => $"'{optionName}'"))}.");
+            }
+        });
+
         // Parse the resource command tail with System.CommandLine as a second pass. The first pass parses Aspire CLI
         // options and leaves resource command tokens in ParseResult.UnmatchedTokens; this pass parses those remaining
         // tokens against options generated from ResourceSnapshotCommand.ArgumentInputs.
-        var parseResult = parserCommand.Parse(RemoveDelimiter(capturedArguments));
+        var parseResult = parserCommand.Parse(capturedArguments);
         if (parseResult.Errors.Count > 0)
         {
             return (arguments, string.Join(Environment.NewLine, parseResult.Errors.Select(static error => error.Message)));
-        }
-
-        var missingRequiredOptions = argumentInputs
-            .Where(argument => argument.Required && string.IsNullOrEmpty(argument.Value) && parseResult.GetResult(options[argument]) is not { Implicit: false })
-            .Select(argument => $"--{ToKebabCase(argument.Name)}")
-            .ToArray();
-        if (missingRequiredOptions.Length > 0)
-        {
-            var message = missingRequiredOptions.Length == 1
-                ? $"Required option '{missingRequiredOptions[0]}' was not provided."
-                : $"Required options were not provided: {string.Join(", ", missingRequiredOptions.Select(static optionName => $"'{optionName}'"))}.";
-            return (arguments, message);
         }
 
         foreach (var argument in argumentInputs)
@@ -233,9 +240,12 @@ internal sealed class ResourceCommand : BaseCommand
 
     private static string[] RemoveDelimiter(string[] capturedArguments)
     {
-        return capturedArguments.Contains("--", StringComparer.Ordinal)
-            ? capturedArguments.Where(static argument => argument is not "--").ToArray()
-            : capturedArguments;
+        if (capturedArguments.Length == 0 || capturedArguments[0] is not "--")
+        {
+            return capturedArguments;
+        }
+
+        return capturedArguments[1..];
     }
 
     private static JsonObject CreateUnknownArguments(string[] capturedArguments)
@@ -243,11 +253,6 @@ internal sealed class ResourceCommand : BaseCommand
         var arguments = new JsonObject();
         foreach (var token in capturedArguments)
         {
-            if (token is "--")
-            {
-                continue;
-            }
-
             arguments[token] = null;
         }
 
