@@ -186,7 +186,7 @@ public sealed class TypeScriptPolyglotTests(ITestOutputHelper output)
 
         packageJson = JsonNode.Parse(File.ReadAllText(Path.Combine(projectRoot, "package.json")))!.AsObject();
         scripts = packageJson["scripts"]!.AsObject();
-        var dependencies = packageJson["dependencies"]!.AsObject();
+        var dependencies = packageJson["dependencies"]?.AsObject();
         var devDependencies = packageJson["devDependencies"]!.AsObject();
 
         Assert.Equal(originalDevScript, scripts["dev"]?.GetValue<string>());
@@ -198,11 +198,15 @@ public sealed class TypeScriptPolyglotTests(ITestOutputHelper output)
         Assert.Equal("npm run aspire:start", scripts["start"]?.GetValue<string>());
 
         Assert.Equal("module", packageJson["type"]?.GetValue<string>());
-        Assert.NotNull(dependencies["vscode-jsonrpc"]);
         Assert.NotNull(devDependencies["@types/node"]);
         Assert.NotNull(devDependencies["nodemon"]);
         Assert.NotNull(devDependencies["tsx"]);
         Assert.NotNull(devDependencies["typescript"]);
+
+        var hasJsonRpcDependency = dependencies?["vscode-jsonrpc"] is not null;
+        var hasJsonRpcDevDependency = devDependencies["vscode-jsonrpc"] is not null;
+        Assert.True(hasJsonRpcDependency || hasJsonRpcDevDependency);
+        Assert.False(hasJsonRpcDependency && hasJsonRpcDevDependency);
 
         Assert.Equal(originalTsConfig, File.ReadAllText(Path.Combine(projectRoot, "tsconfig.json")));
         Assert.True(File.Exists(Path.Combine(projectRoot, "tsconfig.apphost.json")));

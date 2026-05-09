@@ -35,7 +35,22 @@ internal sealed class LanguageService
     /// <param name="projectName">Optional project name. If null, derived from directory name.</param>
     /// <returns>A dictionary of relative file paths to file contents.</returns>
     [JsonRpcMethod("scaffoldAppHost")]
-    public Dictionary<string, string> ScaffoldAppHost(string language, string targetPath, string? projectName = null)
+    public Dictionary<string, string> ScaffoldAppHost(string language, string targetPath, string? projectName = null) =>
+        ScaffoldAppHostCore(language, targetPath, projectName, options: null);
+
+    /// <summary>
+    /// Scaffolds a new AppHost project for the specified language with language-specific options.
+    /// </summary>
+    /// <param name="language">The target language (e.g., "TypeScript", "Python").</param>
+    /// <param name="targetPath">The target directory path for the project.</param>
+    /// <param name="projectName">Optional project name. If null, derived from directory name.</param>
+    /// <param name="options">Optional language-specific scaffold options.</param>
+    /// <returns>A dictionary of relative file paths to file contents.</returns>
+    [JsonRpcMethod("scaffoldAppHostWithOptions")]
+    public Dictionary<string, string> ScaffoldAppHostWithOptions(string language, string targetPath, string? projectName = null, Dictionary<string, string>? options = null) =>
+        ScaffoldAppHostCore(language, targetPath, projectName, options);
+
+    private Dictionary<string, string> ScaffoldAppHostCore(string language, string targetPath, string? projectName, Dictionary<string, string>? options)
     {
         _authenticationState.ThrowIfNotAuthenticated();
         _logger.LogDebug(">> scaffoldAppHost({Language}, {TargetPath}, {ProjectName})", language, targetPath, projectName);
@@ -52,7 +67,8 @@ internal sealed class LanguageService
             var request = new ScaffoldRequest
             {
                 TargetPath = targetPath,
-                ProjectName = projectName
+                ProjectName = projectName,
+                Options = options ?? new Dictionary<string, string>()
             };
 
             var files = languageSupport.Scaffold(request);

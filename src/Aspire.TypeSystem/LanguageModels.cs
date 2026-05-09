@@ -22,6 +22,11 @@ public sealed class ScaffoldRequest
     /// Gets an optional seed for deterministic port generation (for testing).
     /// </summary>
     public int? PortSeed { get; init; }
+
+    /// <summary>
+    /// Gets language-specific scaffold options.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Options { get; init; } = new Dictionary<string, string>();
 }
 
 /// <summary>

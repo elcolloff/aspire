@@ -360,6 +360,7 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
     public async Task InitCommand_WhenTypeScriptSelected_CreatesAppHostAndAspireConfig()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var scaffoldingService = new TestScaffoldingService();
 
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
         {
@@ -375,7 +376,7 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
                     AppHostFileName: "apphost.ts"));
                 return new TestLanguageService { DefaultProject = tsProject };
             };
-            options.ScaffoldingServiceFactory = _ => new TestScaffoldingService();
+            options.ScaffoldingServiceFactory = _ => scaffoldingService;
         });
 
         var serviceProvider = services.BuildServiceProvider();
@@ -391,6 +392,7 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
         var appHost = config["appHost"]!.AsObject();
         Assert.Equal("apphost.ts", appHost["path"]!.GetValue<string>());
         Assert.Equal("typescript/nodejs", appHost["language"]!.GetValue<string>());
+        Assert.Equal(false.ToString(), scaffoldingService.Context?.Options?["typescript.includeESLint"]);
     }
 
     [Fact]
@@ -900,8 +902,11 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
 
     private sealed class TestScaffoldingService : IScaffoldingService
     {
+        public ScaffoldContext? Context { get; private set; }
+
         public Task<bool> ScaffoldAsync(ScaffoldContext context, CancellationToken cancellationToken)
         {
+            Context = context;
             var appHostFileName = context.Language.AppHostFileName ?? "apphost";
             File.WriteAllText(Path.Combine(context.TargetDirectory.FullName, appHostFileName), string.Empty);
 

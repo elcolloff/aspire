@@ -13,12 +13,14 @@ namespace Aspire.Cli.Scaffolding;
 /// <param name="ProjectName">Optional project name.</param>
 /// <param name="SdkVersion">Optional Aspire SDK version to use for scaffolding.</param>
 /// <param name="Channel">Optional Aspire channel to use for scaffolding.</param>
+/// <param name="Options">Language-specific scaffold options.</param>
 internal record ScaffoldContext(
     LanguageInfo Language,
     DirectoryInfo TargetDirectory,
     string? ProjectName = null,
     string? SdkVersion = null,
-    string? Channel = null);
+    string? Channel = null,
+    IReadOnlyDictionary<string, string>? Options = null);
 
 /// <summary>
 /// Service for scaffolding new AppHost projects.

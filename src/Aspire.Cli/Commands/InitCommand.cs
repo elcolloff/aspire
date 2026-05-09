@@ -412,7 +412,11 @@ internal sealed class InitCommand : BaseCommand
             return ExitCodeConstants.Success;
         }
 
-        var context = new ScaffoldContext(language, workingDirectory, workingDirectory.Name);
+        var context = new ScaffoldContext(
+            language,
+            workingDirectory,
+            workingDirectory.Name,
+            Options: ScaffoldOptions.GetDefaults(language, ScaffoldOptionsContext.Init));
         var scaffolded = await _scaffoldingService.ScaffoldAsync(context, cancellationToken);
         if (!scaffolded)
         {

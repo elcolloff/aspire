@@ -41,15 +41,15 @@ public sealed class TypeScriptLanguageSupportTests
         Assert.Equal("npm run aspire:start", scripts["dev"]?.GetValue<string>());
         Assert.Equal("npm run aspire:build", scripts["build"]?.GetValue<string>());
         Assert.Equal("npm run aspire:dev", scripts["watch"]?.GetValue<string>());
-        Assert.False(scripts.ContainsKey("aspire:lint"));
-        Assert.False(scripts.ContainsKey("lint"));
-        Assert.False(scripts.ContainsKey("predev"));
-        Assert.False(scripts.ContainsKey("prebuild"));
+        Assert.Equal("eslint apphost.ts", scripts["aspire:lint"]?.GetValue<string>());
+        Assert.Equal("npm run aspire:lint", scripts["lint"]?.GetValue<string>());
+        Assert.Equal("npm run aspire:lint", scripts["predev"]?.GetValue<string>());
+        Assert.Equal("npm run aspire:lint", scripts["prebuild"]?.GetValue<string>());
         Assert.Equal("^4.21.0", devDependencies["tsx"]?.GetValue<string>());
         Assert.Equal("^5.9.3", devDependencies["typescript"]?.GetValue<string>());
         Assert.Equal("^8.2.0", devDependencies["vscode-jsonrpc"]?.GetValue<string>());
-        Assert.False(devDependencies.ContainsKey("eslint"));
-        Assert.False(devDependencies.ContainsKey("typescript-eslint"));
+        Assert.Equal("^10.0.3", devDependencies["eslint"]?.GetValue<string>());
+        Assert.Equal("^8.57.1", devDependencies["typescript-eslint"]?.GetValue<string>());
         Assert.Null(packageJson["dependencies"]);
 
         var engines = packageJson["engines"]!.AsObject();
@@ -58,10 +58,39 @@ public sealed class TypeScriptLanguageSupportTests
         // Verify the raw JSON does not contain unicode escapes for >= (fidelity check)
         Assert.DoesNotContain("\\u003E", files["package.json"]);
 
-        Assert.DoesNotContain("eslint.config.mjs", files.Keys);
+        Assert.Contains("eslint.config.mjs", files.Keys);
+        Assert.Contains("project: './tsconfig.apphost.json'", files["eslint.config.mjs"]);
 
         var tsConfig = ParseJson(files["tsconfig.apphost.json"]);
         Assert.Equal("./dist/apphost", tsConfig["compilerOptions"]?["outDir"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public void Scaffold_CanDisableLinting_ForNewProject()
+    {
+        using var testDir = new TestTempDirectory();
+
+        var files = _languageSupport.Scaffold(new ScaffoldRequest
+        {
+            TargetPath = testDir.Path,
+            ProjectName = "BrownfieldApp",
+            Options = new Dictionary<string, string>
+            {
+                ["typescript.includeESLint"] = false.ToString()
+            }
+        });
+
+        var packageJson = ParseJson(files["package.json"]);
+        var scripts = packageJson["scripts"]!.AsObject();
+        var devDependencies = packageJson["devDependencies"]!.AsObject();
+
+        Assert.False(scripts.ContainsKey("aspire:lint"));
+        Assert.False(scripts.ContainsKey("lint"));
+        Assert.False(scripts.ContainsKey("predev"));
+        Assert.False(scripts.ContainsKey("prebuild"));
+        Assert.False(devDependencies.ContainsKey("eslint"));
+        Assert.False(devDependencies.ContainsKey("typescript-eslint"));
+        Assert.DoesNotContain("eslint.config.mjs", files.Keys);
     }
 
     [Fact]
@@ -92,7 +121,11 @@ public sealed class TypeScriptLanguageSupportTests
         var files = _languageSupport.Scaffold(new ScaffoldRequest
         {
             TargetPath = testDir.Path,
-            ProjectName = "Ignored"
+            ProjectName = "Ignored",
+            Options = new Dictionary<string, string>
+            {
+                ["typescript.includeESLint"] = false.ToString()
+            }
         });
 
         var packageJson = ParseJson(files["package.json"]);

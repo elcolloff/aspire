@@ -766,6 +766,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var scaffoldedLanguageId = string.Empty;
+        IReadOnlyDictionary<string, string>? scaffoldOptions = null;
         (string Name, string Description)[]? promptedTemplates = null;
 
         var services = CreateServiceCollection(workspace, options =>
@@ -803,6 +804,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
             ScaffoldAsyncCallback = (context, cancellationToken) =>
             {
                 scaffoldedLanguageId = context.Language.LanguageId.Value;
+                scaffoldOptions = context.Options;
                 File.WriteAllText(Path.Combine(context.TargetDirectory.FullName, "apphost.ts"), "// test apphost");
                 return Task.FromResult(true);
             }
@@ -815,6 +817,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         Assert.Equal(ExitCodeConstants.Success, exitCode);
         Assert.Equal(KnownLanguageId.TypeScript, scaffoldedLanguageId);
+        Assert.Equal(true.ToString(), scaffoldOptions?["typescript.includeESLint"]);
         Assert.NotNull(promptedTemplates);
         Assert.Contains((KnownTemplateId.CSharpEmptyAppHost, "Empty AppHost (Choose language...)"), promptedTemplates);
         Assert.DoesNotContain((KnownTemplateId.TypeScriptEmptyAppHost, "Empty (TypeScript AppHost)"), promptedTemplates);

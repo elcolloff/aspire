@@ -65,10 +65,26 @@ internal sealed class AppHostRpcClient : IAppHostRpcClient
         => _jsonRpc.InvokeWithCancellationAsync<RuntimeSpec>("getRuntimeSpec", [languageId], cancellationToken);
 
     /// <inheritdoc />
-    public Task<Dictionary<string, string>> ScaffoldAppHostAsync(
-        string languageId, string targetPath, string? projectName, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithCancellationAsync<Dictionary<string, string>>(
-            "scaffoldAppHost", [languageId, targetPath, projectName], cancellationToken);
+    public async Task<Dictionary<string, string>> ScaffoldAppHostAsync(
+        string languageId, string targetPath, string? projectName, IReadOnlyDictionary<string, string>? options, CancellationToken cancellationToken)
+    {
+        if (options is null || options.Count == 0)
+        {
+            return await _jsonRpc.InvokeWithCancellationAsync<Dictionary<string, string>>(
+                "scaffoldAppHost", [languageId, targetPath, projectName], cancellationToken);
+        }
+
+        try
+        {
+            return await _jsonRpc.InvokeWithCancellationAsync<Dictionary<string, string>>(
+                "scaffoldAppHostWithOptions", [languageId, targetPath, projectName, options], cancellationToken);
+        }
+        catch (RemoteMethodNotFoundException)
+        {
+            return await _jsonRpc.InvokeWithCancellationAsync<Dictionary<string, string>>(
+                "scaffoldAppHost", [languageId, targetPath, projectName], cancellationToken);
+        }
+    }
 
     // The generateCode and getCapabilities RPC methods each have a single server-side handler
     // that accepts optional filtering parameters. The typed methods below provide distinct

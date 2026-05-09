@@ -113,6 +113,7 @@ internal sealed class ScaffoldingService : IScaffoldingService
             language.LanguageId,
             directory.FullName,
             context.ProjectName,
+            context.Options,
             cancellationToken);
 
         var conflictingFiles = GetConflictingScaffoldFiles(directory.FullName, scaffoldFiles.Keys);

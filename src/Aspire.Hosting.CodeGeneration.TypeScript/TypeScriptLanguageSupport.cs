@@ -29,6 +29,7 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
     private const string AppHostFileName = "apphost.ts";
     private const string PackageJsonFileName = "package.json";
     private const string AppHostTsConfigFileName = "tsconfig.apphost.json";
+    private const string IncludeESLintOption = "typescript.includeESLint";
 
     /// <summary>
     /// The default content for tsconfig.apphost.json, shared between scaffolding and migration.
@@ -65,6 +66,8 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
     public Dictionary<string, string> Scaffold(ScaffoldRequest request)
     {
         var files = new Dictionary<string, string>();
+        var hasExistingPackageJson = HasExistingPackageJson(request);
+        var options = TypeScriptScaffoldOptions.From(request);
 
         // Create apphost.ts
         files[AppHostFileName] = """
@@ -88,7 +91,32 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
             dist/
             .aspire/
             """;
-        files[PackageJsonFileName] = CreatePackageJson(request);
+        files[PackageJsonFileName] = CreatePackageJson(request, hasExistingPackageJson, options);
+
+        if (options.IncludeESLint)
+        {
+            // Create eslint.config.mjs for catching unawaited promises in apphost.ts
+            files["eslint.config.mjs"] = """
+                // @ts-check
+
+                import { defineConfig } from 'eslint/config';
+                import tseslint from 'typescript-eslint';
+
+                export default defineConfig({
+                  files: ['apphost.ts'],
+                  extends: [tseslint.configs.base],
+                  languageOptions: {
+                    parserOptions: {
+                      project: './tsconfig.apphost.json',
+                      tsconfigRootDir: import.meta.dirname,
+                    },
+                  },
+                  rules: {
+                    '@typescript-eslint/no-floating-promises': ['error', { checkThenables: true }],
+                  },
+                });
+                """;
+        }
 
         // Create an apphost-specific tsconfig so existing brownfield TypeScript settings are preserved.
         files[AppHostTsConfigFileName] = AppHostTsConfigContent;
@@ -118,17 +146,14 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
         return files;
     }
 
-    private static string CreatePackageJson(ScaffoldRequest request)
+    private static string CreatePackageJson(ScaffoldRequest request, bool hasExistingPackageJson, TypeScriptScaffoldOptions options)
     {
         // Build scaffold output with only Aspire-desired content. We intentionally do NOT
         // read the existing package.json here — the CLI-side PackageJsonMerger handles all
         // combining with on-disk content. Including existing entries in the scaffold output
         // would cause a double-merge where correctness depends on JsonObject iteration order.
         var packageJson = new JsonObject();
-        var packageJsonPath = Path.Combine(request.TargetPath, PackageJsonFileName);
-
-        var isGreenfield = !File.Exists(packageJsonPath);
-        if (isGreenfield)
+        if (!hasExistingPackageJson)
         {
             // Greenfield: include root metadata so the scaffold output is a complete package.json.
             var packageName = request.ProjectName?.ToLowerInvariant() ?? "aspire-apphost";
@@ -146,24 +171,48 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
         engines["node"] = "^20.19.0 || ^22.13.0 || >=24";
 
         var scripts = EnsureObject(packageJson, "scripts");
+        if (options.IncludeESLint)
+        {
+            scripts["aspire:lint"] = "eslint apphost.ts";
+        }
         scripts["aspire:start"] = "aspire run";
         scripts["aspire:build"] = $"tsc -p {AppHostTsConfigFileName}";
         scripts["aspire:dev"] = $"tsc --watch -p {AppHostTsConfigFileName}";
 
-        if (isGreenfield)
+        if (!hasExistingPackageJson)
         {
+            if (options.IncludeESLint)
+            {
+                scripts["lint"] = "npm run aspire:lint";
+                scripts["predev"] = "npm run aspire:lint";
+                scripts["prebuild"] = "npm run aspire:lint";
+            }
             scripts["dev"] = "npm run aspire:start";
             scripts["build"] = "npm run aspire:build";
             scripts["watch"] = "npm run aspire:dev";
         }
 
         EnsureDependency(packageJson, "devDependencies", "@types/node", "^22.0.0");
+        if (options.IncludeESLint)
+        {
+            EnsureDependency(packageJson, "devDependencies", "eslint", "^10.0.3");
+        }
         EnsureDependency(packageJson, "devDependencies", "nodemon", "^3.1.14");
         EnsureDependency(packageJson, "devDependencies", "tsx", "^4.21.0");
         EnsureDependency(packageJson, "devDependencies", "typescript", "^5.9.3");
+        if (options.IncludeESLint)
+        {
+            EnsureDependency(packageJson, "devDependencies", "typescript-eslint", "^8.57.1");
+        }
         EnsureDependency(packageJson, "devDependencies", "vscode-jsonrpc", "^8.2.0");
 
         return packageJson.ToJsonString(s_jsonSerializerOptions);
+    }
+
+    private static bool HasExistingPackageJson(ScaffoldRequest request)
+    {
+        var packageJsonPath = Path.Combine(request.TargetPath, PackageJsonFileName);
+        return File.Exists(packageJsonPath);
     }
 
     private static void EnsureDependency(JsonObject packageJson, string sectionName, string packageName, string version)
@@ -198,6 +247,19 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
     private static string? GetStringValue(JsonNode? node)
     {
         return node is JsonValue value && value.TryGetValue<string>(out var stringValue) ? stringValue : null;
+    }
+
+    private sealed record TypeScriptScaffoldOptions(bool IncludeESLint)
+    {
+        public static TypeScriptScaffoldOptions From(ScaffoldRequest request)
+        {
+            if (!request.Options.TryGetValue(IncludeESLintOption, out var includeESLintValue))
+            {
+                return new(IncludeESLint: true);
+            }
+
+            return new(bool.Parse(includeESLintValue));
+        }
     }
 
     /// <inheritdoc />
