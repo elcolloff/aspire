@@ -179,14 +179,14 @@ internal sealed class ResourceCommand : BaseCommand
         // Parse the resource command tail with System.CommandLine as a second pass. The first pass parses Aspire CLI
         // options and leaves resource command tokens in ParseResult.UnmatchedTokens; this pass parses those remaining
         // tokens against options generated from ResourceSnapshotCommand.ArgumentInputs.
-        var parseResult = parserCommand.Parse(capturedArguments);
+        var parseResult = parserCommand.Parse(RemoveDelimiter(capturedArguments));
         if (parseResult.Errors.Count > 0)
         {
             return (arguments, string.Join(Environment.NewLine, parseResult.Errors.Select(static error => error.Message)));
         }
 
         var missingRequiredOptions = argumentInputs
-            .Where(argument => argument.Required && argument.Value is null && parseResult.GetResult(options[argument]) is not { Implicit: false })
+            .Where(argument => argument.Required && string.IsNullOrEmpty(argument.Value) && parseResult.GetResult(options[argument]) is not { Implicit: false })
             .Select(argument => $"--{ToKebabCase(argument.Name)}")
             .ToArray();
         if (missingRequiredOptions.Length > 0)
@@ -229,6 +229,13 @@ internal sealed class ResourceCommand : BaseCommand
         }
 
         return (arguments, null);
+    }
+
+    private static string[] RemoveDelimiter(string[] capturedArguments)
+    {
+        return capturedArguments.Contains("--", StringComparer.Ordinal)
+            ? capturedArguments.Where(static argument => argument is not "--").ToArray()
+            : capturedArguments;
     }
 
     private static JsonObject CreateUnknownArguments(string[] capturedArguments)
@@ -281,7 +288,7 @@ internal sealed class ResourceCommand : BaseCommand
         }
 
         option.Description = argument.Description ?? argument.Label;
-        option.Required = argument.Required && argument.Value is null;
+        option.Required = argument.Required && string.IsNullOrEmpty(argument.Value);
 
         if (!argument.AllowCustomChoice && argument.Options is { Count: > 0 } options)
         {
@@ -426,8 +433,76 @@ internal sealed class ResourceCommand : BaseCommand
 
             writer.WriteLine();
             writer.WriteLine("Options:");
-            writer.WriteLine($"  {s_appHostOption.Name} <apphost>  {s_appHostOption.InnerOption.Description}");
-            writer.WriteLine("  -?, -h, --help       Show help and usage information");
+            foreach (var option in GetVisibleCliOptions(commandResult))
+            {
+                var description = option.Description ?? string.Empty;
+                writer.Write("  ");
+                writer.Write(GetOptionUsage(option));
+                if (description.Length > 0)
+                {
+                    writer.Write("  ");
+                    writer.Write(description);
+                }
+
+                writer.WriteLine();
+            }
+        }
+
+        private static IEnumerable<Option> GetVisibleCliOptions(CommandResult commandResult)
+        {
+            var seenOptionNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var option in commandResult.Command.Options)
+            {
+                if (!option.Hidden && seenOptionNames.Add(option.Name))
+                {
+                    yield return option;
+                }
+            }
+
+            var current = commandResult.Parent;
+            while (current is CommandResult parentCommandResult)
+            {
+                foreach (var option in parentCommandResult.Command.Options)
+                {
+                    if (option.Recursive && !option.Hidden && seenOptionNames.Add(option.Name))
+                    {
+                        yield return option;
+                    }
+                }
+
+                current = parentCommandResult.Parent;
+            }
+        }
+
+        private static string GetOptionUsage(Option option)
+        {
+            var names = GetDisplayOptionNames(option);
+            var suffix = IsBooleanOption(option) ? string.Empty : $" <{GetOptionValueName(option)}>";
+
+            return $"{string.Join(", ", names)}{suffix}";
+        }
+
+        private static string[] GetDisplayOptionNames(Option option)
+        {
+            return option.Aliases
+                .Prepend(option.Name)
+                .Where(static name => name.StartsWith("-", StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static name => name.StartsWith("--", StringComparison.Ordinal) ? 1 : 0)
+                .ThenBy(static name => name, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static bool IsBooleanOption(Option option)
+        {
+            return option is Option<bool> or HelpOption;
+        }
+
+        private static string GetOptionValueName(Option option)
+        {
+            var name = GetDisplayOptionNames(option).Last(static name => name.StartsWith("--", StringComparison.Ordinal));
+            return name[2..];
         }
 
         private static HashSet<string> GetCliOptionNames(CommandResult commandResult)
@@ -487,7 +562,7 @@ internal sealed class ResourceCommand : BaseCommand
                 parts.Add(argument.Label);
             }
 
-            if (argument.Required)
+            if (argument.Required && string.IsNullOrEmpty(argument.Value))
             {
                 parts.Add("Required.");
             }
