@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Targets milestone 13.4 (body explicitly states 'milestone: 13.4'); not relevant to 13.3 changelog",
+  "mergedAt": "2026-05-09T03:26:52Z",
+  "number": 895,
+  "runDate": "2026-05-09T05:05:44Z",
+  "status": "excluded",
+  "title": "[docs] Update Foundry TypeScript role assignment method name"
+}
