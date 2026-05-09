@@ -40,7 +40,9 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         var command = provider.GetRequiredService<RootCommand>();
         var result = command.Parse("resource");
 
-        // Missing required argument should fail
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("The 'resource' argument is required.", error.Message);
+
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         Assert.NotEqual(ExitCodeConstants.Success, exitCode);
     }
@@ -55,7 +57,9 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
         var command = provider.GetRequiredService<RootCommand>();
         var result = command.Parse("resource myresource");
 
-        // Missing required command argument should fail
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("The 'command' argument is required.", error.Message);
+
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         Assert.NotEqual(ExitCodeConstants.Success, exitCode);
     }
@@ -402,6 +406,34 @@ public class ResourceCommandTests(ITestOutputHelper outputHelper)
 
         Assert.Equal(ExitCodeConstants.Success, exitCode);
         AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("timeoutMilliseconds", "500"));
+    }
+
+    [Fact]
+    public async Task ResourceCommand_DoesNotMatchCommandMetadataUsingDifferentCase()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var backchannel = new TestAppHostAuxiliaryBackchannel
+        {
+            ExecuteResourceCommandResult = new ExecuteResourceCommandResponse { Success = true },
+            ResourceSnapshots =
+            [
+                CreateResourceSnapshot(
+                    "web-browser-automation",
+                    CreateCommand(
+                        "configure",
+                        CreateArgument("message")))
+            ]
+        };
+        await using var provider = CreateServiceProvider(workspace, outputHelper, backchannel);
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("""resource web-browser-automation Configure --message hello""");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        AssertJsonObject(backchannel.ExecuteResourceCommandArguments, ("--message", null), ("hello", null));
     }
 
     [Fact]

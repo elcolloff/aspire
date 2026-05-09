@@ -29,12 +29,16 @@ internal sealed class ResourceCommand : BaseCommand
 
     private static readonly Argument<string> s_resourceArgument = new("resource")
     {
-        Description = ResourceCommandStrings.CommandResourceArgumentDescription
+        Description = ResourceCommandStrings.CommandResourceArgumentDescription,
+        Arity = ArgumentArity.ExactlyOne,
+        DefaultValueFactory = _ => string.Empty
     };
 
     private static readonly Argument<string> s_commandArgument = new("command")
     {
-        Description = ResourceCommandStrings.CommandNameArgumentDescription
+        Description = ResourceCommandStrings.CommandNameArgumentDescription,
+        Arity = ArgumentArity.ExactlyOne,
+        DefaultValueFactory = _ => string.Empty
     };
 
     private static readonly OptionWithLegacy<FileInfo?> s_appHostOption = new("--apphost", "--project", SharedCommandStrings.AppHostOptionDescription);
@@ -43,7 +47,7 @@ internal sealed class ResourceCommand : BaseCommand
     /// Well-known commands with their display metadata.
     /// The command name is used directly (no mapping needed since the user-facing names match the actual command names).
     /// </summary>
-    private static readonly Dictionary<string, (string ProgressVerb, string BaseVerb, string PastTenseVerb)> s_wellKnownCommands = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, (string ProgressVerb, string BaseVerb, string PastTenseVerb)> s_wellKnownCommands = new(StringComparers.CommandName)
     {
         ["start"] = ("Starting", "start", "started"),
         ["stop"] = ("Stopping", "stop", "stopped"),
@@ -70,6 +74,22 @@ internal sealed class ResourceCommand : BaseCommand
         Options.Add(s_appHostOption);
         Options.Add(new HelpOption { Action = new ResourceCommandHelpAction(this) });
         TreatUnmatchedTokensAsErrors = false;
+
+        Validators.Add(result =>
+        {
+            var resourceName = result.GetValue(s_resourceArgument);
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                result.AddError("The 'resource' argument is required.");
+                return;
+            }
+
+            var commandName = result.GetValue(s_commandArgument);
+            if (string.IsNullOrEmpty(commandName))
+            {
+                result.AddError("The 'command' argument is required.");
+            }
+        });
     }
 
     protected override async Task<int> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -135,7 +155,7 @@ internal sealed class ResourceCommand : BaseCommand
 
         return resources
             .SelectMany(static resource => resource.Commands)
-            .FirstOrDefault(command => string.Equals(command.Name, commandName, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(command => string.Equals(command.Name, commandName, StringComparisons.CommandName));
     }
 
     private static (JsonNode? Arguments, string? ErrorMessage) CreateCommandArguments(ResourceSnapshotCommand? command, string[] capturedArguments)
