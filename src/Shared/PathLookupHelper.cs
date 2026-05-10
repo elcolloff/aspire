@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 
 /// <summary>
@@ -8,6 +9,36 @@ using System.Diagnostics;
 /// </summary>
 internal static class PathLookupHelper
 {
+    /// <summary>
+    /// Resolves an executable path or command name to a full path by searching the system PATH.
+    /// </summary>
+    /// <param name="executablePath">The executable path or command name to resolve.</param>
+    /// <param name="environmentVariables">Optional environment variable overrides to use for lookup.</param>
+    /// <returns>The resolved executable path if found; otherwise, <paramref name="executablePath"/>.</returns>
+    public static string ResolveExecutablePath(string executablePath, IDictionary<string, string>? environmentVariables = null)
+    {
+        Debug.Assert(!string.IsNullOrWhiteSpace(executablePath));
+
+        // Values with a directory/root component are explicit paths (relative, absolute, UNC, drive-relative, etc.).
+        // Do not PATH-search or append PATHEXT here; let Process.Start handle missing files or platform-specific path rules.
+        if (IsExplicitExecutablePath(executablePath))
+        {
+            return executablePath;
+        }
+
+        // The actual PATH walk is shared by FindFullPathFromPath below. This wrapper first computes the
+        // effective PATH/PATHEXT from command-specific environment overrides so lookup matches the child process.
+        var (pathOverride, pathExtensionsOverride) = GetPathLookupEnvironmentVariables(environmentVariables);
+
+        var path = pathOverride ?? Environment.GetEnvironmentVariable("PATH");
+        var pathExtensions = OperatingSystem.IsWindows()
+            ? (pathExtensionsOverride ?? Environment.GetEnvironmentVariable("PATHEXT"))?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? []
+            : null;
+
+        return FindFullPathFromPath(executablePath, path, Path.PathSeparator, File.Exists, pathExtensions)
+            ?? executablePath;
+    }
+
     /// <summary>
     /// Finds the full path of a command by searching the system PATH.
     /// On Windows, this also searches for executables with common extensions (.exe, .cmd, .bat, etc.).
@@ -72,5 +103,49 @@ internal static class PathLookupHelper
         }
 
         return null;
+    }
+
+    private static bool IsExplicitExecutablePath(string executablePath)
+    {
+        return !string.Equals(Path.GetFileName(executablePath), executablePath, StringComparison.Ordinal)
+            || Path.IsPathRooted(executablePath);
+    }
+
+    private static (string? Path, string? PathExtensions) GetPathLookupEnvironmentVariables(IDictionary<string, string>? environmentVariables)
+    {
+        if (environmentVariables is null)
+        {
+            return default;
+        }
+
+        var hasPath = environmentVariables.TryGetValue("PATH", out var path);
+        string? pathExtensions = null;
+        var hasPathExtensions = OperatingSystem.IsWindows() && environmentVariables.TryGetValue("PATHEXT", out pathExtensions);
+
+        // Environment variables are case-insensitive on Windows and case-sensitive on Unix-like systems.
+        // Scan once for both PATH and PATHEXT casing variants instead of scanning once per variable.
+        if (OperatingSystem.IsWindows() && (!hasPath || !hasPathExtensions))
+        {
+            foreach (var (key, environmentValue) in environmentVariables)
+            {
+                if (!hasPath && string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase))
+                {
+                    path = environmentValue;
+                    hasPath = true;
+                }
+                else if (!hasPathExtensions && string.Equals(key, "PATHEXT", StringComparison.OrdinalIgnoreCase))
+                {
+                    pathExtensions = environmentValue;
+                    hasPathExtensions = true;
+                }
+
+                if (hasPath && hasPathExtensions)
+                {
+                    break;
+                }
+            }
+        }
+
+        return (path, pathExtensions);
     }
 }

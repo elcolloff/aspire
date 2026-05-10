@@ -20,6 +20,11 @@ internal static partial class ProcessUtil
 
     public static (Task<ProcessResult>, IAsyncDisposable) Run(ProcessSpec processSpec)
     {
+        if (processSpec.Arguments is not null && processSpec.ArgumentList is not null)
+        {
+            throw new InvalidOperationException($"Specify either {nameof(ProcessSpec.Arguments)} or {nameof(ProcessSpec.ArgumentList)}, not both.");
+        }
+
         var retainedOutputLineCount = processSpec.RetainedOutputLineCount ?? (processSpec.ThrowOnNonZeroReturnCode ? ProcessSpec.DefaultRetainedOutputLineCount : 0);
         ArgumentOutOfRangeException.ThrowIfNegative(retainedOutputLineCount);
 
@@ -27,13 +32,17 @@ internal static partial class ProcessUtil
             ? new(retainedOutputLineCount)
             : null;
 
+        var resolvedExecutablePath = processSpec.ResolveExecutablePath
+            ? PathLookupHelper.ResolveExecutablePath(processSpec.ExecutablePath, processSpec.EnvironmentVariables)
+            : processSpec.ExecutablePath;
+
         var process = new System.Diagnostics.Process()
         {
             StartInfo =
             {
-                FileName = processSpec.ExecutablePath,
+                FileName = resolvedExecutablePath,
                 WorkingDirectory = processSpec.WorkingDirectory ?? string.Empty,
-                Arguments = processSpec.Arguments,
+                Arguments = processSpec.Arguments ?? string.Empty,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = processSpec.StandardInputContent != null,
@@ -43,6 +52,14 @@ internal static partial class ProcessUtil
             },
             EnableRaisingEvents = true
         };
+
+        if (processSpec.ArgumentList is not null)
+        {
+            foreach (var argument in processSpec.ArgumentList)
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+        }
 
         if (!processSpec.InheritEnv)
         {
@@ -112,8 +129,12 @@ internal static partial class ProcessUtil
 #endif
 
             process.Start();
-            
-            // Write standard input if provided and ensure it's flushed before closing
+            processSpec.OnStart?.Invoke(process.Id);
+            startupComplete.Set();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            // Write standard input after output reads are active so processes can write before reading input.
             if (processSpec.StandardInputContent != null)
             {
                 var writer = process.StandardInput;
@@ -121,10 +142,6 @@ internal static partial class ProcessUtil
                 writer.Flush();
                 writer.Close();
             }
-            
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            processSpec.OnStart?.Invoke(process.Id);
 
             _ = Task.Run(async () =>
             {
@@ -212,7 +229,16 @@ internal static partial class ProcessUtil
                 sys_kill(_process.Id, sig: 2); // SIGINT
             }
 
-            await _processLifetimeTask.WaitAsync(s_processExitTimeout).ConfigureAwait(false);
+            try
+            {
+                await _processLifetimeTask.WaitAsync(s_processExitTimeout).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (!_process.HasExited)
+            {
+                _process.Kill(entireProcessTree: true);
+                await _processLifetimeTask.WaitAsync(s_processExitTimeout).ConfigureAwait(false);
+            }
+
             if (!_process.HasExited)
             {
                 // Always try to kill the entire process tree here if all of the above has failed.

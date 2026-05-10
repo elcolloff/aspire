@@ -509,6 +509,50 @@ func (d *GenerateParameterDefault) ToMap() map[string]any {
 	return m
 }
 
+// ProcessCommandExportOptions represents ProcessCommandExportOptions.
+type ProcessCommandExportOptions struct {
+	ExecutablePath string `json:"ExecutablePath,omitempty"`
+	Arguments []string `json:"Arguments,omitempty"`
+	WorkingDirectory string `json:"WorkingDirectory,omitempty"`
+	EnvironmentVariables []*ProcessCommandEnvironmentVariable `json:"EnvironmentVariables,omitempty"`
+	InheritEnvironmentVariables bool `json:"InheritEnvironmentVariables,omitempty"`
+	StandardInputContent string `json:"StandardInputContent,omitempty"`
+	KillEntireProcessTree bool `json:"KillEntireProcessTree,omitempty"`
+	CommandOptions *CommandOptions `json:"CommandOptions,omitempty"`
+	MaxOutputLineCount float64 `json:"MaxOutputLineCount,omitempty"`
+	DisplayImmediately bool `json:"DisplayImmediately,omitempty"`
+}
+
+// ToMap converts the DTO to a map for JSON serialization.
+func (d *ProcessCommandExportOptions) ToMap() map[string]any {
+	m := map[string]any{}
+	m["ExecutablePath"] = serializeValue(d.ExecutablePath)
+	if d.Arguments != nil { m["Arguments"] = serializeValue(d.Arguments) }
+	m["WorkingDirectory"] = serializeValue(d.WorkingDirectory)
+	if d.EnvironmentVariables != nil { m["EnvironmentVariables"] = serializeValue(d.EnvironmentVariables) }
+	m["InheritEnvironmentVariables"] = serializeValue(d.InheritEnvironmentVariables)
+	m["StandardInputContent"] = serializeValue(d.StandardInputContent)
+	m["KillEntireProcessTree"] = serializeValue(d.KillEntireProcessTree)
+	if d.CommandOptions != nil { m["CommandOptions"] = serializeValue(d.CommandOptions) }
+	m["MaxOutputLineCount"] = serializeValue(d.MaxOutputLineCount)
+	m["DisplayImmediately"] = serializeValue(d.DisplayImmediately)
+	return m
+}
+
+// ProcessCommandEnvironmentVariable represents ProcessCommandEnvironmentVariable.
+type ProcessCommandEnvironmentVariable struct {
+	Name string `json:"Name,omitempty"`
+	Value string `json:"Value,omitempty"`
+}
+
+// ToMap converts the DTO to a map for JSON serialization.
+func (d *ProcessCommandEnvironmentVariable) ToMap() map[string]any {
+	m := map[string]any{}
+	m["Name"] = serializeValue(d.Name)
+	m["Value"] = serializeValue(d.Value)
+	return m
+}
+
 // ExecuteCommandResult represents ExecuteCommandResult.
 type ExecuteCommandResult struct {
 	Success bool `json:"Success,omitempty"`
@@ -938,6 +982,7 @@ type Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource interface {
 	WithParentRelationship(parent Resource) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithReference(source any, options ...*WithReferenceOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithRelationship(resourceBuilder Resource, type_ string) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
@@ -2341,6 +2386,20 @@ func (s *aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource) WithPipelineSt
 	return s
 }
 
+// WithProcessCommand adds a process resource command
+func (s *aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithReference adds a reference to another resource
 // Allowed types for parameter source: Resource, EndpointReference, string.
 func (s *aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource) WithReference(source any, options ...*WithReferenceOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource {
@@ -2776,6 +2835,7 @@ type CSharpAppResource interface {
 	WithParentRelationship(parent Resource) CSharpAppResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) CSharpAppResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) CSharpAppResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) CSharpAppResource
 	WithReference(source any, options ...*WithReferenceOptions) CSharpAppResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) CSharpAppResource
 	WithRelationship(resourceBuilder Resource, type_ string) CSharpAppResource
@@ -3950,6 +4010,20 @@ func (s *cSharpAppResource) WithPipelineStepFactory(stepName string, callback fu
 	return s
 }
 
+// WithProcessCommand adds a process resource command
+func (s *cSharpAppResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) CSharpAppResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithReference adds a reference to another resource
 // Allowed types for parameter source: Resource, EndpointReference, string.
 func (s *cSharpAppResource) WithReference(source any, options ...*WithReferenceOptions) CSharpAppResource {
@@ -4703,6 +4777,7 @@ type ContainerRegistryResource interface {
 	WithParentRelationship(parent Resource) ContainerRegistryResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ContainerRegistryResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ContainerRegistryResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ContainerRegistryResource
 	WithRelationship(resourceBuilder Resource, type_ string) ContainerRegistryResource
 	WithRequiredCommand(command string, options ...*WithRequiredCommandOptions) ContainerRegistryResource
 	WithStatus(status TestResourceStatus) ContainerRegistryResource
@@ -5311,6 +5386,20 @@ func (s *containerRegistryResource) WithPipelineStepFactory(stepName string, cal
 	return s
 }
 
+// WithProcessCommand adds a process resource command
+func (s *containerRegistryResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ContainerRegistryResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithRelationship adds a relationship to another resource
 func (s *containerRegistryResource) WithRelationship(resourceBuilder Resource, type_ string) ContainerRegistryResource {
 	if s.err != nil { return s }
@@ -5548,6 +5637,7 @@ type ContainerResource interface {
 	WithParentRelationship(parent Resource) ContainerResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ContainerResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ContainerResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ContainerResource
 	WithReference(source any, options ...*WithReferenceOptions) ContainerResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) ContainerResource
 	WithRelationship(resourceBuilder Resource, type_ string) ContainerResource
@@ -6947,6 +7037,20 @@ func (s *containerResource) WithPipelineStepFactory(stepName string, callback fu
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *containerResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ContainerResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -8702,6 +8806,7 @@ type DotnetToolResource interface {
 	WithParentRelationship(parent Resource) DotnetToolResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) DotnetToolResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) DotnetToolResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) DotnetToolResource
 	WithReference(source any, options ...*WithReferenceOptions) DotnetToolResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) DotnetToolResource
 	WithRelationship(resourceBuilder Resource, type_ string) DotnetToolResource
@@ -9859,6 +9964,20 @@ func (s *dotnetToolResource) WithPipelineStepFactory(stepName string, callback f
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *dotnetToolResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) DotnetToolResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -11195,6 +11314,7 @@ type ExecutableResource interface {
 	WithParentRelationship(parent Resource) ExecutableResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ExecutableResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ExecutableResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ExecutableResource
 	WithReference(source any, options ...*WithReferenceOptions) ExecutableResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) ExecutableResource
 	WithRelationship(resourceBuilder Resource, type_ string) ExecutableResource
@@ -12349,6 +12469,20 @@ func (s *executableResource) WithPipelineStepFactory(stepName string, callback f
 	return s
 }
 
+// WithProcessCommand adds a process resource command
+func (s *executableResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ExecutableResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithReference adds a reference to another resource
 // Allowed types for parameter source: Resource, EndpointReference, string.
 func (s *executableResource) WithReference(source any, options ...*WithReferenceOptions) ExecutableResource {
@@ -12894,6 +13028,7 @@ type ExternalServiceResource interface {
 	WithParentRelationship(parent Resource) ExternalServiceResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ExternalServiceResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ExternalServiceResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ExternalServiceResource
 	WithRelationship(resourceBuilder Resource, type_ string) ExternalServiceResource
 	WithRequiredCommand(command string, options ...*WithRequiredCommandOptions) ExternalServiceResource
 	WithStatus(status TestResourceStatus) ExternalServiceResource
@@ -13517,6 +13652,20 @@ func (s *externalServiceResource) WithPipelineStepFactory(stepName string, callb
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *externalServiceResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ExternalServiceResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -14223,6 +14372,7 @@ type ParameterResource interface {
 	WithParentRelationship(parent Resource) ParameterResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ParameterResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ParameterResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ParameterResource
 	WithRelationship(resourceBuilder Resource, type_ string) ParameterResource
 	WithRequiredCommand(command string, options ...*WithRequiredCommandOptions) ParameterResource
 	WithStatus(status TestResourceStatus) ParameterResource
@@ -14847,6 +14997,20 @@ func (s *parameterResource) WithPipelineStepFactory(stepName string, callback fu
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *parameterResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ParameterResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -15707,6 +15871,7 @@ type ProjectResource interface {
 	WithParentRelationship(parent Resource) ProjectResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) ProjectResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) ProjectResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ProjectResource
 	WithReference(source any, options ...*WithReferenceOptions) ProjectResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) ProjectResource
 	WithRelationship(resourceBuilder Resource, type_ string) ProjectResource
@@ -16878,6 +17043,20 @@ func (s *projectResource) WithPipelineStepFactory(stepName string, callback func
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *projectResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) ProjectResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -18575,6 +18754,7 @@ type TestDatabaseResource interface {
 	WithParentRelationship(parent Resource) TestDatabaseResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) TestDatabaseResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) TestDatabaseResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) TestDatabaseResource
 	WithReference(source any, options ...*WithReferenceOptions) TestDatabaseResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) TestDatabaseResource
 	WithRelationship(resourceBuilder Resource, type_ string) TestDatabaseResource
@@ -19977,6 +20157,20 @@ func (s *testDatabaseResource) WithPipelineStepFactory(stepName string, callback
 	return s
 }
 
+// WithProcessCommand adds a process resource command
+func (s *testDatabaseResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) TestDatabaseResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithReference adds a reference to another resource
 // Allowed types for parameter source: Resource, EndpointReference, string.
 func (s *testDatabaseResource) WithReference(source any, options ...*WithReferenceOptions) TestDatabaseResource {
@@ -20483,6 +20677,7 @@ type TestRedisResource interface {
 	WithPersistence(options ...*WithPersistenceOptions) TestRedisResource
 	WithPipelineConfiguration(callback func(obj PipelineConfigurationContext)) TestRedisResource
 	WithPipelineStepFactory(stepName string, callback func(arg PipelineStepContext), options ...*WithPipelineStepFactoryOptions) TestRedisResource
+	WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) TestRedisResource
 	WithRedisSpecific(option string) TestRedisResource
 	WithReference(source any, options ...*WithReferenceOptions) TestRedisResource
 	WithReferenceEnvironment(options *ReferenceEnvironmentInjectionOptions) TestRedisResource
@@ -22139,6 +22334,20 @@ func (s *testRedisResource) WithPipelineStepFactory(stepName string, callback fu
 		for k, v := range merged.ToMap() { reqArgs[k] = v }
 	}
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withPipelineStepFactory", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithProcessCommand adds a process resource command
+func (s *testRedisResource) WithProcessCommand(commandName string, displayName string, options *ProcessCommandExportOptions) TestRedisResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["commandName"] = serializeValue(commandName)
+	reqArgs["displayName"] = serializeValue(displayName)
+	if options != nil { reqArgs["options"] = serializeValue(options) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withProcessCommand", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
