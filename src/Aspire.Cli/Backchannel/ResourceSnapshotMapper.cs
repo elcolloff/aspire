@@ -151,14 +151,14 @@ internal static class ResourceSnapshotMapper
             Commands = commands
         };
 
-        static bool IsDefaultCommandVisibility(string visibility)
+        static bool IsDefaultCommandVisibility(string? visibility)
         {
             return string.Equals(visibility, KnownCommandVisibility.Default, StringComparison.OrdinalIgnoreCase);
         }
 
-        static bool IsCommandVisibleToApi(string visibility)
+        static bool IsCommandVisibleToApi(string? visibility)
         {
-            return visibility.Split(',').Any(static value => string.Equals(value.Trim(), KnownCommandVisibility.Api, StringComparison.OrdinalIgnoreCase));
+            return visibility?.Split(',').Any(static value => string.Equals(value.Trim(), KnownCommandVisibility.Api, StringComparison.OrdinalIgnoreCase)) is true;
         }
     }
 
