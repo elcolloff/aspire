@@ -2680,6 +2680,12 @@ public static class ResourceBuilderExtensions
     /// </para>
     /// <para>This C# overload is not exported to polyglot app hosts. Use the language-specific static process command API instead.</para>
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// var redis = builder.AddRedis("cache")
+    ///     .WithProcessCommand("dotnet-version", "Show .NET version", "dotnet", ["--version"]);
+    /// </code>
+    /// </example>
     [Experimental("ASPIREPROCESSCOMMAND001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExportIgnore(Reason = "Process commands start local processes from AppHost callbacks and cannot be represented in polyglot app hosts.")]
     public static IResourceBuilder<TResource> WithProcessCommand<TResource>(
@@ -2728,6 +2734,20 @@ public static class ResourceBuilderExtensions
     /// </para>
     /// <para>This C# callback overload is not available in polyglot app hosts.</para>
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// var redis = builder.AddRedis("cache")
+    ///     .WithProcessCommand(
+    ///         "seed-data",
+    ///         "Seed data",
+    ///         context => new ProcessCommandSpec("dotnet")
+    ///         {
+    ///             Arguments = ["run", "--project", "tools/SeedData", "--", context.Arguments.GetString("dataset") ?? "small"],
+    ///             EnvironmentVariables = { ["ConnectionStrings__db"] = "Host=localhost;Database=db" }
+    ///         },
+    ///         new ProcessCommandOptions { MaxOutputLineCount = 20 });
+    /// </code>
+    /// </example>
     [Experimental("ASPIREPROCESSCOMMAND001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExportIgnore(Reason = "Process command factories are C# callbacks and cannot be represented in polyglot app hosts.")]
     public static IResourceBuilder<TResource> WithProcessCommand<TResource>(
@@ -2771,6 +2791,19 @@ public static class ResourceBuilderExtensions
     /// </para>
     /// <para>This C# callback overload is not available in polyglot app hosts.</para>
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// var redis = builder.AddRedis("cache")
+    ///     .WithProcessCommand(
+    ///         "seed-data",
+    ///         "Seed data",
+    ///         context => new ValueTask&lt;ProcessCommandSpec&gt;(new ProcessCommandSpec("dotnet")
+    ///         {
+    ///             Arguments = ["run", "--project", "tools/SeedData", "--", context.Arguments.GetString("dataset") ?? "small"],
+    ///             StandardInputContent = "seed"
+    ///         }));
+    /// </code>
+    /// </example>
     [Experimental("ASPIREPROCESSCOMMAND001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExportIgnore(Reason = "Process command factories are C# callbacks and cannot be represented in polyglot app hosts.")]
     public static IResourceBuilder<TResource> WithProcessCommand<TResource>(
