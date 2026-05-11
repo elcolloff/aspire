@@ -20,7 +20,7 @@ exposes the same session as `aspire terminal agent --replica 0`.
 
 ## Process topology
 
-```
+```text
                                 ┌────────────────────────────┐
                                 │  AppHost (dotnet run)      │
                                 │  - Aspire.Hosting          │
