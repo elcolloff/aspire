@@ -53,7 +53,7 @@ public static class TerminalResourceBuilderExtensions
     ///     });
     /// </code>
     /// </example>
-    [AspireExportIgnore(Reason = "Action<TerminalOptions> delegate parameter is not ATS-compatible.")]
+    [AspireExportIgnore(Reason = "Polyglot app hosts use the parameterless withTerminal dispatcher export.")]
     public static IResourceBuilder<T> WithTerminal<T>(this IResourceBuilder<T> builder, Action<TerminalOptions>? configure = null)
         where T : IResource
     {
@@ -94,6 +94,19 @@ public static class TerminalResourceBuilderExtensions
 
         return builder;
     }
+
+    /// <summary>
+    /// Polyglot dispatcher for <see cref="WithTerminal{T}(IResourceBuilder{T}, Action{TerminalOptions}?)"/>.
+    /// Exposed to non-C# AppHosts via ATS as <c>withTerminal</c> — they cannot pass a
+    /// C# <see cref="Action{T}"/>, so this overload simply applies the defaults from
+    /// <see cref="TerminalOptions"/> (120×30, default shell). Polyglot AppHosts that need
+    /// to customise columns/rows/shell can fall back to per-resource environment variables
+    /// or wait for a future overload that accepts a DTO.
+    /// </summary>
+    [AspireExport("withTerminal", Description = "Adds an interactive terminal session to a resource using the default terminal options.")]
+    internal static IResourceBuilder<T> WithTerminalForPolyglot<T>(this IResourceBuilder<T> builder)
+        where T : IResource
+        => builder.WithTerminal();
 
     /// <summary>
     /// Reads the parent's final <see cref="ReplicaAnnotation"/> and creates one
