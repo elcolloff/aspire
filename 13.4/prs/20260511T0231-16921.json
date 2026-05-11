@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Improvement: aspire resource --help shows resource-specific commands",
+  "mergedAt": "2026-05-11T02:31:52Z",
+  "number": 16921,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Show resource-scoped command help"
+}

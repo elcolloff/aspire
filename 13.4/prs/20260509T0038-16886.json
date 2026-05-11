@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: ATS role assignment export name collision",
+  "mergedAt": "2026-05-09T00:38:17Z",
+  "number": 16886,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Use specific role assignment export names"
+}

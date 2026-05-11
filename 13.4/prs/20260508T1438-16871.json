@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Improvement: ensures project images use same container runtime as Aspire",
+  "mergedAt": "2026-05-08T14:38:35Z",
+  "number": 16871,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Use Aspire container runtime for project image builds"
+}

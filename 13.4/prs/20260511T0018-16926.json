@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Bug fix: whitespace in rendered markdown link text in CLI output",
+  "mergedAt": "2026-05-11T00:18:48Z",
+  "number": 16926,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Trim whitespace in markdown link text and extract MarkdownLinkConverter"
+}

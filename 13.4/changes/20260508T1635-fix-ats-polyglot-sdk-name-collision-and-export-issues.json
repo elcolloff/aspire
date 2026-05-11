@@ -1,0 +1,23 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed multiple ATS polyglot SDK export name collisions and duplicate property issues affecting Orleans, Azure role assignments, GitHub Models, YARP, and inherited resource types, preventing SDK generation failures when using these integrations together.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-08T16:35:11Z",
+  "lastMergedAt": "2026-05-09T04:49:38Z",
+  "name": "Fix ATS polyglot SDK name collision and export issues",
+  "owner": "sebastienros",
+  "prs": [
+    16881,
+    16886,
+    16896,
+    16900,
+    16898
+  ]
+}

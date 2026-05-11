@@ -1,0 +1,9 @@
+{
+  "author": "app/copilot-swe-agent",
+  "comment": "New feature: aspire ls command for listing candidate AppHost projects",
+  "mergedAt": "2026-05-09T01:58:11Z",
+  "number": 16696,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add aspire ls command"
+}

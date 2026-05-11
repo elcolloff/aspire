@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: GitHub Models ATS health check export name collision",
+  "mergedAt": "2026-05-09T03:38:25Z",
+  "number": 16896,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Fix GitHub Models health check export"
+}

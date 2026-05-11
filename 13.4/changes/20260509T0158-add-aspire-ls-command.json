@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Added a new aspire ls command that lists candidate AppHost projects in the current directory without starting or selecting one, supporting both interactive table output and machine-readable JSON output.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📋",
+  "firstMergedAt": "2026-05-09T01:58:11Z",
+  "lastMergedAt": "2026-05-09T01:58:11Z",
+  "name": "New aspire ls command",
+  "owner": "davidfowl",
+  "prs": [
+    16696
+  ]
+}

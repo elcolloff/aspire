@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Internal agent skill update with no user-facing impact",
+  "mergedAt": "2026-05-09T06:32:15Z",
+  "number": 16904,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "excluded",
+  "title": "Improve create-pr skill PR descriptions"
+}

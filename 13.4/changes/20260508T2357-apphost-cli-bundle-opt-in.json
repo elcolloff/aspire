@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "C# AppHost projects can now opt in to using the Aspire CLI bundle for DCP and Dashboard by setting <AspireUseCliBundle>true</AspireUseCliBundle>, enabling the AppHost to use the bundled tools from the Aspire CLI installation instead of the SDK-distributed ones.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📦",
+  "firstMergedAt": "2026-05-08T23:57:56Z",
+  "lastMergedAt": "2026-05-08T23:57:56Z",
+  "name": "AppHost CLI bundle opt-in",
+  "owner": "DamianEdwards",
+  "prs": [
+    16811
+  ]
+}

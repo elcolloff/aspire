@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Internal agent guidance update with no user-facing impact",
+  "mergedAt": "2026-05-10T23:48:32Z",
+  "number": 16924,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "excluded",
+  "title": "Add code comment guidance"
+}

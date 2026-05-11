@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: Orleans ATS export name collision causing SDK generation failures",
+  "mergedAt": "2026-05-08T16:35:11Z",
+  "number": 16881,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Avoid Orleans ATS reference name collisions"
+}

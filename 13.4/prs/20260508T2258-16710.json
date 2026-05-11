@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "New feature: resource command argument metadata and visibility support",
+  "mergedAt": "2026-05-08T22:58:17Z",
+  "number": 16710,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add resource command arguments and visibility"
+}

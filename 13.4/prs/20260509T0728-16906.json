@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "New feature: CommandResults.Success overload for immediate dashboard display",
+  "mergedAt": "2026-05-09T07:28:55Z",
+  "number": 16906,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add displayImmediately command result overload"
+}

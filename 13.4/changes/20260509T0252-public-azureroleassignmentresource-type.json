@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Introduced a new public AzureRoleAssignmentResource type that allows pipeline steps and application model code to inspect and reason about Azure role assignments, enabling custom deployment logic based on what roles are assigned to which Azure resources.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔑",
+  "firstMergedAt": "2026-05-09T02:52:50Z",
+  "lastMergedAt": "2026-05-09T02:52:50Z",
+  "name": "Public AzureRoleAssignmentResource type",
+  "owner": "eerhardt",
+  "prs": [
+    16888
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "app/copilot-swe-agent",
+  "comment": "Bug fix: dashboard showing wrong state detail for FailedToStart containers",
+  "mergedAt": "2026-05-11T01:06:42Z",
+  "number": 16747,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Fix misleading no longer running state detail when container fails to start"
+}

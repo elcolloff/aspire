@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Improvement: resource command inputs now use named CLI options",
+  "mergedAt": "2026-05-09T07:43:50Z",
+  "number": 16903,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Support named resource command options"
+}

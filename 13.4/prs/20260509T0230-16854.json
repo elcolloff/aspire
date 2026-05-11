@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Improvement: aspire stop --all now tags messages with AppHost name",
+  "mergedAt": "2026-05-09T02:30:34Z",
+  "number": 16854,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Clarify AppHost output from stop all"
+}

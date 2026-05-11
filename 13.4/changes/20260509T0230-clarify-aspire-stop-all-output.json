@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The aspire stop --all command now tags each status message with the AppHost name it applies to, and appends the PID when multiple instances share the same project path, making output clearer when stopping multiple running AppHost instances.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛑",
+  "firstMergedAt": "2026-05-09T02:30:34Z",
+  "lastMergedAt": "2026-05-09T02:30:34Z",
+  "name": "Clearer aspire stop --all output",
+  "owner": "davidfowl",
+  "prs": [
+    16854
+  ]
+}

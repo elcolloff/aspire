@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Aspire now propagates the active container runtime (Docker or Podman) to .NET project image builds via PublishContainer, ensuring project images are always built with the same runtime used for container resources.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐳",
+  "firstMergedAt": "2026-05-08T14:38:35Z",
+  "lastMergedAt": "2026-05-08T14:38:35Z",
+  "name": "Use Aspire container runtime for project image builds",
+  "owner": "davidfowl",
+  "prs": [
+    16871
+  ]
+}

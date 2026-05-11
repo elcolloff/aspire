@@ -1,0 +1,20 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Resource commands now support typed input arguments with metadata (descriptions, default values, allowed values) and per-command visibility controls. Command results can be flagged to display immediately in the dashboard, and visibility can be set per-command to control whether they appear in the CLI, dashboard, or MCP tools.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🎛️",
+  "firstMergedAt": "2026-05-08T22:58:17Z",
+  "lastMergedAt": "2026-05-09T07:28:55Z",
+  "name": "Resource command arguments, visibility, and immediate result display",
+  "owner": "davidfowl",
+  "prs": [
+    16710,
+    16906
+  ]
+}

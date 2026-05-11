@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Improvement: aspire update requires --yes in non-interactive mode",
+  "mergedAt": "2026-05-11T02:04:27Z",
+  "number": 16829,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add --yes validation to UpdateCommand and share validation logic"
+}

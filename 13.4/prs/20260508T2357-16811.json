@@ -1,0 +1,9 @@
+{
+  "author": "DamianEdwards",
+  "comment": "New feature: opt-in for AppHost to use CLI-bundled DCP and Dashboard",
+  "mergedAt": "2026-05-08T23:57:56Z",
+  "number": 16811,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add AppHost CLI bundle opt-in"
+}

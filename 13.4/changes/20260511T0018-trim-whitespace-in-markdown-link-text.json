@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed leading and trailing whitespace being included in rendered markdown link text in the CLI output, ensuring links display cleanly in both Spectre.Console markup and plain-text modes.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔗",
+  "firstMergedAt": "2026-05-11T00:18:48Z",
+  "lastMergedAt": "2026-05-11T00:18:48Z",
+  "name": "Fix whitespace trimming in CLI markdown links",
+  "owner": "JamesNK",
+  "prs": [
+    16926
+  ]
+}

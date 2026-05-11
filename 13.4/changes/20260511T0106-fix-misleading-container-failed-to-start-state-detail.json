@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed the dashboard incorrectly showing \"Container is no longer running\" for containers in FailedToStart state. These containers now show a more accurate state detail indicating they failed to start rather than suggesting they previously ran.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐞",
+  "firstMergedAt": "2026-05-11T01:06:42Z",
+  "lastMergedAt": "2026-05-11T01:06:42Z",
+  "name": "Fix misleading state detail for containers that failed to start",
+  "owner": "JamesNK",
+  "prs": [
+    16747
+  ]
+}

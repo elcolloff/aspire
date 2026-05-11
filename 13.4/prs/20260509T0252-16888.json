@@ -1,0 +1,9 @@
+{
+  "author": "eerhardt",
+  "comment": "New feature: public type for inspecting Azure role assignments in app model",
+  "mergedAt": "2026-05-09T02:52:50Z",
+  "number": 16888,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Add public AzureRoleAssignmentResource type"
+}

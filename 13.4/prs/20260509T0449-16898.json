@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: ATS scanner generating duplicate inherited property capabilities",
+  "mergedAt": "2026-05-09T04:49:38Z",
+  "number": 16898,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Avoid duplicate inherited ATS properties"
+}

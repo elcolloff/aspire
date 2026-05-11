@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Breaking change: removed experimental aspire exec command",
+  "mergedAt": "2026-05-11T01:25:38Z",
+  "number": 16913,
+  "runDate": "2026-05-11T10:11:52Z",
+  "status": "included",
+  "title": "Remove aspire exec command"
+}
