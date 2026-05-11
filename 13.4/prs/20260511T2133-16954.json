@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: Foundry search connection ATS export warning - incompatible raw resource parameter overload",
+  "mergedAt": "2026-05-11T21:33:16Z",
+  "number": 16954,
+  "runDate": "2026-05-11T22:25:42Z",
+  "status": "included",
+  "title": "Fix Foundry search connection export"
+}

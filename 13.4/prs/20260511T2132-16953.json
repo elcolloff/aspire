@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Bug fix: Export missing Docker service config/secret/ulimit reference node types for ATS SDK generation",
+  "mergedAt": "2026-05-11T21:32:39Z",
+  "number": 16953,
+  "runDate": "2026-05-11T22:25:42Z",
+  "status": "included",
+  "title": "Export Docker service reference node types"
+}

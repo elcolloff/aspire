@@ -1,0 +1,9 @@
+{
+  "author": "eerhardt",
+  "comment": "Improvement: Validates Foundry hosted agent env var names before deploy to prevent silent failures",
+  "mergedAt": "2026-05-11T21:45:03Z",
+  "number": 16884,
+  "runDate": "2026-05-11T22:25:42Z",
+  "status": "included",
+  "title": "Validate environment variable names for Foundry hosted agents"
+}
