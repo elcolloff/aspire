@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents aspire#16903 named resource command options - added to named-resource-command-options-and-resource-scoped-help entry",
+  "mergedAt": "2026-05-11T12:01:10Z",
+  "number": 898,
+  "runDate": "2026-05-11T12:57:46Z",
+  "status": "included",
+  "title": "[docs] Update aspire resource command docs with named options and command-specific help"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Docs site infrastructure change (redirect /whats-new/ to latest release notes) - not related to any product feature changelog entry",
+  "mergedAt": "2026-05-11T11:50:52Z",
+  "number": 906,
+  "runDate": "2026-05-11T12:57:46Z",
+  "status": "excluded",
+  "title": "Redirect /whats-new/ to the latest release notes"
+}
