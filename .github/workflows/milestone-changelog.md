@@ -39,8 +39,8 @@ env:
   PRODUCT: "Aspire"
   REPO: "microsoft/aspire"
   DOCS_REPO: "microsoft/aspire.dev"
-  MILESTONE_START: "2026-03-01"
-  MILESTONE: "13.3"
+  MILESTONE_START: "2026-05-08"
+  MILESTONE: "13.4"
   BATCH_SIZE: "20"
 
 on:
@@ -423,7 +423,7 @@ Each run appends newly merged changes to the existing content while preserving
 previous entries. A companion feedback issue collects editorial comments.
 
 > **Note:** `${PRODUCT}`, `${REPO}`, `${DOCS_REPO}`, `${MILESTONE_START}`, `${MILESTONE}`, and `${BATCH_SIZE}` refer to values set in the workflow's
-> `env` block (currently **`Aspire`**, **`microsoft/aspire`**, **`microsoft/aspire.dev`**, **`2026-03-01`**, **`13.3`**, and **`20`**). All file names,
+> `env` block (currently **`Aspire`**, **`microsoft/aspire`**, **`microsoft/aspire.dev`**, **`2026-05-08`**, **`13.4`**, and **`20`**). All file names,
 > titles, and references below derive from those values.
 
 ## Important: available tools
