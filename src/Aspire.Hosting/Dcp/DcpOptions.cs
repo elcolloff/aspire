@@ -235,6 +235,27 @@ internal class ConfigureDefaultDcpOptions(
             options.TerminalHostInvocationArgs = GetMetadataValue(assemblyMetadata, TerminalHostInvocationArgsMetadataKey);
         }
 
+        // Bundle fallback: when the AppHost is launched from the CLI bundle (TS AppHosts and any
+        // pre-built dotnet AppHost), the CLI sets ASPIRE_DASHBOARD_PATH to point at the multi-mode
+        // aspire-managed exe but does NOT set ASPIRE_TERMINAL_HOST_PATH (the bundle ships a single
+        // managed binary that dispatches to dashboard/terminalhost via a leading subcommand arg).
+        // If TerminalHostPath is still empty after the explicit lookup chain above and DashboardPath
+        // points at aspire-managed, reuse the same binary with "terminalhost" as the dispatcher arg
+        // so .WithTerminal() works in bundle scenarios without the CLI needing to know about every
+        // managed subcommand. Standalone per-RID NuGet packages keep their own dedicated terminal
+        // host binary via the assembly-metadata path above and never hit this fallback.
+        if (string.IsNullOrEmpty(options.TerminalHostPath) &&
+            !string.IsNullOrEmpty(options.DashboardPath) &&
+            BundleDiscovery.IsAspireManagedBinary(options.DashboardPath))
+        {
+            options.TerminalHostPath = options.DashboardPath;
+
+            if (string.IsNullOrEmpty(options.TerminalHostInvocationArgs))
+            {
+                options.TerminalHostInvocationArgs = "terminalhost";
+            }
+        }
+
         if (!string.IsNullOrEmpty(dcpPublisherConfiguration[nameof(options.ContainerRuntime)]))
         {
             options.ContainerRuntime = dcpPublisherConfiguration[nameof(options.ContainerRuntime)];
