@@ -2956,7 +2956,7 @@ public static class ResourceBuilderExtensions
         };
     }
 
-    private static Dictionary<string, string> CreateEnvironmentVariables(IReadOnlyList<ProcessCommandEnvironmentVariable>? environmentVariables)
+    private static Dictionary<string, string> CreateEnvironmentVariables(IReadOnlyDictionary<string, string>? environmentVariables)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         if (environmentVariables is null)
@@ -2964,24 +2964,19 @@ public static class ResourceBuilderExtensions
             return result;
         }
 
-        foreach (var environmentVariable in environmentVariables)
+        foreach (var (name, value) in environmentVariables)
         {
-            if (environmentVariable is null)
-            {
-                throw new DistributedApplicationException("Process command environment variables cannot contain null entries.");
-            }
-
-            if (string.IsNullOrWhiteSpace(environmentVariable.Name))
+            if (string.IsNullOrWhiteSpace(name))
             {
                 throw new DistributedApplicationException("Process command environment variables require non-empty names.");
             }
 
-            if (environmentVariable.Value is null)
+            if (value is null)
             {
-                throw new DistributedApplicationException($"Process command environment variable '{environmentVariable.Name}' requires a value.");
+                throw new DistributedApplicationException($"Process command environment variable '{name}' requires a value.");
             }
 
-            result.Add(environmentVariable.Name, environmentVariable.Value);
+            result.Add(name, value);
         }
 
         return result;

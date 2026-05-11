@@ -921,7 +921,7 @@ pub struct ProcessCommandExportOptions {
     #[serde(rename = "WorkingDirectory")]
     pub working_directory: String,
     #[serde(rename = "EnvironmentVariables")]
-    pub environment_variables: Vec<ProcessCommandEnvironmentVariable>,
+    pub environment_variables: HashMap<String, String>,
     #[serde(rename = "InheritEnvironmentVariables", skip_serializing_if = "Option::is_none")]
     pub inherit_environment_variables: Option<bool>,
     #[serde(rename = "StandardInputContent")]
@@ -957,24 +957,6 @@ impl ProcessCommandExportOptions {
         if let Some(ref v) = self.display_immediately {
             map.insert("DisplayImmediately".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
-        map
-    }
-}
-
-/// ProcessCommandEnvironmentVariable
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProcessCommandEnvironmentVariable {
-    #[serde(rename = "Name")]
-    pub name: String,
-    #[serde(rename = "Value")]
-    pub value: String,
-}
-
-impl ProcessCommandEnvironmentVariable {
-    pub fn to_map(&self) -> HashMap<String, Value> {
-        let mut map = HashMap::new();
-        map.insert("Name".to_string(), serde_json::to_value(&self.name).unwrap_or(Value::Null));
-        map.insert("Value".to_string(), serde_json::to_value(&self.value).unwrap_or(Value::Null));
         map
     }
 }

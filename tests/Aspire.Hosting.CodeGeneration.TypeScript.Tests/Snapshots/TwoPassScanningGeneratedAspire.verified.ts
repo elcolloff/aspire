@@ -576,18 +576,12 @@ export interface HttpsCertificateInfo {
     thumbprint?: string;
 }
 
-/** DTO interface for ProcessCommandEnvironmentVariable */
-export interface ProcessCommandEnvironmentVariable {
-    name?: string;
-    value?: string;
-}
-
 /** DTO interface for ProcessCommandExportOptions */
 export interface ProcessCommandExportOptions {
     executablePath?: string;
     arguments?: string[];
     workingDirectory?: string;
-    environmentVariables?: ProcessCommandEnvironmentVariable[];
+    environmentVariables?: Record<string, string>;
     inheritEnvironmentVariables?: boolean;
     standardInputContent?: string;
     killEntireProcessTree?: boolean;

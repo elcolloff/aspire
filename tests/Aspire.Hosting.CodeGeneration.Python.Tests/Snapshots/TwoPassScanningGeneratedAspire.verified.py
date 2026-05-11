@@ -1807,15 +1807,11 @@ class InteractionInput(typing.TypedDict, total=False):
     Disabled: bool
     MaxLength: int
 
-class ProcessCommandEnvironmentVariable(typing.TypedDict, total=False):
-    Name: str
-    Value: str
-
 class ProcessCommandExportOptions(typing.TypedDict, total=False):
     ExecutablePath: str
     Arguments: typing.Iterable[str]
     WorkingDirectory: str
-    EnvironmentVariables: typing.Iterable[ProcessCommandEnvironmentVariable]
+    EnvironmentVariables: typing.Mapping[str, str]
     InheritEnvironmentVariables: bool
     StandardInputContent: str
     KillEntireProcessTree: bool

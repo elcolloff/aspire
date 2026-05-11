@@ -676,14 +676,10 @@ public class WithProcessCommandTests(ITestOutputHelper testOutputHelper)
                     ExecutablePath = "export-executable",
                     Arguments = ["--from-export"],
                     WorkingDirectory = "/test/export-working-directory",
-                    EnvironmentVariables =
-                    [
-                        new ProcessCommandEnvironmentVariable
-                        {
-                            Name = "PROCESS_COMMAND_EXPORT_VALUE",
-                            Value = "from-export-environment"
-                        }
-                    ],
+                    EnvironmentVariables = new Dictionary<string, string>
+                    {
+                        ["PROCESS_COMMAND_EXPORT_VALUE"] = "from-export-environment"
+                    },
                     InheritEnvironmentVariables = false,
                     StandardInputContent = "from-export-stdin",
                     KillEntireProcessTree = false,
@@ -762,35 +758,20 @@ public class WithProcessCommandTests(ITestOutputHelper testOutputHelper)
                 new ProcessCommandExportOptions
                 {
                     ExecutablePath = "test-command",
-                    EnvironmentVariables = [null!]
-                },
-                "environment variables cannot contain null entries"),
-            (
-                new ProcessCommandExportOptions
-                {
-                    ExecutablePath = "test-command",
-                    EnvironmentVariables =
-                    [
-                        new ProcessCommandEnvironmentVariable
-                        {
-                            Name = " ",
-                            Value = "value"
-                        }
-                    ]
+                    EnvironmentVariables = new Dictionary<string, string>
+                    {
+                        [" "] = "value"
+                    }
                 },
                 "environment variables require non-empty names"),
             (
                 new ProcessCommandExportOptions
                 {
                     ExecutablePath = "test-command",
-                    EnvironmentVariables =
-                    [
-                        new ProcessCommandEnvironmentVariable
-                        {
-                            Name = "PROCESS_COMMAND_EXPORT_VALUE",
-                            Value = null
-                        }
-                    ]
+                    EnvironmentVariables = new Dictionary<string, string>
+                    {
+                        ["PROCESS_COMMAND_EXPORT_VALUE"] = null!
+                    }
                 },
                 "environment variable 'PROCESS_COMMAND_EXPORT_VALUE' requires a value")
         };

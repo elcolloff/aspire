@@ -514,7 +514,7 @@ type ProcessCommandExportOptions struct {
 	ExecutablePath string `json:"ExecutablePath,omitempty"`
 	Arguments []string `json:"Arguments,omitempty"`
 	WorkingDirectory string `json:"WorkingDirectory,omitempty"`
-	EnvironmentVariables []*ProcessCommandEnvironmentVariable `json:"EnvironmentVariables,omitempty"`
+	EnvironmentVariables map[string]string `json:"EnvironmentVariables,omitempty"`
 	InheritEnvironmentVariables *bool `json:"InheritEnvironmentVariables,omitempty"`
 	StandardInputContent string `json:"StandardInputContent,omitempty"`
 	KillEntireProcessTree *bool `json:"KillEntireProcessTree,omitempty"`
@@ -536,20 +536,6 @@ func (d *ProcessCommandExportOptions) ToMap() map[string]any {
 	if d.CommandOptions != nil { m["CommandOptions"] = serializeValue(d.CommandOptions) }
 	if d.MaxOutputLineCount != nil { m["MaxOutputLineCount"] = serializeValue(d.MaxOutputLineCount) }
 	if d.DisplayImmediately != nil { m["DisplayImmediately"] = serializeValue(d.DisplayImmediately) }
-	return m
-}
-
-// ProcessCommandEnvironmentVariable represents ProcessCommandEnvironmentVariable.
-type ProcessCommandEnvironmentVariable struct {
-	Name string `json:"Name,omitempty"`
-	Value string `json:"Value,omitempty"`
-}
-
-// ToMap converts the DTO to a map for JSON serialization.
-func (d *ProcessCommandEnvironmentVariable) ToMap() map[string]any {
-	m := map[string]any{}
-	m["Name"] = serializeValue(d.Name)
-	m["Value"] = serializeValue(d.Value)
 	return m
 }
 

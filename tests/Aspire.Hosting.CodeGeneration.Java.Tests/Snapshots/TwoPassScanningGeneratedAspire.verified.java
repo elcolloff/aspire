@@ -14033,32 +14033,6 @@ public enum ProbeType implements WireValueEnum {
     }
 }
 
-// ===== ProcessCommandEnvironmentVariable.java =====
-// ProcessCommandEnvironmentVariable.java - GENERATED CODE - DO NOT EDIT
-
-package aspire;
-
-import java.util.*;
-import java.util.function.*;
-
-/** ProcessCommandEnvironmentVariable DTO. */
-public class ProcessCommandEnvironmentVariable implements JsonSerializable {
-    private String name;
-    private String value;
-
-    public String getName() { return name; }
-    public void setName(String value) { this.name = value; }
-    public String getValue() { return value; }
-    public void setValue(String value) { this.value = value; }
-
-    public Map<String, Object> toMap() {
-        Map<String, Object> map = new HashMap<>();
-        map.put("Name", AspireClient.serializeValue(name));
-        map.put("Value", AspireClient.serializeValue(value));
-        return map;
-    }
-}
-
 // ===== ProcessCommandExportOptions.java =====
 // ProcessCommandExportOptions.java - GENERATED CODE - DO NOT EDIT
 
@@ -14072,7 +14046,7 @@ public class ProcessCommandExportOptions implements JsonSerializable {
     private String executablePath;
     private String[] arguments;
     private String workingDirectory;
-    private ProcessCommandEnvironmentVariable[] environmentVariables;
+    private Map<String, String> environmentVariables;
     private Boolean inheritEnvironmentVariables;
     private String standardInputContent;
     private Boolean killEntireProcessTree;
@@ -14086,8 +14060,8 @@ public class ProcessCommandExportOptions implements JsonSerializable {
     public void setArguments(String[] value) { this.arguments = value; }
     public String getWorkingDirectory() { return workingDirectory; }
     public void setWorkingDirectory(String value) { this.workingDirectory = value; }
-    public ProcessCommandEnvironmentVariable[] getEnvironmentVariables() { return environmentVariables; }
-    public void setEnvironmentVariables(ProcessCommandEnvironmentVariable[] value) { this.environmentVariables = value; }
+    public Map<String, String> getEnvironmentVariables() { return environmentVariables; }
+    public void setEnvironmentVariables(Map<String, String> value) { this.environmentVariables = value; }
     public Boolean getInheritEnvironmentVariables() { return inheritEnvironmentVariables; }
     public void setInheritEnvironmentVariables(Boolean value) { this.inheritEnvironmentVariables = value; }
     public String getStandardInputContent() { return standardInputContent; }
@@ -23056,7 +23030,6 @@ public final class WithVolumeOptions {
 .modules/PipelineStepFactoryContext.java
 .modules/PipelineSummary.java
 .modules/ProbeType.java
-.modules/ProcessCommandEnvironmentVariable.java
 .modules/ProcessCommandExportOptions.java
 .modules/ProjectResource.java
 .modules/ProjectResourceOptions.java

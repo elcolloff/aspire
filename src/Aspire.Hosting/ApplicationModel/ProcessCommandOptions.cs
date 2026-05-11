@@ -67,7 +67,7 @@ internal sealed class ProcessCommandExportOptions
     /// <summary>
     /// The environment variables to set for the process.
     /// </summary>
-    public IReadOnlyList<ProcessCommandEnvironmentVariable>? EnvironmentVariables { get; set; }
+    public IReadOnlyDictionary<string, string>? EnvironmentVariables { get; set; }
 
     /// <summary>
     /// A value indicating whether the process should inherit the current environment variables.
@@ -98,21 +98,4 @@ internal sealed class ProcessCommandExportOptions
     /// A value indicating whether returned command output should be displayed immediately in the dashboard.
     /// </summary>
     public bool? DisplayImmediately { get; set; }
-}
-
-/// <summary>
-/// Represents an environment variable to set for a resource process command.
-/// </summary>
-[AspireDto]
-internal sealed class ProcessCommandEnvironmentVariable
-{
-    /// <summary>
-    /// The environment variable name.
-    /// </summary>
-    public string? Name { get; set; }
-
-    /// <summary>
-    /// The environment variable value.
-    /// </summary>
-    public string? Value { get; set; }
 }

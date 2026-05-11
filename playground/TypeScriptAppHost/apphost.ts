@@ -108,12 +108,9 @@ await cache.withProcessCommand(
             processCommandScriptPath,
             "from-typescript-apphost"
         ],
-        environmentVariables: [
-            {
-                name: "TS_PROCESS_COMMAND_SAMPLE",
-                value: "from-process-command"
-            }
-        ],
+        environmentVariables: {
+            TS_PROCESS_COMMAND_SAMPLE: "from-process-command"
+        },
         standardInputContent: "hello from TypeScript AppHost",
         maxOutputLineCount: 10,
         commandOptions: {
