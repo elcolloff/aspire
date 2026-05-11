@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed the resource detail panel not showing a state row when a resource has no state. The resource grid already displayed \"Unknown\" in this scenario, and now the detail panel is consistent.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔲",
+  "firstMergedAt": "2026-05-11T02:42:21Z",
+  "lastMergedAt": "2026-05-11T02:42:21Z",
+  "name": "Display Unknown state in resource details panel",
+  "owner": "JamesNK",
+  "prs": [
+    16928
+  ]
+}

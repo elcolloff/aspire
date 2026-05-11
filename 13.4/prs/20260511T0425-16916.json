@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard proto improvement: resource command arguments now use map type, removed unused argument_inputs field",
+  "mergedAt": "2026-05-11T04:25:48Z",
+  "number": 16916,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Clean up ResourceCommandRequest/Response proto: use map for arguments, remove response argument_inputs"
+}

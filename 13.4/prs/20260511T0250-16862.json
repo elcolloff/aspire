@@ -1,0 +1,9 @@
+{
+  "author": "RudyCo",
+  "comment": "Routine CI workflow link fix - updated docs URL in release workflow",
+  "mergedAt": "2026-05-11T02:50:01Z",
+  "number": 16862,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "excluded",
+  "title": "Update documentation link in release notes"
+}

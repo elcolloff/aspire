@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a bug on the Dashboard Traces page where applying a != (not equals) or \"not contains\" filter condition caused all traces to be filtered out regardless of the filter value. The equals and contains filters were unaffected.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "��",
+  "firstMergedAt": "2026-05-11T09:00:39Z",
+  "lastMergedAt": "2026-05-11T09:00:39Z",
+  "name": "Fix traces not-equals filter returning empty results",
+  "owner": "JamesNK",
+  "prs": [
+    16932
+  ]
+}

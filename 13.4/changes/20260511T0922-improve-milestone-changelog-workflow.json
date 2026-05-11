@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Improved the milestone changelog workflow with better backport PR filtering, docs PR enrichment using changed file paths, and various cleanup improvements for more accurate and complete changelogs.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📝",
+  "firstMergedAt": "2026-05-11T09:22:03Z",
+  "lastMergedAt": "2026-05-11T09:22:03Z",
+  "name": "Milestone changelog workflow improvements",
+  "owner": "JamesNK",
+  "prs": [
+    16933
+  ]
+}

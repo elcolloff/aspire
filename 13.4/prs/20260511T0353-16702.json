@@ -1,0 +1,9 @@
+{
+  "author": "Bertolossi",
+  "comment": "CLI bug fix: aspire run no longer hangs when defaultWatchEnabled and AppHost has build error",
+  "mergedAt": "2026-05-11T03:53:24Z",
+  "number": 16702,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Fix aspire run hang when defaultWatchEnabled and build fails"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard bug fix: resource detail panel now shows Unknown state when state is null",
+  "mergedAt": "2026-05-11T02:42:21Z",
+  "number": 16928,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Display Unknown state in resource details when state is null"
+}

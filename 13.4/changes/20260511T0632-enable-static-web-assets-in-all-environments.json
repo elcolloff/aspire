@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed static web assets (such as FluentUI JS/CSS files) not being served when running the Aspire Dashboard from source with a non-Development ASPNETCORE_ENVIRONMENT setting.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🌐",
+  "firstMergedAt": "2026-05-11T06:32:17Z",
+  "lastMergedAt": "2026-05-11T06:32:17Z",
+  "name": "Fix static web assets in non-Development environments",
+  "owner": "JamesNK",
+  "prs": [
+    16931
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard bug fix: traces != filter no longer returns empty results",
+  "mergedAt": "2026-05-11T09:00:39Z",
+  "number": 16932,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Fix traces != (not equals) filter returning empty results"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Engineering: milestone changelog workflow improvements for backport filtering and docs enrichment",
+  "mergedAt": "2026-05-11T09:22:03Z",
+  "number": 16933,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Improve milestone changelog: backport filtering, docs enrichment, cleanup"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "New AddHelmChart infrastructure for deploying external Helm charts as pipeline steps",
+  "mergedAt": "2026-05-11T03:40:00Z",
+  "number": 16589,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Add AddHelmChart for installing external Helm charts"
+}

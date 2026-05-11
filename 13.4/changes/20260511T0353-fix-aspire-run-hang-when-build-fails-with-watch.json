@@ -1,0 +1,21 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [
+    "@Bertolossi"
+  ],
+  "description": "Fixed a hang in aspire run when the defaultWatchEnabled feature flag is set and the AppHost has a build error. Previously, aspire run would hang indefinitely instead of reporting the build failure and exiting.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-11T03:53:24Z",
+  "lastMergedAt": "2026-05-11T03:53:24Z",
+  "name": "Fix aspire run hang on build failure with watch mode",
+  "owner": "davidfowl",
+  "prs": [
+    16702
+  ]
+}

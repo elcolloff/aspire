@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Cleaned up the ResourceCommandRequest and ResourceCommandResponse proto messages in the dashboard gRPC protocol. Arguments are now passed as a map instead of a generic Value, and the unused argument_inputs field has been removed from the response.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🧹",
+  "firstMergedAt": "2026-05-11T04:25:48Z",
+  "lastMergedAt": "2026-05-11T04:25:48Z",
+  "name": "Resource command proto improvements",
+  "owner": "JamesNK",
+  "prs": [
+    16916
+  ]
+}

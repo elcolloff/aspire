@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard bug fix: static web assets now served in non-Development ASPNETCORE_ENVIRONMENT",
+  "mergedAt": "2026-05-11T06:32:17Z",
+  "number": 16931,
+  "runDate": "2026-05-11T10:24:47Z",
+  "status": "included",
+  "title": "Enable static web assets in all environments for dashboard"
+}
