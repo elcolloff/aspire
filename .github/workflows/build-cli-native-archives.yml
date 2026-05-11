@@ -156,6 +156,7 @@ jobs:
           path: |
             artifacts/packages/${{ inputs.configuration }}/Shipping/Aspire.Hosting.Orchestration.${{ matrix.targets.rids }}.*.nupkg
             artifacts/packages/${{ inputs.configuration }}/Shipping/Aspire.Dashboard.Sdk.${{ matrix.targets.rids }}.*.nupkg
+            artifacts/packages/${{ inputs.configuration }}/Shipping/Aspire.TerminalHost.Sdk.${{ matrix.targets.rids }}.*.nupkg
             artifacts/packages/${{ inputs.configuration }}/Shipping/Aspire.Cli.*.nupkg
             artifacts/packages/${{ inputs.configuration }}/Shipping/microsoft-aspire-cli*.tgz
           if-no-files-found: error
