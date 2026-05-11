@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Backported to release/13.3",
+  "mergedAt": "2026-05-05T22:30:32Z",
+  "number": 16794,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "excluded",
+  "title": "Use plain dotnet run for extension Run Without Debugging"
+}

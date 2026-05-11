@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed aspire run crashing when the dashboard was disabled via the DisableDashboard configuration option.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-06T07:35:21Z",
+  "lastMergedAt": "2026-05-06T07:35:21Z",
+  "name": "Fix aspire run failing when dashboard is disabled",
+  "owner": "JamesNK",
+  "prs": [
+    16773
+  ]
+}

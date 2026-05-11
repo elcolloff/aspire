@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Backported to release/13.3",
+  "mergedAt": "2026-05-05T22:52:00Z",
+  "number": 16716,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "excluded",
+  "title": "Honor configured channel in aspire update"
+}

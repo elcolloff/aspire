@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Consolidates Helm chart configuration onto WithHelm(...), removing old property-based API",
+  "mergedAt": "2026-05-05T21:05:04Z",
+  "number": 16759,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "included",
+  "title": "Consolidate Helm chart options on WithHelm(...)"
+}

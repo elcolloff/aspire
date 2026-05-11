@@ -1,0 +1,9 @@
+{
+  "author": "eerhardt",
+  "comment": "Backported to release/13.3",
+  "mergedAt": "2026-05-06T07:41:19Z",
+  "number": 16805,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "excluded",
+  "title": "Require --yes with --non-interactive for destroy cmd"
+}

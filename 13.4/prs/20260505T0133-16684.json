@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Backported to release/13.3",
+  "mergedAt": "2026-05-05T01:33:38Z",
+  "number": 16684,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "excluded",
+  "title": "Fix HostUrl with container tunnel"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Backported to release/13.3",
+  "mergedAt": "2026-05-05T15:25:14Z",
+  "number": 16668,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "excluded",
+  "title": "Fix Python debug working directory in VS Code (#16575)"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed aspire init not generating the required apphost.run.json file when initializing a single-file skeleton AppHost, which caused subsequent aspire run commands to fail.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-06T04:22:31Z",
+  "lastMergedAt": "2026-05-06T04:22:31Z",
+  "name": "Fix missing apphost.run.json from aspire init",
+  "owner": "mitchdenny",
+  "prs": [
+    16812
+  ]
+}

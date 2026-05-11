@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": true,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Helm chart name, version, and description can now be configured entirely through the WithHelm(...) extension method, replacing the previous parallel property-based API on KubernetesEnvironmentResource. This provides a single, consistent configuration surface for Helm chart settings.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "⚓",
+  "firstMergedAt": "2026-05-05T21:05:04Z",
+  "lastMergedAt": "2026-05-05T21:05:04Z",
+  "name": "Consolidated Helm chart options on WithHelm(...)",
+  "owner": "mitchdenny",
+  "prs": [
+    16759
+  ]
+}

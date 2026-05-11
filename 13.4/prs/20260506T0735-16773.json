@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Fixed aspire run crashing with dashboard disabled",
+  "mergedAt": "2026-05-06T07:35:21Z",
+  "number": 16773,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "included",
+  "title": "Fix aspire run failing when DisableDashboard is true"
+}

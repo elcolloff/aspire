@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Grouped with PR 16512 - further improvements to VS Code debug output for AppHosts",
+  "mergedAt": "2026-05-06T03:30:08Z",
+  "number": 16795,
+  "runDate": "2026-05-11T08:21:21Z",
+  "status": "included",
+  "title": "Improve AppHost debug console output for TS and C#"
+}

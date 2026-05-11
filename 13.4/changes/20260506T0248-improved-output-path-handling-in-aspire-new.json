@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The aspire new command now correctly handles output paths with spaces, relative paths, and other edge cases when scaffolding new AppHost projects.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📁",
+  "firstMergedAt": "2026-05-06T02:48:31Z",
+  "lastMergedAt": "2026-05-06T02:48:31Z",
+  "name": "Improved output path handling in aspire new",
+  "owner": "JamesNK",
+  "prs": [
+    16772
+  ]
+}
