@@ -1,0 +1,40 @@
+# Strategic-merge patch that adds an HTTPS listener and the cert-manager
+# annotation to the Aspire-generated storefront-gw Gateway. cert-manager watches
+# Gateway listeners with TLS configuration and auto-creates Certificate +
+# Secret resources when the `cert-manager.io/cluster-issuer` annotation is set.
+#
+# Replace REPLACE_ME.example.com with a real DNS hostname whose A/CNAME record
+# points at the storefront-gw frontend FQDN, e.g.:
+#   storefront.example.com  CNAME  <fqdn>.alb.azure.com
+#
+# Apply:
+#   kubectl patch gateway storefront-gw \
+#     --type=merge \
+#     --patch-file=gateway-tls.patch.yaml
+#
+# Note: Helm "owns" the Gateway because it was deployed by the Aspire-generated
+# chart. The patch is preserved through a redeploy of the same release as long
+# as the upstream Gateway manifest does not declare conflicting listeners.
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: REPLACE_ME.example.com
+      allowedRoutes:
+        namespaces:
+          from: Same
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: storefront-tls

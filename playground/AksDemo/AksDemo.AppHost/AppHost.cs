@@ -33,7 +33,8 @@ aks.AddNodePool("workload", "Standard_D2as_v5", minCount: 1, maxCount: 3);
 var publicLb = aks.AddLoadBalancer("public", publicSubnet);
 var adminLb = aks.AddLoadBalancer("admin", adminSubnet);
 
-var api = builder.AddProject<Projects.AksDemo_ApiService>("api");
+var api = builder.AddProject<Projects.AksDemo_ApiService>("api")
+   .WithExternalHttpEndpoints();
 
 // Public gateway: serves /api -> the api service, attached to the public AGC ALB.
 // WithLoadBalancer attaches the alb.networking.azure.io association annotations and
@@ -47,5 +48,18 @@ aks.AddGateway("storefront-gw")
 aks.AddGateway("admin-gw")
    .WithLoadBalancer(adminLb)
    .WithRoute("/admin", api.GetEndpoint("http"));
+
+// cert-manager installed via Helm so we can issue Let's Encrypt certificates for the AGC
+// gateways via the HTTP-01 challenge. Gateway API support is enabled so cert-manager will
+// watch Gateway listeners for TLS configuration and auto-issue Certificates.
+//
+// See playground/AksDemo/k8s/README.md for the post-deploy steps that wire up the
+// ClusterIssuer and patch storefront-gw to add an HTTPS listener.
+aks.AddHelmChart("cert-manager", "oci://quay.io/jetstack/charts/cert-manager", "v1.18.2")
+   .WithHelmValue("crds.enabled", "true")
+   .WithHelmValue("config.apiVersion", "controller.config.cert-manager.io/v1alpha1")
+   .WithHelmValue("config.kind", "ControllerConfiguration")
+   .WithHelmValue("config.enableGatewayAPI", "true")
+   .WithDestroy();
 
 builder.Build().Run();
