@@ -133,6 +133,31 @@ public sealed class TypeScriptLanguageSupportTests
     }
 
     [Fact]
+    public void Scaffold_NestedBrownfieldAppHost_UsesDistinctPackageName()
+    {
+        using var testDir = new TestTempDirectory();
+
+        File.WriteAllText(Path.Combine(testDir.Path, "package.json"), """
+            {
+              "name": "brownfieldapp"
+            }
+            """);
+
+        var appHostDirectory = Path.Combine(testDir.Path, "aspire-apphost");
+
+        var files = _languageSupport.Scaffold(new ScaffoldRequest
+        {
+            TargetPath = appHostDirectory,
+            ProjectName = "BrownfieldApp"
+        });
+
+        var packageJson = ParseJson(files["package.json"]);
+
+        Assert.Equal("aspire-apphost", packageJson["name"]?.GetValue<string>());
+        Assert.True(packageJson["private"]?.GetValue<bool>());
+    }
+
+    [Fact]
     public void Scaffold_AlwaysOutputsAspireVersions_RegardlessOfExistingDependencies()
     {
         using var testDir = new TestTempDirectory();

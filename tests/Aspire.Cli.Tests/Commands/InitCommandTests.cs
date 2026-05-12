@@ -11,6 +11,7 @@ using Aspire.Cli.Projects;
 using Aspire.Cli.Scaffolding;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
+using Aspire.Hosting.Utils;
 using Aspire.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.InternalTesting;
@@ -392,6 +393,44 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
         var appHost = config["appHost"]!.AsObject();
         Assert.Equal("apphost.ts", appHost["path"]!.GetValue<string>());
         Assert.Equal("typescript/nodejs", appHost["language"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task InitCommand_WhenBrownfieldTypeScriptSelected_DisplaysNestedAppHostPath()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        File.WriteAllText(Path.Combine(workspace.WorkspaceRoot.FullName, "package.json"), "{}");
+
+        var interactionService = new TestInteractionService();
+        var scaffoldingService = new TestScaffoldingService();
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => interactionService;
+            options.LanguageServiceFactory = (sp) =>
+            {
+                var projectFactory = sp.GetRequiredService<IAppHostProjectFactory>();
+                var tsProject = projectFactory.GetProject(new LanguageInfo(
+                    LanguageId: new LanguageId(KnownLanguageId.TypeScript),
+                    DisplayName: "TypeScript (Node.js)",
+                    PackageName: "@aspire/app-host",
+                    DetectionPatterns: ["apphost.ts"],
+                    CodeGenerator: "typescript",
+                    AppHostFileName: "apphost.ts"));
+                return new TestLanguageService { DefaultProject = tsProject };
+            };
+            options.ScaffoldingServiceFactory = _ => scaffoldingService;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var initCommand = serviceProvider.GetRequiredService<InitCommand>();
+
+        var parseResult = initCommand.Parse("init");
+        var exitCode = await parseResult.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.True(File.Exists(Path.Combine(workspace.WorkspaceRoot.FullName, "aspire-apphost", "apphost.ts")));
+        Assert.Contains(interactionService.DisplayedMessages, m => m.Message == "Created aspire-apphost/apphost.ts");
     }
 
     [Fact]
@@ -906,14 +945,19 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
         public Task<bool> ScaffoldAsync(ScaffoldContext context, CancellationToken cancellationToken)
         {
             Context = context;
+            var scaffoldDirectory = ScaffoldingService.GetScaffoldDirectory(context.TargetDirectory, context.Language);
+            Directory.CreateDirectory(scaffoldDirectory.FullName);
+
             var appHostFileName = context.Language.AppHostFileName ?? "apphost";
-            File.WriteAllText(Path.Combine(context.TargetDirectory.FullName, appHostFileName), string.Empty);
+            var appHostPath = Path.Combine(scaffoldDirectory.FullName, appHostFileName);
+            var appHostRelativePath = PathNormalizer.NormalizePathForStorage(Path.GetRelativePath(context.TargetDirectory.FullName, appHostPath));
+            File.WriteAllText(appHostPath, string.Empty);
 
             var config = new JsonObject
             {
                 ["appHost"] = new JsonObject
                 {
-                    ["path"] = appHostFileName,
+                    ["path"] = appHostRelativePath,
                     ["language"] = context.Language.LanguageId.Value
                 }
             };

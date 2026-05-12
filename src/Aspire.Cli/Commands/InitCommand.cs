@@ -403,13 +403,15 @@ internal sealed class InitCommand : BaseCommand
         var language = _languageDiscovery.GetLanguageById(languageId)
             ?? throw new NotSupportedException($"Polyglot skeleton not yet supported for language: {languageId}");
 
-        var appHostFileName = language.AppHostFileName
-            ?? throw new NotSupportedException($"Polyglot skeleton not yet supported for language: {language.LanguageId}");
+        if (language.AppHostFileName is null)
+        {
+            throw new NotSupportedException($"Polyglot skeleton not yet supported for language: {language.LanguageId}");
+        }
 
         var appHostPath = ScaffoldingService.GetAppHostPath(workingDirectory, language);
+        var displayPath = PathNormalizer.NormalizePathForStorage(Path.GetRelativePath(workingDirectory.FullName, appHostPath));
         if (File.Exists(appHostPath))
         {
-            var displayPath = PathNormalizer.NormalizePathForStorage(Path.GetRelativePath(workingDirectory.FullName, appHostPath));
             InteractionService.DisplayMessage(KnownEmojis.CheckMarkButton, $"{displayPath} already exists — skipping.");
             return ExitCodeConstants.Success;
         }
@@ -424,7 +426,7 @@ internal sealed class InitCommand : BaseCommand
             return ExitCodeConstants.FailedToCreateNewProject;
         }
 
-        InteractionService.DisplayMessage(KnownEmojis.CheckMarkButton, $"Created {appHostFileName}");
+        InteractionService.DisplayMessage(KnownEmojis.CheckMarkButton, $"Created {displayPath}");
         return ExitCodeConstants.Success;
     }
 

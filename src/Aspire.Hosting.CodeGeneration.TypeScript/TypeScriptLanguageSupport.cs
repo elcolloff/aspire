@@ -29,6 +29,7 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
     private const string AppHostFileName = "apphost.ts";
     private const string PackageJsonFileName = "package.json";
     private const string AppHostTsConfigFileName = "tsconfig.apphost.json";
+    private const string AppHostPackageName = "aspire-apphost";
 
     /// <summary>
     /// The default content for tsconfig.apphost.json, shared between scaffolding and migration.
@@ -150,8 +151,10 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
         var packageJson = new JsonObject();
         if (!hasExistingPackageJson)
         {
-            // Greenfield: include root metadata so the scaffold output is a complete package.json.
-            var packageName = request.ProjectName?.ToLowerInvariant() ?? "aspire-apphost";
+            // Fresh package: include metadata so the scaffold output is a complete package.json.
+            var packageName = IsNestedBrownfieldPackage(request.TargetPath)
+                ? AppHostPackageName
+                : request.ProjectName?.ToLowerInvariant() ?? AppHostPackageName;
             packageJson["name"] = packageName;
             packageJson["version"] = "1.0.0";
             packageJson["private"] = true;
@@ -190,6 +193,14 @@ internal sealed class TypeScriptLanguageSupport : ILanguageSupport
         EnsureDependency(packageJson, "devDependencies", "vscode-jsonrpc", "^8.2.0");
 
         return packageJson.ToJsonString(s_jsonSerializerOptions);
+    }
+
+    private static bool IsNestedBrownfieldPackage(string targetPath)
+    {
+        var targetDirectory = new DirectoryInfo(targetPath);
+        return string.Equals(targetDirectory.Name, AppHostPackageName, StringComparison.OrdinalIgnoreCase) &&
+            targetDirectory.Parent is { } parent &&
+            File.Exists(Path.Combine(parent.FullName, PackageJsonFileName));
     }
 
     private static bool HasExistingPackageJson(ScaffoldRequest request)
