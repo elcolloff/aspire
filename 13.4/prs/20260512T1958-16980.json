@@ -1,0 +1,9 @@
+{
+  "author": "mtmk",
+  "comment": "Community improvement to NATS integration: registers INatsClient and defaults serializer registry for typed pub/sub",
+  "mergedAt": "2026-05-12T19:58:13Z",
+  "number": 16980,
+  "runDate": "2026-05-12T20:33:34Z",
+  "status": "included",
+  "title": "Add INatsClient and JSON default to NATS integration"
+}

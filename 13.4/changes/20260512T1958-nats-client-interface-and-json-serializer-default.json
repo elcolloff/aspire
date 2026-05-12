@@ -1,0 +1,21 @@
+{
+  "area": "Integrations",
+  "areaEmoji": "🔌",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [
+    "@mtmk"
+  ],
+  "description": "AddNatsClient now also registers INatsClient and defaults the SerializerRegistry to NatsClientDefaultSerializerRegistry, enabling typed publish/subscribe without requiring explicit serializer configuration. User-provided registries still take precedence, and users working with primitives or raw bytes are unaffected.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📨",
+  "firstMergedAt": "2026-05-12T19:58:13Z",
+  "lastMergedAt": "2026-05-12T19:58:13Z",
+  "name": "NATS integration registers INatsClient and defaults JSON serializer",
+  "owner": "eerhardt",
+  "prs": [
+    16980
+  ]
+}
