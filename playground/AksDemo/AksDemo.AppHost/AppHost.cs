@@ -33,13 +33,13 @@ var api = builder.AddProject<Projects.AksDemo_ApiService>("api");
 // Public gateway: serves /api -> the api service, attached to the public AGC ALB.
 // WithLoadBalancer attaches the alb.networking.azure.io association annotations and
 // defaults the gatewayClassName to "azure-alb-external".
-aks.AddGateway("storefront")
+aks.AddGateway("storefront-gw")
    .WithLoadBalancer(publicLb)
    .WithRoute("/api", api.GetEndpoint("http"));
 
 // Admin gateway: serves the same backend but on a separate AGC ALB so a different set of
 // network policies, frontends, or DNS names can hang off it.
-aks.AddGateway("admin")
+aks.AddGateway("admin-gw")
    .WithLoadBalancer(adminLb)
    .WithRoute("/admin", api.GetEndpoint("http"));
 
