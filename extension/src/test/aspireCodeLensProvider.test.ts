@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { AspireCodeLensProvider } from '../editor/AspireCodeLensProvider';
+import { codeLensCommand } from '../loc/strings';
 import { AspireAppHostTreeProvider } from '../views/AspireAppHostTreeProvider';
 import { AppHostDataRepository, AppHostDisplayInfo, ResourceJson } from '../views/AppHostDataRepository';
 import { AspireTerminalProvider } from '../utils/AspireTerminalProvider';
@@ -428,7 +429,7 @@ suite('AspireCodeLensProvider resource lens anchoring', () => {
             && l.command?.arguments?.[1] === 'reset-db');
 
         assert.ok(customLens);
-        assert.strictEqual(customLens!.command?.title, 'Command: Reset Database');
+        assert.strictEqual(customLens!.command?.title, codeLensCommand('Reset Database'));
         assert.strictEqual(customLens!.command?.tooltip, 'Stop the resource, rebuild the project from source, and restart it.');
         harness.dispose();
     });
@@ -460,7 +461,7 @@ suite('AspireCodeLensProvider resource lens anchoring', () => {
             && l.command?.arguments?.[1] === 'reset-db');
 
         assert.ok(customLens);
-        assert.strictEqual(customLens!.command?.title, 'Command: reset-db');
+        assert.strictEqual(customLens!.command?.title, codeLensCommand('reset-db'));
         assert.strictEqual(customLens!.command?.tooltip, 'reset-db');
         harness.dispose();
     });
