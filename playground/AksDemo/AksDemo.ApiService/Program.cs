@@ -14,13 +14,22 @@ app.MapDefaultEndpoints();
 // /hello/{name} - echoes a name so route prefixes can be exercised
 // /info     - returns environment metadata useful for debugging
 
-app.MapGet("/", () => Results.Ok(new
+static object BuildIdentity(string surface) => new
 {
     service = "AksDemo.ApiService",
+    surface,
     machineName = Environment.MachineName,
     podIp = Environment.GetEnvironmentVariable("POD_IP"),
     timestampUtc = DateTimeOffset.UtcNow
-}));
+};
+
+app.MapGet("/", () => Results.Ok(BuildIdentity("root")));
+
+// The AKS gateways route /api -> storefront-gw and /admin -> admin-gw without
+// rewriting the path, so the API needs endpoints under those exact prefixes
+// for end-to-end smoke tests through AGC to return 200.
+app.MapGet("/api", () => Results.Ok(BuildIdentity("storefront")));
+app.MapGet("/admin", () => Results.Ok(BuildIdentity("admin")));
 
 app.MapGet("/hello/{name}", (string name) => Results.Ok(new
 {
