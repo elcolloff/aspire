@@ -64,11 +64,10 @@ aks.AddGateway("admin-gw")
 //
 // WithForceUpgrade is needed because AKS clusters with the Azure Policy add-on (or
 // Deployment Safeguards) install an `admissionsenforcer` field manager that mutates the
-// cert-manager ValidatingWebhookConfiguration after the first install. Helm 3.18 uses
+// cert-manager ValidatingWebhookConfiguration after the first install. Helm 3.18+ uses
 // SSA for cert-manager and otherwise fails the next upgrade with a conflict on
-// .webhooks[*].namespaceSelector. --force makes Helm replace conflicting resources;
-// for cert-manager that's safe (deployments + webhooks recreate within seconds, AGC
-// data plane and existing certificate Secrets are untouched).
+// .webhooks[*].namespaceSelector. WithForceUpgrade adds --take-ownership which tells
+// SSA to take over the conflicting field non-destructively (no resources recreated).
 //
 // See playground/AksDemo/k8s/README.md for the post-deploy ClusterIssuer step.
 aks.AddHelmChart("cert-manager", "oci://quay.io/jetstack/charts/cert-manager", "v1.18.2")
