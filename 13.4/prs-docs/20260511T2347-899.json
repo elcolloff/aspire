@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Fix for llms-small.txt fenced code block formatting — infrastructure fix in aspire.dev, not documenting a specific product feature",
+  "mergedAt": "2026-05-11T23:47:00Z",
+  "number": 899,
+  "runDate": "2026-05-12T00:30:39Z",
+  "status": "excluded",
+  "title": "Preserve fenced code-block newlines in llms-small.txt"
+}

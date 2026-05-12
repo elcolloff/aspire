@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "New WithProcessCommand API for AppHost process-backed resource commands",
+  "mergedAt": "2026-05-11T23:10:57Z",
+  "number": 16923,
+  "runDate": "2026-05-12T00:30:39Z",
+  "status": "included",
+  "title": "Add process-backed resource commands"
+}
