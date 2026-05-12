@@ -432,7 +432,18 @@ public static class AzureKubernetesEnvironmentExtensions
             SubnetIdReference = subnet.Resource.Id
         };
 
-        return builder.ApplicationBuilder.AddResource(lb);
+        // In run mode the AKS environment is not added to the model (see
+        // AddAzureKubernetesEnvironment), so its aks-get-credentials-{name}
+        // pipeline step is never registered. Mirror that pattern here so the
+        // LB's apply-alb-crd-{name} step (which depends on aks-get-credentials)
+        // is also not registered, avoiding pipeline validation failures.
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            return builder.ApplicationBuilder.CreateResourceBuilder(lb);
+        }
+
+        return builder.ApplicationBuilder.AddResource(lb)
+            .ExcludeFromManifest();
     }
 
     /// <summary>
