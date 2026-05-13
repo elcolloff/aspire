@@ -337,7 +337,7 @@ internal sealed class LogsCommand : BaseCommand
             IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
         };
 
-        await foreach (var logLine in connection.GetConsoleLogsAsync(followRequest, cancellationToken).ConfigureAwait(false))
+        await foreach (var logLine in GetConsoleLogsAsync(connection, followRequest, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources.
             // We filter by exclusion so that new resources appearing after the
@@ -382,9 +382,9 @@ internal sealed class LogsCommand : BaseCommand
         var logEntries = new LogEntries(int.MaxValue) { BaseLineNumber = 1 };
         // Snapshot the resource list once for the non-follow path since it doesn't change.
         var allSnapshots = resourceWatcher.GetAllResources().ToList();
-        // V2 AppHosts use Search/Tail to avoid sending non-matching logs over JSON-RPC.
-        // The client still applies the same filters after parsing for compatibility with
-        // older AppHosts and to keep final output semantics centralized in this command.
+        // For named resources, V2 AppHosts use Search/Tail to avoid sending non-matching
+        // logs over JSON-RPC. The client still applies the same filters after parsing for
+        // all-resource compatibility and to keep final output semantics centralized here.
         var request = new GetConsoleLogsRequest
         {
             ResourceName = resourceName,
@@ -394,7 +394,7 @@ internal sealed class LogsCommand : BaseCommand
             IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
         };
 
-        await foreach (var logLine in connection.GetConsoleLogsAsync(request, cancellationToken).ConfigureAwait(false))
+        await foreach (var logLine in GetConsoleLogsAsync(connection, request, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources
             if (resourceName is null && !resourceWatcher.IncludeHidden)
@@ -409,6 +409,22 @@ internal sealed class LogsCommand : BaseCommand
             logEntries.InsertSorted(ParseLogLine(logLine, logParser, allSnapshots));
         }
         return logEntries.GetEntries();
+    }
+
+    private static IAsyncEnumerable<ResourceLogLine> GetConsoleLogsAsync(
+        IAppHostAuxiliaryBackchannel connection,
+        GetConsoleLogsRequest request,
+        CancellationToken cancellationToken)
+    {
+        // Older aux.v2 AppHosts require ResourceName on GetConsoleLogsRequest. Keep all-resource
+        // calls on the legacy RPC so the CLI remains compatible until a newer capability can be
+        // assumed. LogsCommand still applies search, tail, and hidden-resource filtering locally.
+        if (request.ResourceName is null)
+        {
+            return connection.GetResourceLogsAsync(resourceName: null, follow: request.Follow, cancellationToken: cancellationToken);
+        }
+
+        return connection.GetConsoleLogsAsync(request, cancellationToken);
     }
 
     /// <summary>

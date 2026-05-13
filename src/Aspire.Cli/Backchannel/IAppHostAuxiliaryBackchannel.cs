@@ -74,7 +74,7 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     /// <summary>
     /// Gets resource log lines from the AppHost.
     /// </summary>
-    /// <param name="resourceName">Optional resource name. If null, streams logs from all resources (only valid when follow is true).</param>
+    /// <param name="resourceName">Optional resource name. If null, streams logs from all resources.</param>
     /// <param name="follow">If true, continuously streams new logs. If false, returns existing logs and completes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of log lines.</returns>

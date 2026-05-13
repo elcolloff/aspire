@@ -1159,6 +1159,99 @@ public class LogsCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task LogsCommand_AllResourcesSnapshot_UsesLegacyLogsRpc()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var outputWriter = new TestOutputTextWriter(outputHelper);
+        var legacyRequests = new List<(string? ResourceName, bool Follow)>();
+        var consoleRequests = new List<GetConsoleLogsRequest>();
+        var logLines = new[]
+        {
+            new ResourceLogLine { ResourceName = "redis", LineNumber = 1, Content = "2025-01-15T10:30:00Z Ready to accept connections", IsError = false },
+            new ResourceLogLine { ResourceName = "apiservice-abc123", LineNumber = 1, Content = "2025-01-15T10:30:01Z First timeout error", IsError = true },
+            new ResourceLogLine { ResourceName = "apiservice-def456", LineNumber = 1, Content = "2025-01-15T10:30:02Z Second timeout error", IsError = true }
+        };
+
+        using var provider = CreateLogsTestServices(workspace, outputWriter, disableAnsi: true,
+            configureConnection: connection =>
+            {
+                connection.GetConsoleLogsHandler = (request, _) =>
+                {
+                    consoleRequests.Add(request);
+                    throw new InvalidOperationException("All-resource logs should use the legacy logs RPC.");
+                };
+                connection.GetResourceLogsHandler = (resourceName, follow, cancellationToken) =>
+                {
+                    legacyRequests.Add((resourceName, follow));
+                    return EnumerateLogLinesAsync(logLines, cancellationToken);
+                };
+            });
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("logs --search timeout --tail 1 --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Empty(consoleRequests);
+
+        var legacyRequest = Assert.Single(legacyRequests);
+        Assert.Null(legacyRequest.ResourceName);
+        Assert.False(legacyRequest.Follow);
+
+        var jsonOutput = outputWriter.Logs.FirstOrDefault(l => l.Contains("\"logs\"", StringComparison.Ordinal));
+        Assert.NotNull(jsonOutput);
+
+        var logsOutput = JsonSerializer.Deserialize(jsonOutput, LogsCommandJsonContext.Snapshot.LogsOutput);
+        Assert.NotNull(logsOutput);
+        var log = Assert.Single(logsOutput.Logs);
+        Assert.Equal("Second timeout error", log.Content);
+    }
+
+    [Fact]
+    public async Task LogsCommand_AllResourcesFollow_UsesLegacyLogsRpc()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var outputWriter = new TestOutputTextWriter(outputHelper);
+        var legacyRequests = new List<(string? ResourceName, bool Follow)>();
+        var consoleRequests = new List<GetConsoleLogsRequest>();
+        var logLines = new[]
+        {
+            new ResourceLogLine { ResourceName = "redis", LineNumber = 1, Content = "Ready to accept connections", IsError = false },
+            new ResourceLogLine { ResourceName = "apiservice-abc123", LineNumber = 1, Content = "Connection timeout error", IsError = true }
+        };
+
+        using var provider = CreateLogsTestServices(workspace, outputWriter, disableAnsi: true,
+            configureConnection: connection =>
+            {
+                connection.GetConsoleLogsHandler = (request, _) =>
+                {
+                    consoleRequests.Add(request);
+                    throw new InvalidOperationException("All-resource logs should use the legacy logs RPC.");
+                };
+                connection.GetResourceLogsHandler = (resourceName, follow, cancellationToken) =>
+                {
+                    legacyRequests.Add((resourceName, follow));
+                    return EnumerateLogLinesAsync(logLines, cancellationToken);
+                };
+            });
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("logs --follow --search timeout");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Empty(consoleRequests);
+
+        var legacyRequest = Assert.Single(legacyRequests);
+        Assert.Null(legacyRequest.ResourceName);
+        Assert.True(legacyRequest.Follow);
+        Assert.DoesNotContain(outputWriter.Logs, l => l.Contains("Ready to accept connections", StringComparison.Ordinal));
+        Assert.Contains(outputWriter.Logs, l => l.Contains("Connection timeout error", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task LogsCommand_FollowWithTailAndSearch_FiltersTailOutput()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -1318,6 +1411,19 @@ public class LogsCommandTests(ITestOutputHelper outputHelper)
         {
             await tcs.Task.ConfigureAwait(false);
         }
+    }
+
+    private static async IAsyncEnumerable<ResourceLogLine> EnumerateLogLinesAsync(
+        IEnumerable<ResourceLogLine> logLines,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (var logLine in logLines)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return logLine;
+        }
+
+        await Task.CompletedTask;
     }
 
     private static async IAsyncEnumerable<ResourceLogLine> ThrowObjectDisposedAfterLogAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)

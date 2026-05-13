@@ -72,6 +72,9 @@ internal static class ProfilingJsonRpcExtensions
         object?[] arguments,
         CancellationToken cancellationToken)
     {
+        // Do not use `using` here: for a non-null response, activity ownership
+        // transfers to the returned enumerable. If a caller obtains the enumerable
+        // but never enumerates it, EnumerateWithProfiling will not dispose the activity.
         var activity = profilingTelemetry?.StartJsonRpcClientCall(connectionName, methodName, streaming: true) ?? default;
         arguments = WithProfilingContext(arguments, activity.CreateBackchannelProfilingContext());
 

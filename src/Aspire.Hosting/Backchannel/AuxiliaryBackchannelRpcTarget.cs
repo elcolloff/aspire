@@ -259,13 +259,12 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <summary>
     /// Stops the AppHost (v2 API with request object).
     /// </summary>
-    /// <param name="request">The request with optional exit code.</param>
+    /// <param name="request">The stop request.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>The stop response.</returns>
     public async Task<StopAppHostResponse> StopAsync(StopAppHostRequest? request = null, CancellationToken cancellationToken = default)
     {
         using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(StopAsync), streaming: false, request?.ProfilingContext);
-        _ = request; // Exit code not yet used, but available for future expansion
         await StopAppHostAsync(cancellationToken).ConfigureAwait(false);
         return new StopAppHostResponse();
     }
@@ -986,6 +985,8 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
                 ? ResolveResourceIds(appModel, resourceName)
                 : ResolveAllResourceIds(appModel);
 
+            // IncludeHidden only filters the all-resource stream. A named resource request is
+            // treated as an explicit request for that resource, even when the resource is hidden.
             if (!includeHidden && resourceName is null)
             {
                 resourcesToLog = resourcesToLog
@@ -1004,12 +1005,16 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
                 yield break;
             }
 
-            // Only apply tailing on the server when a single resource is requested. For multiple
-            // resources, the CLI needs the parsed/merged ordering across resources before it can
-            // choose the final tail entries without changing observable output order.
+            // Server-side tailing only applies to finite snapshots for a single resource. Follow
+            // streams return new log lines, so any Tail value on a follow request is ignored here.
+            // For multiple resources, the CLI needs the parsed/merged ordering across resources
+            // before it can choose the final tail entries without changing observable output order.
             var serverTailLineCount = !follow && tail.GetValueOrDefault() > 0 && resourcesToLog.Count == 1
                 ? tail.GetValueOrDefault()
                 : 0;
+
+            // Queue<T> capacity only preallocates storage; the dequeue/enqueue logic below
+            // enforces the fixed-size tail window.
             Queue<ResourceLogLine>? tailBuffer = serverTailLineCount > 0 ? new Queue<ResourceLogLine>(serverTailLineCount) : null;
 
             // Read each resource in parallel and filter before writing to the JSON-RPC stream.
