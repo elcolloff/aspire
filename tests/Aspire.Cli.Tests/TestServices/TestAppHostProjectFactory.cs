@@ -34,6 +34,11 @@ internal sealed class TestAppHostProjectFactory : IAppHostProjectFactory
     /// </summary>
     public Func<FileInfo, CancellationToken, Task<AppHostValidationResult>>? ValidateAppHostAsyncCallback { get; set; }
 
+    /// <summary>
+    /// Optional detection patterns to advertise from the test project.
+    /// </summary>
+    public string[]? DetectionPatterns { get; set; }
+
     public TestAppHostProjectFactory()
     {
         _testProject = new TestAppHostProject(this);
@@ -145,10 +150,15 @@ internal sealed class TestAppHostProjectFactory : IAppHostProjectFactory
         }
 
         public Task<string[]> GetDetectionPatternsAsync(CancellationToken cancellationToken)
-            => Task.FromResult(s_detectionPatterns);
+            => Task.FromResult(_factory.DetectionPatterns ?? s_detectionPatterns);
 
         public bool CanHandle(FileInfo appHostFile)
         {
+            if (_factory.CanHandleCallback?.Invoke(appHostFile) == true)
+            {
+                return true;
+            }
+
             var extension = appHostFile.Extension.ToLowerInvariant();
             if (extension is ".csproj" or ".fsproj" or ".vbproj")
             {

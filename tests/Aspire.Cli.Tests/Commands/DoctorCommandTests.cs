@@ -136,6 +136,7 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
             options.AppHostProjectFactory = _ => new TestAppHostProjectFactory
             {
                 CanHandleCallback = file => file.Extension.Equals(".ts", StringComparison.OrdinalIgnoreCase),
+                DetectionPatterns = ["apphost.ts"],
                 GetAspireHostingVersionAsyncCallback = (_, _) => Task.FromResult<string?>("13.1.0")
             };
             options.DotNetCliRunnerFactory = _ => new TestDotNetCliRunner
@@ -338,6 +339,7 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
             options.AppHostProjectFactory = _ => new TestAppHostProjectFactory
             {
                 CanHandleCallback = file => file.Extension.Equals(".ts", StringComparison.OrdinalIgnoreCase),
+                DetectionPatterns = ["apphost.ts"],
                 GetAspireHostingVersionAsyncCallback = (_, _) =>
                     throw new InvalidOperationException("invalid aspire.config.json")
             };
