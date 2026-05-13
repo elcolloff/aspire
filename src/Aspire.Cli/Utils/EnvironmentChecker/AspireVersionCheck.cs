@@ -16,7 +16,6 @@ namespace Aspire.Cli.Utils.EnvironmentChecker;
 internal sealed class AspireVersionCheck(
     ICliUpdateNotifier updateNotifier,
     IProjectLocator projectLocator,
-    ILanguageDiscovery languageDiscovery,
     IAppHostProjectFactory projectFactory,
     CliExecutionContext executionContext,
     ILogger<AspireVersionCheck> logger) : IEnvironmentCheck
@@ -237,27 +236,11 @@ internal sealed class AspireVersionCheck(
             return [configuredAppHost];
         }
 
-        var candidates = new Dictionary<string, FileInfo>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-        var languages = await languageDiscovery.GetAvailableLanguagesAsync(cancellationToken);
-        foreach (var language in languages)
-        {
-            var project = projectFactory.GetProject(language);
-            var detectionPatterns = await project.GetDetectionPatternsAsync(cancellationToken);
-
-            foreach (var detectionPattern in detectionPatterns)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                foreach (var candidatePath in Directory.EnumerateFiles(executionContext.WorkingDirectory.FullName, detectionPattern, SearchOption.TopDirectoryOnly))
-                {
-                    var candidate = new FileInfo(candidatePath);
-                    if (project.CanHandle(candidate))
-                    {
-                        candidates.TryAdd(candidate.FullName, candidate);
-                    }
-                }
-            }
-        }
+        var candidates = await projectLocator.FindAppHostProjectFilesAsync(
+            executionContext.WorkingDirectory,
+            AppHostDiscoveryScope.ExplicitDirectory,
+            maxDepth: 0,
+            cancellationToken);
 
         if (candidates.Count > 1)
         {
@@ -267,7 +250,7 @@ internal sealed class AspireVersionCheck(
             return [];
         }
 
-        return [.. candidates.Values];
+        return candidates;
     }
 
     private async Task<(bool IsAppHost, string? Version)> ResolveAppHostVersionAsync(FileInfo appHostFile, CancellationToken cancellationToken)
