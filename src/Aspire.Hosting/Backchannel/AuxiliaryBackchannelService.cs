@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Net.Sockets;
+using Aspire.Hosting.Diagnostics;
 using Aspire.Hosting.Eventing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -146,6 +147,8 @@ internal sealed class AuxiliaryBackchannelService(
             // Create a new RPC target for this connection
             var rpcTarget = new AuxiliaryBackchannelRpcTarget(
                 serviceProvider.GetRequiredService<ILogger<AuxiliaryBackchannelRpcTarget>>(),
+                serviceProvider.GetRequiredService<IConfiguration>(),
+                serviceProvider.GetRequiredService<ProfilingTelemetry>(),
                 serviceProvider);
 
             // Set up JSON-RPC over the client socket

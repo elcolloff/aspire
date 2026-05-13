@@ -21,7 +21,7 @@ using ModelContextProtocol.Protocol;
 //
 // 1. All methods take a single request object (nullable where sensible)
 // 2. All methods return a response object (or IAsyncEnumerable<T> for streaming)
-// 3. Request/response types are sealed classes with { get; init; } properties
+// 3. Request types derive from BackchannelRequest; request/response types are sealed classes with { get; init; } properties
 // 4. Required properties use 'required' keyword
 // 5. Optional properties are nullable (T?) - can be added without breaking
 // 6. Empty request classes are allowed (for future expansion)
@@ -62,9 +62,55 @@ internal static class KnownCommandVisibility
 #region V2 Request/Response Types
 
 /// <summary>
+/// Profiling trace context propagated over the auxiliary backchannel.
+/// </summary>
+internal sealed class BackchannelProfilingContext
+{
+    /// <summary>
+    /// Gets the profiling session ID.
+    /// </summary>
+    public string? ProfilingSessionId { get; init; }
+
+    /// <summary>
+    /// Gets the W3C traceparent value for the client-side JSON-RPC span.
+    /// </summary>
+    public string? TraceParent { get; init; }
+
+    /// <summary>
+    /// Gets the W3C tracestate value for the client-side JSON-RPC span.
+    /// </summary>
+    public string? TraceState { get; init; }
+}
+
+/// <summary>
+/// Base class for auxiliary backchannel request-object RPC parameters.
+/// </summary>
+internal abstract class BackchannelRequest
+{
+    /// <summary>
+    /// Gets profiling trace context propagated by the CLI.
+    /// </summary>
+    public BackchannelProfilingContext? ProfilingContext { get; init; }
+
+    /// <summary>
+    /// Creates a copy of this request with the specified profiling context.
+    /// </summary>
+    /// <remarks>
+    /// The CLI injects trace context into already-created request instances before sending
+    /// them over StreamJsonRpc. Each request type owns its copy logic so this stays AOT- and
+    /// trimming-friendly instead of relying on reflection to clone arbitrary records/classes.
+    /// </remarks>
+    public abstract BackchannelRequest WithProfilingContext(BackchannelProfilingContext profilingContext);
+}
+
+/// <summary>
 /// Request for getting auxiliary backchannel capabilities.
 /// </summary>
-internal sealed class GetCapabilitiesRequest { }
+internal sealed class GetCapabilitiesRequest : BackchannelRequest
+{
+    /// <inheritdoc />
+    public override GetCapabilitiesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+}
 
 /// <summary>
 /// Response containing auxiliary backchannel capabilities.
@@ -80,7 +126,11 @@ internal sealed class GetCapabilitiesResponse
 /// <summary>
 /// Request for getting AppHost information.
 /// </summary>
-internal sealed class GetAppHostInfoRequest { }
+internal sealed class GetAppHostInfoRequest : BackchannelRequest
+{
+    /// <inheritdoc />
+    public override GetAppHostInfoRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+}
 
 /// <summary>
 /// Response containing AppHost information.
@@ -116,7 +166,11 @@ internal sealed class GetAppHostInfoResponse
 /// <summary>
 /// Request for getting Dashboard information.
 /// </summary>
-internal sealed class GetDashboardInfoRequest { }
+internal sealed class GetDashboardInfoRequest : BackchannelRequest
+{
+    /// <inheritdoc />
+    public override GetDashboardInfoRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+}
 
 /// <summary>
 /// Response containing Dashboard information.
@@ -148,12 +202,19 @@ internal sealed class GetDashboardInfoResponse
 /// <summary>
 /// Request for getting resource snapshots.
 /// </summary>
-internal sealed class GetResourcesRequest
+internal sealed class GetResourcesRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets an optional filter pattern for resource names.
     /// </summary>
     public string? Filter { get; init; }
+
+    /// <inheritdoc />
+    public override GetResourcesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        Filter = Filter
+    };
 }
 
 /// <summary>
@@ -170,34 +231,67 @@ internal sealed class GetResourcesResponse
 /// <summary>
 /// Request for watching resource changes.
 /// </summary>
-internal sealed class WatchResourcesRequest
+internal sealed class WatchResourcesRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets an optional filter pattern for resource names.
     /// </summary>
     public string? Filter { get; init; }
+
+    /// <inheritdoc />
+    public override WatchResourcesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        Filter = Filter
+    };
 }
 
 /// <summary>
 /// Request for getting console logs.
 /// </summary>
-internal sealed class GetConsoleLogsRequest
+internal sealed class GetConsoleLogsRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets the resource name to get logs for.
     /// </summary>
-    public required string ResourceName { get; init; }
+    public string? ResourceName { get; init; }
 
     /// <summary>
     /// Gets whether to follow (stream) new log entries.
     /// </summary>
     public bool Follow { get; init; }
+
+    /// <summary>
+    /// Gets an optional search string to match against log content or resource name.
+    /// </summary>
+    public string? Search { get; init; }
+
+    /// <summary>
+    /// Gets the maximum number of matching snapshot log entries to return.
+    /// </summary>
+    public int? Tail { get; init; }
+
+    /// <summary>
+    /// Gets whether hidden resources should be included when no resource name is specified.
+    /// </summary>
+    public bool IncludeHidden { get; init; }
+
+    /// <inheritdoc />
+    public override GetConsoleLogsRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        ResourceName = ResourceName,
+        Follow = Follow,
+        Search = Search,
+        Tail = Tail,
+        IncludeHidden = IncludeHidden
+    };
 }
 
 /// <summary>
 /// Request for calling an MCP tool on a resource.
 /// </summary>
-internal sealed class CallMcpToolRequest
+internal sealed class CallMcpToolRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets the resource name.
@@ -213,6 +307,15 @@ internal sealed class CallMcpToolRequest
     /// Gets the tool arguments.
     /// </summary>
     public JsonElement? Arguments { get; init; }
+
+    /// <inheritdoc />
+    public override CallMcpToolRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        ResourceName = ResourceName,
+        ToolName = ToolName,
+        Arguments = Arguments
+    };
 }
 
 /// <summary>
@@ -250,12 +353,19 @@ internal sealed class McpToolContentItem
 /// <summary>
 /// Request for stopping the AppHost.
 /// </summary>
-internal sealed class StopAppHostRequest
+internal sealed class StopAppHostRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets the exit code to use when stopping.
     /// </summary>
     public int? ExitCode { get; init; }
+
+    /// <inheritdoc />
+    public override StopAppHostRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        ExitCode = ExitCode
+    };
 }
 
 /// <summary>
@@ -266,7 +376,7 @@ internal sealed class StopAppHostResponse { }
 /// <summary>
 /// Request for executing a resource command.
 /// </summary>
-internal sealed class ExecuteResourceCommandRequest
+internal sealed class ExecuteResourceCommandRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets the resource name (or resource ID for replicas).
@@ -293,6 +403,17 @@ internal sealed class ExecuteResourceCommandRequest
     /// Gets a value indicating whether command execution should fail instead of prompting for missing input.
     /// </summary>
     public bool NonInteractive { get; init; } = true;
+
+    /// <inheritdoc />
+    public override ExecuteResourceCommandRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        ResourceName = ResourceName,
+        CommandName = CommandName,
+        Arguments = Arguments,
+        ValidateOnly = ValidateOnly,
+        NonInteractive = NonInteractive
+    };
 }
 
 /// <summary>
@@ -423,7 +544,7 @@ internal enum CommandResultFormat
 /// <summary>
 /// Request to wait for a resource to reach a target status.
 /// </summary>
-internal sealed class WaitForResourceRequest
+internal sealed class WaitForResourceRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets the name of the resource to wait for.
@@ -439,6 +560,15 @@ internal sealed class WaitForResourceRequest
     /// Gets the timeout in seconds.
     /// </summary>
     public int TimeoutSeconds { get; init; } = 120;
+
+    /// <inheritdoc />
+    public override WaitForResourceRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        ResourceName = ResourceName,
+        Status = Status,
+        TimeoutSeconds = TimeoutSeconds
+    };
 }
 
 /// <summary>
@@ -779,13 +909,20 @@ internal sealed class PipelineStepInfo
 /// <summary>
 /// Request for getting pipeline step metadata.
 /// </summary>
-internal sealed class GetPipelineStepsRequest
+internal sealed class GetPipelineStepsRequest : BackchannelRequest
 {
     /// <summary>
     /// Gets or sets the target step name to filter to (including transitive dependencies).
     /// When null, all steps are returned.
     /// </summary>
     public string? Step { get; init; }
+
+    /// <inheritdoc />
+    public override GetPipelineStepsRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    {
+        ProfilingContext = profilingContext,
+        Step = Step
+    };
 }
 
 /// <summary>

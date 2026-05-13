@@ -84,6 +84,16 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets console log lines from the AppHost.
+    /// </summary>
+    /// <param name="request">The console log request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An async enumerable of log lines.</returns>
+    IAsyncEnumerable<ResourceLogLine> GetConsoleLogsAsync(
+        GetConsoleLogsRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Stops the AppHost by sending a stop request via the backchannel.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

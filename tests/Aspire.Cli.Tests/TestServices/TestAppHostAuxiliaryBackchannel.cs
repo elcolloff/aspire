@@ -69,6 +69,12 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
     /// </summary>
     public Func<string?, bool, CancellationToken, IAsyncEnumerable<ResourceLogLine>>? GetResourceLogsHandler { get; set; }
 
+    /// <summary>
+    /// Gets or sets the function to call when GetConsoleLogsAsync is invoked.
+    /// If null, falls back to GetResourceLogsAsync.
+    /// </summary>
+    public Func<GetConsoleLogsRequest, CancellationToken, IAsyncEnumerable<ResourceLogLine>>? GetConsoleLogsHandler { get; set; }
+
     public Task<DashboardUrlsState?> GetDashboardUrlsAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(DashboardUrlsState);
@@ -158,6 +164,22 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
             yield return line;
         }
         await Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<ResourceLogLine> GetConsoleLogsAsync(
+        GetConsoleLogsRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var logLines = SupportsV2 && GetConsoleLogsHandler is not null
+            ? GetConsoleLogsHandler(request, cancellationToken)
+            : GetResourceLogsAsync(request.ResourceName, request.Follow, cancellationToken);
+
+        await foreach (var line in logLines.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            yield return line;
+        }
     }
 
     public Task<bool> StopAppHostAsync(CancellationToken cancellationToken = default)

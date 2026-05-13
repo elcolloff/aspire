@@ -1091,6 +1091,74 @@ public class LogsCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task LogsCommand_PassesSnapshotFiltersToConsoleLogsRequest()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var outputWriter = new TestOutputTextWriter(outputHelper);
+        var requests = new List<GetConsoleLogsRequest>();
+
+        using var provider = CreateLogsTestServices(workspace, outputWriter, disableAnsi: true,
+            configureConnection: connection =>
+            {
+                connection.GetConsoleLogsHandler = (request, cancellationToken) =>
+                {
+                    requests.Add(request);
+                    return connection.GetResourceLogsAsync(request.ResourceName, request.Follow, cancellationToken);
+                };
+            });
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("logs redis --search Ready --tail 2 --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+
+        var request = Assert.Single(requests);
+        Assert.Equal("redis", request.ResourceName);
+        Assert.False(request.Follow);
+        Assert.Equal("Ready", request.Search);
+        Assert.Equal(2, request.Tail);
+        Assert.True(request.IncludeHidden);
+    }
+
+    [Fact]
+    public async Task LogsCommand_WithOldAppHost_FallsBackToClientSideSearchAndTail()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var outputWriter = new TestOutputTextWriter(outputHelper);
+
+        using var provider = CreateLogsTestServices(workspace, outputWriter, disableAnsi: true,
+            logLines:
+            [
+                new ResourceLogLine { ResourceName = "redis", LineNumber = 1, Content = "2025-01-15T10:30:00Z Ready to accept connections", IsError = false },
+                new ResourceLogLine { ResourceName = "redis", LineNumber = 2, Content = "2025-01-15T10:30:01Z First timeout error", IsError = true },
+                new ResourceLogLine { ResourceName = "redis", LineNumber = 3, Content = "2025-01-15T10:30:02Z Client connected from 127.0.0.1", IsError = false },
+                new ResourceLogLine { ResourceName = "redis", LineNumber = 4, Content = "2025-01-15T10:30:03Z Second timeout error", IsError = true }
+            ],
+            configureConnection: connection =>
+            {
+                connection.SupportsV2 = false;
+                connection.GetConsoleLogsHandler = static (_, _) => throw new InvalidOperationException("Old AppHosts should use the legacy console log RPC.");
+            });
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("logs redis --search timeout --tail 1 --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+
+        var jsonOutput = outputWriter.Logs.FirstOrDefault(l => l.Contains("\"logs\"", StringComparison.Ordinal));
+        Assert.NotNull(jsonOutput);
+
+        var logsOutput = JsonSerializer.Deserialize(jsonOutput, LogsCommandJsonContext.Snapshot.LogsOutput);
+        Assert.NotNull(logsOutput);
+        var log = Assert.Single(logsOutput.Logs);
+        Assert.Equal("Second timeout error", log.Content);
+    }
+
+    [Fact]
     public async Task LogsCommand_FollowWithTailAndSearch_FiltersTailOutput()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);

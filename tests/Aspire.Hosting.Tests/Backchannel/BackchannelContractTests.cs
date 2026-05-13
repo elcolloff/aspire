@@ -12,24 +12,36 @@ namespace Aspire.Hosting.Backchannel;
 [Trait("Partition", "4")]
 public class BackchannelContractTests
 {
-    // V2 request/response types that must follow the contract
-    private static readonly Type[] s_contractTypes =
+    private static readonly Type[] s_requestTypes =
     [
         typeof(GetCapabilitiesRequest),
-        typeof(GetCapabilitiesResponse),
         typeof(GetAppHostInfoRequest),
-        typeof(GetAppHostInfoResponse),
         typeof(GetDashboardInfoRequest),
-        typeof(GetDashboardInfoResponse),
         typeof(GetResourcesRequest),
-        typeof(GetResourcesResponse),
         typeof(WatchResourcesRequest),
         typeof(GetConsoleLogsRequest),
         typeof(CallMcpToolRequest),
+        typeof(StopAppHostRequest),
+        typeof(ExecuteResourceCommandRequest),
+        typeof(WaitForResourceRequest),
+        typeof(GetPipelineStepsRequest),
+    ];
+
+    // V2 request/response types that must follow the contract
+    private static readonly Type[] s_contractTypes =
+    [
+        .. s_requestTypes,
+        typeof(GetCapabilitiesResponse),
+        typeof(BackchannelProfilingContext),
+        typeof(GetAppHostInfoResponse),
+        typeof(GetDashboardInfoResponse),
+        typeof(GetResourcesResponse),
         typeof(CallMcpToolResponse),
         typeof(McpToolContentItem),
-        typeof(StopAppHostRequest),
         typeof(StopAppHostResponse),
+        typeof(ExecuteResourceCommandResponse),
+        typeof(WaitForResourceResponse),
+        typeof(GetPipelineStepsResponse),
         typeof(ResourceSnapshot),
         typeof(ResourceSnapshotUrl),
         typeof(ResourceSnapshotUrlDisplayProperties),
@@ -75,6 +87,7 @@ public class BackchannelContractTests
 
             // Rule 6: Naming convention (skip helper types)
             if (!type.Name.StartsWith("ResourceSnapshot") &&
+                type != typeof(BackchannelProfilingContext) &&
                 type.Name != "McpToolContentItem" &&
                 type.Name != "ResourceLogLine")
             {
@@ -135,6 +148,12 @@ public class BackchannelContractTests
                         }
                     }
                 }
+            }
+
+            if (s_requestTypes.Contains(type) &&
+                !typeof(BackchannelRequest).IsAssignableFrom(type))
+            {
+                errors.AppendLine($"❌ {type.Name}: Requests must derive from {nameof(BackchannelRequest)} so profiling propagation stays AOT-safe.");
             }
         }
 

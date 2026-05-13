@@ -123,14 +123,15 @@ internal sealed class LogsCommand : BaseCommand
         AspireCliTelemetry telemetry,
         ICliHostEnvironment hostEnvironment,
         ResourceColorMap resourceColorMap,
-        ILogger<LogsCommand> logger)
+        ILogger<LogsCommand> logger,
+        ProfilingTelemetry profilingTelemetry)
         : base("logs", LogsCommandStrings.Description, features, updateNotifier, executionContext, interactionService, telemetry)
     {
         _resourceColorMap = resourceColorMap;
         _interactionService = interactionService;
         _hostEnvironment = hostEnvironment;
         _logger = logger;
-        _connectionResolver = new AppHostConnectionResolver(backchannelMonitor, interactionService, projectLocator, executionContext, logger);
+        _connectionResolver = new AppHostConnectionResolver(backchannelMonitor, interactionService, projectLocator, executionContext, logger, profilingTelemetry);
 
         Arguments.Add(s_resourceArgument);
         Options.Add(s_appHostOption);
@@ -247,15 +248,16 @@ internal sealed class LogsCommand : BaseCommand
         // Collect all logs, parsing into LogEntry with resolved resource names sorted by timestamp
         var entries = await _interactionService.ShowStatusAsync(
             LogsCommandStrings.GettingLogs,
-            async () => await CollectLogsAsync(connection, resourceWatcher, resourceName, cancellationToken).ConfigureAwait(false));
+            async () => await CollectLogsAsync(connection, resourceWatcher, resourceName, tail, search, cancellationToken).ConfigureAwait(false));
 
-        // Apply full-text search filter on log content
+        // Keep the client-side search and tail passes even when a v2 AppHost already applied
+        // them. Older AppHosts fall back to the legacy log stream, and this also preserves the
+        // CLI's parsed-log search semantics for any edge cases the server-side raw search misses.
         if (!string.IsNullOrEmpty(search))
         {
             entries = entries.Where(e => MatchesSearch(e, search)).ToList();
         }
 
-        // Apply tail filter (tail.Value is guaranteed >= 1 by earlier validation)
         if (tail.HasValue && entries.Count > tail.Value)
         {
             entries = entries.Skip(entries.Count - tail.Value).ToList();
@@ -307,7 +309,7 @@ internal sealed class LogsCommand : BaseCommand
         {
             var entries = await _interactionService.ShowStatusAsync(
                 LogsCommandStrings.GettingLogs,
-                async () => await CollectLogsAsync(connection, resourceWatcher, resourceName, cancellationToken).ConfigureAwait(false));
+                async () => await CollectLogsAsync(connection, resourceWatcher, resourceName, tail, search, cancellationToken).ConfigureAwait(false));
 
             // Apply full-text search filter before tail so tail count reflects matching entries
             if (!string.IsNullOrEmpty(search))
@@ -327,7 +329,15 @@ internal sealed class LogsCommand : BaseCommand
         }
 
         // Now stream new logs
-        await foreach (var logLine in connection.GetResourceLogsAsync(resourceName, follow: true, cancellationToken).ConfigureAwait(false))
+        var followRequest = new GetConsoleLogsRequest
+        {
+            ResourceName = resourceName,
+            Follow = true,
+            Search = search,
+            IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
+        };
+
+        await foreach (var logLine in connection.GetConsoleLogsAsync(followRequest, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources.
             // We filter by exclusion so that new resources appearing after the
@@ -364,13 +374,27 @@ internal sealed class LogsCommand : BaseCommand
         IAppHostAuxiliaryBackchannel connection,
         ResourceSnapshotWatcher resourceWatcher,
         string? resourceName,
+        int? tail,
+        string? search,
         CancellationToken cancellationToken)
     {
         var logParser = new LogParser(ConsoleColor.Black);
         var logEntries = new LogEntries(int.MaxValue) { BaseLineNumber = 1 };
         // Snapshot the resource list once for the non-follow path since it doesn't change.
         var allSnapshots = resourceWatcher.GetAllResources().ToList();
-        await foreach (var logLine in connection.GetResourceLogsAsync(resourceName, follow: false, cancellationToken).ConfigureAwait(false))
+        // V2 AppHosts use Search/Tail to avoid sending non-matching logs over JSON-RPC.
+        // The client still applies the same filters after parsing for compatibility with
+        // older AppHosts and to keep final output semantics centralized in this command.
+        var request = new GetConsoleLogsRequest
+        {
+            ResourceName = resourceName,
+            Follow = false,
+            Search = search,
+            Tail = tail,
+            IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
+        };
+
+        await foreach (var logLine in connection.GetConsoleLogsAsync(request, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources
             if (resourceName is null && !resourceWatcher.IncludeHidden)
