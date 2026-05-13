@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Aspire.Cli.Projects;
+using Aspire.Cli.Utils;
 
 namespace Aspire.Cli.Tests.TestServices;
 
@@ -17,6 +18,16 @@ internal sealed class TestAppHostProjectFactory : IAppHostProjectFactory
     /// Optional callback to control validation behavior. If not set, all valid project files are considered valid AppHosts.
     /// </summary>
     public Func<FileInfo, AppHostValidationResult>? ValidateAppHostCallback { get; set; }
+
+    /// <summary>
+    /// Optional callback for tests that need this factory to handle non-.NET AppHost file names.
+    /// </summary>
+    public Func<FileInfo, bool>? CanHandleCallback { get; set; }
+
+    /// <summary>
+    /// Optional callback to control AppHost version resolution behavior.
+    /// </summary>
+    public Func<FileInfo, CancellationToken, Task<string?>>? GetAspireHostingVersionAsyncCallback { get; set; }
 
     /// <summary>
     /// Optional async callback to control validation behavior.
@@ -41,6 +52,11 @@ internal sealed class TestAppHostProjectFactory : IAppHostProjectFactory
 
     public IAppHostProject? TryGetProject(FileInfo appHostFile)
     {
+        if (CanHandleCallback?.Invoke(appHostFile) == true)
+        {
+            return _testProject;
+        }
+
         // Handle .csproj, .fsproj, .vbproj files
         if (s_projectExtensions.Contains(appHostFile.Extension))
         {
@@ -181,6 +197,13 @@ internal sealed class TestAppHostProjectFactory : IAppHostProjectFactory
             }
 
             return Task.FromResult(new AppHostValidationResult(IsValid: true));
+        }
+
+        public Task<string?> GetAspireHostingVersionAsync(FileInfo appHostFile, CancellationToken cancellationToken)
+        {
+            return _factory.GetAspireHostingVersionAsyncCallback is not null
+                ? _factory.GetAspireHostingVersionAsyncCallback(appHostFile, cancellationToken)
+                : Task.FromResult<string?>(VersionHelper.GetDefaultTemplateVersion());
         }
 
         public Task<bool> AddPackageAsync(AddPackageContext context, CancellationToken cancellationToken)
