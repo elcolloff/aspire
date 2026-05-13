@@ -137,12 +137,12 @@ aks.AddNodePool("workload", "Standard_D2as_v5", minCount: 1, maxCount: 3);
 // Network Contributor on the subnet so the controller can program the data plane.
 var publicLb = aks.AddLoadBalancer("public", albSubnet);
 
-// Gateway with a single route that points at /api on the apiservice. WithLoadBalancer
+// Gateway with a single route that points at /api on the apiService. WithLoadBalancer
 // stamps the alb.networking.azure.io association annotations and defaults the
 // gatewayClassName to "azure-alb-external".
 aks.AddGateway("api-gw")
     .WithLoadBalancer(publicLb)
-    .WithRoute("/api", apiservice.GetEndpoint("http"));
+    .WithRoute("/api", apiService.GetEndpoint("http"));
 
 builder.Build().Run();
 """;
