@@ -107,7 +107,7 @@
     <MicrosoftEntityFrameworkCoreToolsVersion>9.0.15</MicrosoftEntityFrameworkCoreToolsVersion>
     <!-- ASP.NET Core -->
     <MicrosoftAspNetCoreAuthenticationCertificateVersion>9.0.15</MicrosoftAspNetCoreAuthenticationCertificateVersion>
-    <MicrosoftAspNetCoreAuthenticationJwtBearerVersion>9.0.15</MicrosoftAspNetCoreAuthenticationJwtBearerVersion>
+    <MicrosoftAspNetCoreAuthenticationJwtBearerVersion>9.0.16</MicrosoftAspNetCoreAuthenticationJwtBearerVersion>
     <MicrosoftAspNetCoreAuthenticationOpenIdConnectVersion>9.0.15</MicrosoftAspNetCoreAuthenticationOpenIdConnectVersion>
     <MicrosoftAspNetCoreOpenApiVersion>9.0.15</MicrosoftAspNetCoreOpenApiVersion>
     <MicrosoftAspNetCoreOutputCachingStackExchangeRedisVersion>9.0.15</MicrosoftAspNetCoreOutputCachingStackExchangeRedisVersion>
