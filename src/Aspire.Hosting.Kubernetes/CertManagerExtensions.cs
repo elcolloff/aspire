@@ -1,8 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIREPIPELINES001 // Type is for evaluation purposes only and is subject to change or removal in future updates.
+
+using System.Globalization;
+using System.Text;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Dcp.Process;
 using Aspire.Hosting.Kubernetes;
+using Aspire.Hosting.Pipelines;
+using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting;
 
@@ -90,7 +97,17 @@ public static class CertManagerExtensions
             return builder.ApplicationBuilder.CreateResourceBuilder(resource);
         }
 
-        return builder.ApplicationBuilder.AddResource(resource).ExcludeFromManifest();
+        var resourceBuilder = builder.ApplicationBuilder.AddResource(resource).ExcludeFromManifest();
+
+        // Emit one kubectl-apply step per ClusterIssuer at deploy time. The annotation factory
+        // closure captures the CertManagerResource and reads .Issuers when the pipeline is
+        // assembled, so issuers added via AddIssuer(...) after this call are still picked up.
+        // Each step depends on helm-install-{chartName} so cert-manager (and its admission
+        // webhook) is up before we apply CRD instances.
+        resourceBuilder.WithAnnotation(new PipelineStepAnnotation(_ =>
+            BuildIssuerApplySteps(resource, chartName)));
+
+        return resourceBuilder;
     }
 
     /// <summary>
@@ -290,5 +307,200 @@ public static class CertManagerExtensions
         return builder
             .WithTls()
             .WithIngressAnnotation(ClusterIssuerAnnotationKey, issuer.Resource.Name);
+    }
+
+    private static Task<IEnumerable<PipelineStep>> BuildIssuerApplySteps(
+        CertManagerResource certManager,
+        string chartName)
+    {
+        var steps = new List<PipelineStep>();
+
+        foreach (var issuer in certManager.Issuers)
+        {
+            // Capture each issuer in its own local so the closure below doesn't see the
+            // foreach iteration variable.
+            var captured = issuer;
+
+            var step = new PipelineStep
+            {
+                Name = $"cm-issuer-apply-{captured.Name}",
+                Description = $"Applies cert-manager ClusterIssuer '{captured.Name}'",
+                Action = ctx => ApplyClusterIssuerAsync(ctx, certManager, captured)
+            };
+
+            // Wait for cert-manager itself to be installed and ready (helm install uses
+            // --wait, so the validating webhook is guaranteed to be Available before this
+            // step runs). Without this dep we'd race the webhook and get
+            // 'failed calling webhook "webhook.cert-manager.io": no endpoints available'.
+            step.DependsOn($"helm-install-{chartName}");
+            step.RequiredBy(WellKnownPipelineSteps.Deploy);
+            steps.Add(step);
+        }
+
+        return Task.FromResult<IEnumerable<PipelineStep>>(steps);
+    }
+
+    private static async Task ApplyClusterIssuerAsync(
+        PipelineStepContext context,
+        CertManagerResource certManager,
+        CertManagerIssuerResource issuer)
+    {
+        if (issuer.Spec is null)
+        {
+            throw new InvalidOperationException(
+                $"ClusterIssuer '{issuer.Name}' has no spec. Configure it with WithLetsEncryptProduction(), " +
+                "WithLetsEncryptStaging(), or WithAcmeServer().");
+        }
+
+        if (issuer.Solvers.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"ClusterIssuer '{issuer.Name}' has no solvers configured. Add at least one " +
+                "solver via WithHttp01Solver().");
+        }
+
+        var environment = certManager.Parent;
+
+        var manifest = await BuildClusterIssuerManifestAsync(context.Model, certManager, issuer, context.CancellationToken)
+            .ConfigureAwait(false);
+
+        context.Logger.LogInformation(
+            "Applying cert-manager ClusterIssuer '{IssuerName}'.", issuer.Name);
+
+        // Write to a temp file and apply. kubectl apply -f - via stdin would avoid the
+        // temp file but ProcessUtil.Run doesn't expose a stdin pipe; Directory.CreateTempSubdirectory
+        // is the standard temp pattern in this codebase (see EnsureBootstrapTlsSecretAsync).
+        var tempDir = Directory.CreateTempSubdirectory(".aspire-cm-issuer");
+        try
+        {
+            var manifestPath = Path.Combine(tempDir.FullName, $"{issuer.Name}.yaml");
+            await File.WriteAllTextAsync(manifestPath, manifest, context.CancellationToken).ConfigureAwait(false);
+
+            var args = new StringBuilder();
+            args.Append(CultureInfo.InvariantCulture, $"apply -f \"{manifestPath}\"");
+            if (environment.KubeConfigPath is not null)
+            {
+                args.Append(CultureInfo.InvariantCulture, $" --kubeconfig \"{environment.KubeConfigPath}\"");
+            }
+
+            var stderr = new StringBuilder();
+            var (resultTask, disposable) = ProcessUtil.Run(new ProcessSpec("kubectl")
+            {
+                Arguments = args.ToString(),
+                ThrowOnNonZeroReturnCode = false,
+                InheritEnv = true,
+                OnOutputData = line => context.Logger.LogDebug("kubectl: {Line}", line),
+                OnErrorData = line =>
+                {
+                    stderr.AppendLine(line);
+                    context.Logger.LogDebug("kubectl: {Line}", line);
+                }
+            });
+
+            await using (disposable.ConfigureAwait(false))
+            {
+                var result = await resultTask.WaitAsync(context.CancellationToken).ConfigureAwait(false);
+                if (result.ExitCode != 0)
+                {
+                    var errOut = stderr.ToString().Trim();
+                    throw new InvalidOperationException(
+                        $"kubectl apply for ClusterIssuer '{issuer.Name}' failed with exit code {result.ExitCode}: {errOut}");
+                }
+            }
+
+            context.Logger.LogInformation("ClusterIssuer '{IssuerName}' applied.", issuer.Name);
+        }
+        finally
+        {
+            try { tempDir.Delete(recursive: true); } catch { }
+        }
+    }
+
+    private static async Task<string> BuildClusterIssuerManifestAsync(
+        ApplicationModel.DistributedApplicationModel model,
+        CertManagerResource certManager,
+        CertManagerIssuerResource issuer,
+        CancellationToken cancellationToken)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("apiVersion: cert-manager.io/v1");
+        sb.AppendLine("kind: ClusterIssuer");
+        sb.AppendLine("metadata:");
+        sb.Append("  name: ").AppendLine(issuer.Name);
+        sb.AppendLine("spec:");
+
+        switch (issuer.Spec)
+        {
+            case CertManagerAcmeIssuerSpec acme:
+                {
+                    var server = await acme.ServerUrl.GetValueAsync(cancellationToken).ConfigureAwait(false);
+                    var email = await acme.Email.GetValueAsync(cancellationToken).ConfigureAwait(false);
+                    sb.AppendLine("  acme:");
+                    sb.Append("    server: ").AppendLine(server);
+                    sb.Append("    email: ").AppendLine(email);
+                    sb.AppendLine("    privateKeySecretRef:");
+                    sb.Append("      name: ").Append(issuer.Name).AppendLine("-account-key");
+                    sb.AppendLine("    solvers:");
+                    foreach (var solver in issuer.Solvers)
+                    {
+                        AppendSolver(sb, solver, model, certManager, issuer);
+                    }
+                    break;
+                }
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown issuer spec type '{issuer.Spec?.GetType().Name}' on issuer '{issuer.Name}'.");
+        }
+
+        return sb.ToString();
+    }
+
+    private static void AppendSolver(
+        StringBuilder sb,
+        CertManagerSolverConfig solver,
+        ApplicationModel.DistributedApplicationModel model,
+        CertManagerResource certManager,
+        CertManagerIssuerResource issuer)
+    {
+        switch (solver)
+        {
+            case CertManagerHttp01SolverConfig:
+                {
+                    sb.AppendLine("    - http01:");
+                    sb.AppendLine("        gatewayHTTPRoute:");
+
+                    // cert-manager's HTTP-01 Gateway API solver creates an HTTPRoute that has to
+                    // attach to the Gateway being validated. Without parentRefs, the route is
+                    // orphaned and the ACME challenge URL is unreachable.
+                    // See https://cert-manager.io/docs/configuration/acme/http01/#configuring-the-http01-gateway-api-solver
+                    var parentGateways = model.Resources
+                        .OfType<KubernetesGatewayResource>()
+                        .Where(g => g.Parent == certManager.Parent
+                                    && g.GatewayAnnotations.TryGetValue(ClusterIssuerAnnotationKey, out var v)
+                                    && string.Equals(v.Format, issuer.Name, StringComparison.Ordinal))
+                        .ToList();
+
+                    if (parentGateways.Count == 0)
+                    {
+                        // No annotated gateway found yet — emit the solver with no parentRefs.
+                        // cert-manager will reject the challenge until at least one Gateway
+                        // adopts the issuer, but the apply itself succeeds and a redeploy
+                        // after wiring up WithTls(issuer) will fix it.
+                        return;
+                    }
+
+                    sb.AppendLine("          parentRefs:");
+                    foreach (var gateway in parentGateways)
+                    {
+                        sb.AppendLine("            - group: gateway.networking.k8s.io");
+                        sb.AppendLine("              kind: Gateway");
+                        sb.Append("              name: ").AppendLine(gateway.Name);
+                    }
+                    break;
+                }
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown solver type '{solver.GetType().Name}' on issuer '{issuer.Name}'.");
+        }
     }
 }
