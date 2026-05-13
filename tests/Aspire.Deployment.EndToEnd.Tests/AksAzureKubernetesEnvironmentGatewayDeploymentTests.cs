@@ -137,12 +137,13 @@ aks.AddNodePool("workload", "Standard_D2as_v5", minCount: 1, maxCount: 3);
 // Network Contributor on the subnet so the controller can program the data plane.
 var publicLb = aks.AddLoadBalancer("public", albSubnet);
 
-// Gateway with a single route that points at /api on the apiService. WithLoadBalancer
+// Gateway with a single route that points at / on the apiService. WithLoadBalancer
 // stamps the alb.networking.azure.io association annotations and defaults the
-// gatewayClassName to "azure-alb-external".
+// gatewayClassName to "azure-alb-external". Routing "/" (Prefix) so any path the
+// starter template's apiservice exposes (/, /weatherforecast) flows through.
 aks.AddGateway("api-gw")
     .WithLoadBalancer(publicLb)
-    .WithRoute("/api", apiService.GetEndpoint("http"));
+    .WithRoute("/", apiService.GetEndpoint("http"));
 
 builder.Build().Run();
 """;
@@ -226,12 +227,14 @@ builder.Build().Run();
 
             // Step 14: Verify the API responds over the AGC FQDN. Because AGC programs the data
             // plane asynchronously after the FQDN is published, retry for a couple of minutes.
-            output.WriteLine("Step 14: Verifying http://<fqdn>/api returns 200...");
+            // /weatherforecast is the actual API endpoint exposed by the starter template
+            // apiservice — the gateway is wired to "/" (Prefix) so the path flows through to it.
+            output.WriteLine("Step 14: Verifying http://<fqdn>/weatherforecast returns 200...");
             await auto.TypeAsync(
                 "FQDN=$(kubectl get gateway api-gw -n $NS -o jsonpath='{.status.addresses[0].value}') && " +
-                "echo \"Testing: http://$FQDN/api\" && " +
+                "echo \"Testing: http://$FQDN/weatherforecast\" && " +
                 "OK=0; for i in $(seq 1 30); do sleep 5; " +
-                "S=$(curl -so /dev/null -w '%{http_code}' -m 10 http://$FQDN/api 2>/dev/null); " +
+                "S=$(curl -so /dev/null -w '%{http_code}' -m 10 http://$FQDN/weatherforecast 2>/dev/null); " +
                 "[ \"$S\" = \"200\" ] && echo \"HTTP $S OK\" && OK=1 && break; " +
                 "echo \"Attempt $i: HTTP $S\"; done; " +
                 "[ \"$OK\" = \"1\" ] || { echo 'FAIL: gateway never returned 200 via AGC FQDN'; exit 1; }");
