@@ -310,7 +310,13 @@ public static partial class KubernetesHelmChartExtensions
             // deprecated --force / --force-replace (which delete + recreate resources
             // and are incompatible with SSA).
             // See KubernetesHelmChartExtensions.WithForceConflicts for the full rationale.
-            arguments.Append(" --force-conflicts");
+            //
+            // --server-side is REQUIRED alongside --force-conflicts: helm only registers
+            // the --force-conflicts flag in server-side-apply mode. Without --server-side,
+            // helm rejects the unknown flag with "Error: unknown flag: --force-conflicts"
+            // before it even attempts to install the chart. Both flags arrived together
+            // in helm v3.18.
+            arguments.Append(" --server-side --force-conflicts");
         }
 
         if (environment.KubeConfigPath is not null)
