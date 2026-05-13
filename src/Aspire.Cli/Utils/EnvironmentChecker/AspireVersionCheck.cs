@@ -107,10 +107,10 @@ internal sealed class AspireVersionCheck(
 
     private async Task<EnvironmentCheckResult?> GetAppHostVersionCheckAsync(CancellationToken cancellationToken)
     {
-        FileInfo? appHostFile;
+        IReadOnlyList<FileInfo> appHostFiles;
         try
         {
-            appHostFile = await ResolveAppHostFileAsync(cancellationToken);
+            appHostFiles = await ResolveAppHostFilesAsync(cancellationToken);
         }
         catch (ProjectLocatorException ex) when (ex.FailureReason is ProjectLocatorFailureReason.NoProjectFileFound or ProjectLocatorFailureReason.ProjectFileDoesntExist)
         {
@@ -134,41 +134,62 @@ internal sealed class AspireVersionCheck(
             };
         }
 
-        if (appHostFile is null)
+        foreach (var appHostFile in appHostFiles)
         {
-            return null;
-        }
-
-        var relativePath = GetRelativePath(appHostFile);
-        var (isAppHost, version) = await ResolveAppHostVersionAsync(appHostFile, cancellationToken);
-        if (!isAppHost)
-        {
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            return new EnvironmentCheckResult
+            var relativePath = GetRelativePath(appHostFile);
+            try
             {
-                Category = "apphost",
-                Name = "apphost-version",
-                Status = EnvironmentCheckStatus.Warning,
-                Message = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.AppHostVersionUnknownMessageFormat, relativePath),
-                Metadata = BuildAppHostVersionMetadata(relativePath, version: null)
-            };
+                var (isAppHost, version) = await ResolveAppHostVersionAsync(appHostFile, cancellationToken);
+                if (!isAppHost)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(version))
+                {
+                    return new EnvironmentCheckResult
+                    {
+                        Category = "apphost",
+                        Name = "apphost-version",
+                        Status = EnvironmentCheckStatus.Warning,
+                        Message = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.AppHostVersionUnknownMessageFormat, relativePath),
+                        Metadata = BuildAppHostVersionMetadata(relativePath, version: null)
+                    };
+                }
+
+                return new EnvironmentCheckResult
+                {
+                    Category = "apphost",
+                    Name = "apphost-version",
+                    Status = EnvironmentCheckStatus.Pass,
+                    Message = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.AppHostVersionMessageFormat, version, relativePath),
+                    Metadata = BuildAppHostVersionMetadata(relativePath, version)
+                };
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Failed to check Aspire AppHost version for {AppHostPath}.", appHostFile.FullName);
+
+                return new EnvironmentCheckResult
+                {
+                    Category = "apphost",
+                    Name = "apphost-version",
+                    Status = EnvironmentCheckStatus.Warning,
+                    Message = DoctorCommandStrings.AppHostVersionCheckFailedMessage,
+                    Details = ex.Message,
+                    Metadata = BuildAppHostVersionMetadata(relativePath, version: null)
+                };
+            }
         }
 
-        return new EnvironmentCheckResult
-        {
-            Category = "apphost",
-            Name = "apphost-version",
-            Status = EnvironmentCheckStatus.Pass,
-            Message = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.AppHostVersionMessageFormat, version, relativePath),
-            Metadata = BuildAppHostVersionMetadata(relativePath, version)
-        };
+        return null;
     }
 
-    private async Task<FileInfo?> ResolveAppHostFileAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<FileInfo>> ResolveAppHostFilesAsync(CancellationToken cancellationToken)
     {
         // Match the other doctor checks: honor a configured AppHost first without
         // scanning, then use bounded language detection. Avoid the full project locator
@@ -177,20 +198,80 @@ internal sealed class AspireVersionCheck(
         var configuredAppHost = await projectLocator.GetAppHostFromSettingsAsync(cancellationToken);
         if (configuredAppHost is not null)
         {
-            return configuredAppHost;
+            return [configuredAppHost];
         }
 
         // Detect only which AppHost language appears to be present within the bounded
-        // search depth, then ask that language to find its first matching AppHost file.
+        // search depth, then validate matching candidates until an AppHost is found.
         var detectedLanguageId = await languageDiscovery.DetectLanguageRecursiveAsync(executionContext.WorkingDirectory, cancellationToken);
         if (detectedLanguageId is null)
         {
-            return null;
+            return [];
         }
 
         var detectedLanguage = languageDiscovery.GetLanguageById(detectedLanguageId.Value);
-        var discoveredPath = detectedLanguage?.FindInDirectory(executionContext.WorkingDirectory.FullName);
-        return discoveredPath is not null ? new FileInfo(discoveredPath) : null;
+        return detectedLanguage is not null
+            ? FindAppHostCandidates(detectedLanguage, cancellationToken).ToArray()
+            : [];
+    }
+
+    private IEnumerable<FileInfo> FindAppHostCandidates(LanguageInfo language, CancellationToken cancellationToken)
+    {
+        var root = executionContext.WorkingDirectory.FullName;
+        if (!Directory.Exists(root))
+        {
+            yield break;
+        }
+
+        var dirs = new Stack<(string Path, int Depth)>();
+        dirs.Push((root, 0));
+
+        while (dirs.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var (dir, depth) = dirs.Pop();
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(dir).ToArray();
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+            {
+                logger.LogDebug(ex, "Skipping directory {Directory} while finding AppHost candidates.", dir);
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (language.MatchesFile(Path.GetFileName(file)))
+                {
+                    yield return new FileInfo(file);
+                }
+            }
+
+            if (depth >= LanguageInfo.DetectionRecurseLimit)
+            {
+                continue;
+            }
+
+            IEnumerable<string> subdirectories;
+            try
+            {
+                subdirectories = Directory.EnumerateDirectories(dir).ToArray();
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+            {
+                logger.LogDebug(ex, "Skipping subdirectories of {Directory} while finding AppHost candidates.", dir);
+                continue;
+            }
+
+            foreach (var subdirectory in subdirectories)
+            {
+                dirs.Push((subdirectory, depth + 1));
+            }
+        }
     }
 
     private async Task<(bool IsAppHost, string? Version)> ResolveAppHostVersionAsync(FileInfo appHostFile, CancellationToken cancellationToken)

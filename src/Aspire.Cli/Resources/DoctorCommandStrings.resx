@@ -121,10 +121,6 @@
   <data name="AppHostVersionCheckFailedMessage" xml:space="preserve">
     <value>Could not determine AppHost version</value>
   </data>
-  <data name="AppHostVersionCheckFailedForProjectMessageFormat" xml:space="preserve">
-    <value>Could not determine AppHost version ({0})</value>
-    <comment>{0} is the AppHost project path.</comment>
-  </data>
   <data name="DevCertsNoCertificateMessage" xml:space="preserve">
     <value>No HTTPS development certificate found</value>
   </data>

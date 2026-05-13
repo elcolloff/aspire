@@ -231,15 +231,6 @@ namespace Aspire.Cli.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to Could not determine AppHost version ({0}).
-        /// </summary>
-        public static string AppHostVersionCheckFailedForProjectMessageFormat {
-            get {
-                return ResourceManager.GetString("AppHostVersionCheckFailedForProjectMessageFormat", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   Looks up a localized string similar to No HTTPS development certificate found.
         /// </summary>
         public static string DevCertsNoCertificateMessage {

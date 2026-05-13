@@ -249,6 +249,93 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task DoctorCommand_Json_ContinuesSearchingAfterNonAppHostProject()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var projectFile = new FileInfo(Path.Combine(workspace.WorkspaceRoot.FullName, "Normal.csproj"));
+        await File.WriteAllTextAsync(projectFile.FullName, "<Project />");
+        var appHostDirectory = workspace.WorkspaceRoot.CreateSubdirectory("app");
+        var appHostFile = new FileInfo(Path.Combine(appHostDirectory.FullName, "AppHost.csproj"));
+        await File.WriteAllTextAsync(appHostFile.FullName, "<Project />");
+
+        var interactionService = new TestInteractionService();
+        var services = CreateDoctorVersionServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => interactionService;
+            options.CliUpdateNotifierFactory = _ => new TestCliUpdateNotifier();
+            options.AppHostProjectFactory = _ => new TestAppHostProjectFactory
+            {
+                ValidateAppHostCallback = file => new AppHostValidationResult(
+                    IsValid: file.Name.Equals("AppHost.csproj", StringComparison.OrdinalIgnoreCase)),
+                GetAspireHostingVersionAsyncCallback = (_, _) => Task.FromResult<string?>("13.2.0")
+            };
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<Aspire.Cli.Commands.RootCommand>();
+        var result = command.Parse("doctor --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+
+        var (json, _) = Assert.Single(interactionService.DisplayedRawText);
+        using var document = JsonDocument.Parse(json);
+        var appHostVersionCheck = document.RootElement.GetProperty("checks").EnumerateArray()
+            .Single(check => check.GetProperty("name").GetString() == "apphost-version");
+
+        Assert.Equal("pass", appHostVersionCheck.GetProperty("status").GetString());
+        var appHostVersionMetadata = appHostVersionCheck.GetProperty("metadata");
+        Assert.Equal("13.2.0", appHostVersionMetadata.GetProperty("version").GetString());
+        Assert.Equal(
+            Path.Combine("app", "AppHost.csproj"),
+            appHostVersionMetadata.GetProperty("appHostPath").GetString());
+    }
+
+    [Fact]
+    public async Task DoctorCommand_Json_PreservesCliVersionWhenAppHostVersionResolutionFails()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var appHostFile = new FileInfo(Path.Combine(workspace.WorkspaceRoot.FullName, "apphost.ts"));
+        await File.WriteAllTextAsync(appHostFile.FullName, "export {};");
+
+        var interactionService = new TestInteractionService();
+        var services = CreateDoctorVersionServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => interactionService;
+            options.CliUpdateNotifierFactory = _ => new TestCliUpdateNotifier();
+            options.AppHostProjectFactory = _ => new TestAppHostProjectFactory
+            {
+                CanHandleCallback = file => file.Extension.Equals(".ts", StringComparison.OrdinalIgnoreCase),
+                GetAspireHostingVersionAsyncCallback = (_, _) =>
+                    throw new InvalidOperationException("invalid aspire.config.json")
+            };
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<Aspire.Cli.Commands.RootCommand>();
+        var result = command.Parse("doctor --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+
+        var (json, _) = Assert.Single(interactionService.DisplayedRawText);
+        using var document = JsonDocument.Parse(json);
+        var cliVersionCheck = document.RootElement.GetProperty("checks").EnumerateArray()
+            .Single(check => check.GetProperty("name").GetString() == "cli-version");
+        var appHostVersionCheck = document.RootElement.GetProperty("checks").EnumerateArray()
+            .Single(check => check.GetProperty("name").GetString() == "apphost-version");
+
+        Assert.Equal("pass", cliVersionCheck.GetProperty("status").GetString());
+        Assert.Equal("warning", appHostVersionCheck.GetProperty("status").GetString());
+        Assert.Equal("invalid aspire.config.json", appHostVersionCheck.GetProperty("details").GetString());
+        Assert.Equal(
+            "apphost.ts",
+            appHostVersionCheck.GetProperty("metadata").GetProperty("appHostPath").GetString());
+    }
+
+    [Fact]
     public async Task DoctorCommand_Json_UsesConfiguredAppHostBeyondLanguageDetectionLimit()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -289,7 +376,9 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
         Assert.Contains("AppHost.csproj", appHostVersionCheck.GetProperty("message").GetString()!);
         var appHostVersionMetadata = appHostVersionCheck.GetProperty("metadata");
         Assert.Equal("13.2.0", appHostVersionMetadata.GetProperty("version").GetString());
-        Assert.Equal("level0/level1/level2/level3/level4/level5/AppHost.csproj", appHostVersionMetadata.GetProperty("appHostPath").GetString());
+        Assert.Equal(
+            Path.Combine("level0", "level1", "level2", "level3", "level4", "level5", "AppHost.csproj"),
+            appHostVersionMetadata.GetProperty("appHostPath").GetString());
     }
 
     private static IServiceCollection CreateDoctorVersionServiceCollection(
