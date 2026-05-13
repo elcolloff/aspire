@@ -359,25 +359,20 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
 
         // Configure the terminal spec if the resource has a TerminalAnnotation.
         // Containers are always single-replica, so we use the host at index 0
-        // (TerminalAnnotation always has at least one entry). DCP currently
-        // implements PTY support on Windows only; on other platforms we leave
-        // Terminal unset and log a warning.
+        // (TerminalAnnotation always has at least one entry). PTY allocation
+        // is implemented by DCP for Windows (ConPTY), Linux, and macOS
+        // (Unix98 /dev/ptmx); the container runtime CLI's `attach` command
+        // is what actually gets PTY-attached, so behaviour is uniform across
+        // hosts that support docker/podman.
         if (modelContainer.TryGetAnnotationsOfType<TerminalAnnotation>(out var terminalAnnotations))
         {
             var terminalAnnotation = terminalAnnotations.FirstOrDefault();
             if (terminalAnnotation is not null)
             {
-                if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                {
-                    logger.LogWarning(
-                        "WithTerminal() is currently only supported on Windows. Container resource '{ResourceName}' will run without an attachable terminal in this Aspire version.",
-                        modelContainer.Name);
-                }
-                else if (terminalAnnotation.TerminalHosts.Count > 0)
+                if (terminalAnnotation.TerminalHosts.Count > 0)
                 {
                     spec.Terminal = new TerminalSpec
                     {
-                        Enabled = true,
                         UdsPath = terminalAnnotation.TerminalHosts[0].Layout.ProducerUdsPath,
                         Cols = terminalAnnotation.Options.Columns,
                         Rows = terminalAnnotation.Options.Rows

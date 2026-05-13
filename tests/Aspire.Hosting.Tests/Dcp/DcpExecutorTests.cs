@@ -4810,15 +4810,13 @@ public class DcpExecutorTests
             .OfType<Executable>()
             .Where(e => e.AppModelResourceName == appModelResourceName)];
     }
-    
-     [Fact]
-    public async Task Project_WithTerminal_PopulatesPerReplicaTerminalSpecOnWindows()
+
+    [Fact]
+    public async Task Project_WithTerminal_PopulatesPerReplicaTerminalSpec()
     {
-        // Phase 4 wire-up: when a project resource is configured with WithTerminal()
-        // (and runs on Windows where DCP currently supports PTY), each replica's
-        // Executable spec should carry a Terminal block whose UdsPath matches the
-        // per-replica producer path from TerminalHostLayout.ProducerUdsPaths.
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "DCP terminal support is currently Windows-only.");
+        // Phase 4 wire-up: when a project resource is configured with WithTerminal(),
+        // each replica's Executable spec should carry a Terminal block whose UdsPath
+        // matches the per-replica producer path from TerminalHostLayout.ProducerUdsPaths.
 
         var builder = DistributedApplication.CreateBuilder();
         var resource = builder.AddProject<Projects.ServiceA>("ServiceA")
@@ -4860,8 +4858,7 @@ public class DcpExecutorTests
         {
             var spec = exes[i].Spec.Terminal;
             Assert.NotNull(spec);
-            Assert.True(spec!.Enabled);
-            Assert.Equal(hosts[i].Layout.ProducerUdsPath, spec.UdsPath);
+            Assert.Equal(hosts[i].Layout.ProducerUdsPath, spec!.UdsPath);
             Assert.Equal(100, spec.Cols);
             Assert.Equal(30, spec.Rows);
         }
@@ -4885,14 +4882,13 @@ public class DcpExecutorTests
     }
 
     [Fact]
-    public async Task PlainExecutable_WithTerminal_PopulatesTerminalSpecOnWindows()
+    public async Task PlainExecutable_WithTerminal_PopulatesTerminalSpec()
     {
         // Regression test: plain executables added via AddExecutable() were missing
         // the ResourceReplicaIndex/ResourceReplicaCount annotations, which caused
         // BuildExecutableConfiguration to skip the spec.Terminal wire-up entirely
         // (the per-replica producer UDS path lookup in TerminalHostLayout was guarded
         // by a successful TryGetReplicaIndex).
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "DCP terminal support is currently Windows-only.");
 
         var builder = DistributedApplication.CreateBuilder();
         var resource = builder.AddExecutable("shell", "cmd.exe", ".")
@@ -4908,7 +4904,7 @@ public class DcpExecutorTests
         var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
 
         // BeforeStartEvent is where the per-replica TerminalHostResources are now
-        // materialized. See the matching note in Project_WithTerminal_PopulatesPerReplicaTerminalSpecOnWindows.
+        // materialized. See the matching note in Project_WithTerminal_PopulatesPerReplicaTerminalSpec.
         await builder.Eventing.PublishAsync(new BeforeStartEvent(app.Services, distributedAppModel));
 
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
@@ -4920,8 +4916,7 @@ public class DcpExecutorTests
         var host = Assert.Single(resource.Annotations.OfType<TerminalAnnotation>().Single().TerminalHosts);
 
         Assert.NotNull(exe.Spec.Terminal);
-        Assert.True(exe.Spec.Terminal!.Enabled);
-        Assert.Equal(host.Layout.ProducerUdsPath, exe.Spec.Terminal.UdsPath);
+        Assert.Equal(host.Layout.ProducerUdsPath, exe.Spec.Terminal!.UdsPath);
         Assert.Equal(100, exe.Spec.Terminal.Cols);
         Assert.Equal(30, exe.Spec.Terminal.Rows);
 

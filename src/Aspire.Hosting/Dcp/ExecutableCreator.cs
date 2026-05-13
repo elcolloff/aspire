@@ -7,7 +7,6 @@
 
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Dcp.Model;
@@ -112,28 +111,21 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         // Each replica gets its own DCP UDS producer endpoint from the layout so the
         // terminal host can multiplex viewers per (resource, replica).
         //
-        // DCP currently implements PTY support for Executables on Windows only (ConPTY).
-        // On other platforms we leave Terminal unset, log a warning, and the resource runs
-        // without an attachable terminal session — the TerminalHostResource itself still
-        // starts but never receives any HMP v1 producer connection.
+        // PTY allocation is implemented by DCP for Windows (ConPTY), Linux, and macOS
+        // (Unix98 /dev/ptmx). If the running DCP build does not support terminal
+        // allocation on this host the executable will fail to start with a
+        // termpty.ErrTerminalNotSupported error surfaced through the reconciler.
         if (er.ModelResource.TryGetAnnotationsOfType<TerminalAnnotation>(out var terminalAnnotations))
         {
             var terminalAnnotation = terminalAnnotations.FirstOrDefault();
             if (terminalAnnotation is not null)
             {
-                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                {
-                    _logger.LogWarning(
-                        "WithTerminal() is currently only supported on Windows. Resource '{ResourceName}' will run without an attachable terminal in this Aspire version.",
-                        er.ModelResource.Name);
-                }
-                else if (TryGetReplicaIndex(exe, out var replicaIndex)
+                if (TryGetReplicaIndex(exe, out var replicaIndex)
                     && replicaIndex >= 0
                     && replicaIndex < terminalAnnotation.TerminalHosts.Count)
                 {
                     spec.Terminal = new TerminalSpec
                     {
-                        Enabled = true,
                         UdsPath = terminalAnnotation.TerminalHosts[replicaIndex].Layout.ProducerUdsPath,
                         Cols = terminalAnnotation.Options.Columns,
                         Rows = terminalAnnotation.Options.Rows

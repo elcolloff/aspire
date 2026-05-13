@@ -21,17 +21,8 @@ namespace Aspire.Hosting.Dcp.Model;
 internal sealed class TerminalSpec
 {
     /// <summary>
-    /// Whether terminal (PTY) mode is enabled for this resource. When true, DCP allocates
-    /// a pseudo-terminal instead of pipes for the process I/O and DIALS the HMP v1
-    /// producer endpoint at <see cref="UdsPath"/> (which the Aspire terminal host has
-    /// already bound and is listening on).
-    /// </summary>
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; }
-
-    /// <summary>
     /// Path to the Unix domain socket the Aspire terminal host LISTENS on for the HMP v1
-    /// producer connection. DCP DIALS this path. Required when <see cref="Enabled"/> is true.
+    /// producer connection. DCP DIALS this path. Required.
     /// </summary>
     [JsonPropertyName("udsPath")]
     public string? UdsPath { get; set; }
