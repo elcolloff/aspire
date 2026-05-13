@@ -140,6 +140,36 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
                 return 0;
             });
 
+        // Run a single restore *after* every package edit has been applied. Per-package
+        // 'dotnet package add' calls use --no-restore (see UpdatePackageReferenceInProject)
+        // because, for Explicit channels, NuGetConfigMerger has already rewritten nuget.config
+        // earlier in this method to add a packageSourceMapping pinning Aspire* to the channel's
+        // feed. Restoring after the *first* package add (the old behavior) would run NuGet
+        // against a half-updated reference graph: the package just bumped exists in the new
+        // feed, but the rest are still on their previous (often stable) versions which may
+        // not be carried by that feed. Mapping then blocks the fallback to nuget.org, producing
+        // NU1103 for every not-yet-bumped Aspire reference. Deferring the restore until all
+        // edits are applied means every Aspire* reference resolves against versions that
+        // exist in the configured feed.
+        // Restoring the AppHost project transitively restores referenced projects, so a single
+        // restore here covers both traditional PackageReference and Directory.Packages.props
+        // (CPM) update paths. The 'dotnet restore' command accepts both .csproj and file-based
+        // (apphost.cs) program files as the positional argument.
+        // See https://github.com/dotnet/aspire/issues/15891.
+        await interactionService.ShowStatusAsync(
+            UpdateCommandStrings.RestoringPackagesAfterUpdate,
+            async () =>
+            {
+                var restoreExitCode = await runner.RestoreAsync(projectFile, new(), cancellationToken);
+
+                if (restoreExitCode != 0)
+                {
+                    throw new ProjectUpdaterException(string.Format(CultureInfo.InvariantCulture, UpdateCommandStrings.FailedToRestoreAfterUpdateFormat, projectFile.FullName));
+                }
+
+                return 0;
+            });
+
         interactionService.DisplayEmptyLine();
 
         interactionService.DisplaySuccess(UpdateCommandStrings.UpdateSuccessfulMessage);
@@ -1036,12 +1066,18 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
 
     private async Task UpdatePackageReferenceInProject(FileInfo projectFile, NuGetPackageCli package, CancellationToken cancellationToken)
     {
+        // Pass --no-restore here so each per-package edit only mutates the project / file-based AppHost.
+        // A single restore is performed once *all* update steps have completed (see UpdateProjectAsync).
+        // Restoring per-package would run NuGet against a half-updated reference graph, which is fatal
+        // when the channel's nuget.config (already merged earlier in UpdateProjectAsync for Explicit
+        // channels) contains a packageSourceMapping pinning Aspire* to a feed that does not carry the
+        // not-yet-bumped versions. See https://github.com/dotnet/aspire/issues/15891.
         var exitCode = await runner.AddPackageAsync(
             projectFilePath: projectFile,
             packageName: package.Id,
             packageVersion: package.Version,
             nugetSource: null,
-            noRestore: false,
+            noRestore: true,
             options: new(),
             cancellationToken: cancellationToken);
 

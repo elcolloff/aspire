@@ -248,14 +248,22 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
             {
                 Assert.Equal("Aspire.Hosting.Redis", item.PackageId);
                 Assert.Equal("9.5.0-preview.1", item.PackageVersion);
-                Assert.Null(item.PackageSource); // Should be null because of --no-restore behavior.
+                // PackageSource is null because ProjectUpdater passes nugetSource: null to AddPackageAsync.
+                Assert.Null(item.PackageSource);
+                // Per-package 'dotnet package add' must use --no-restore so the deferred final restore
+                // sees a fully-updated reference graph (regression guard for https://github.com/dotnet/aspire/issues/15891).
+                Assert.True(item.NoRestore);
                 Assert.Equal(appHostProjectFile.FullName, item.ProjectFile.FullName);
             },
             item =>
             {
                 Assert.Equal("Aspire.StackExchange.Redis.OutputCaching", item.PackageId);
                 Assert.Equal("9.5.0-preview.1", item.PackageVersion);
-                Assert.Null(item.PackageSource); // Should be null because of --no-restore behavior.
+                // PackageSource is null because ProjectUpdater passes nugetSource: null to AddPackageAsync.
+                Assert.Null(item.PackageSource);
+                // Per-package 'dotnet package add' must use --no-restore so the deferred final restore
+                // sees a fully-updated reference graph (regression guard for https://github.com/dotnet/aspire/issues/15891).
+                Assert.True(item.NoRestore);
                 Assert.Equal(webAppProjectFile.FullName, item.ProjectFile.FullName);
             }
         );
@@ -387,21 +395,33 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
             {
                 Assert.Equal("Aspire.Hosting.Redis", item.PackageId);
                 Assert.Equal("9.4.1", item.PackageVersion);
-                Assert.Null(item.PackageSource); // Should be null because of --no-restore behavior.
+                // PackageSource is null because ProjectUpdater passes nugetSource: null to AddPackageAsync.
+                Assert.Null(item.PackageSource);
+                // Per-package 'dotnet package add' must use --no-restore so the deferred final restore
+                // sees a fully-updated reference graph (regression guard for https://github.com/dotnet/aspire/issues/15891).
+                Assert.True(item.NoRestore);
                 Assert.Equal(appHostProjectFile.FullName, item.ProjectFile.FullName);
             },
             item =>
             {
                 Assert.Equal("Aspire.Hosting.Docker", item.PackageId);
                 Assert.Equal("9.4.1-preview.1", item.PackageVersion);
-                Assert.Null(item.PackageSource); // Should be null because of --no-restore behavior.
+                // PackageSource is null because ProjectUpdater passes nugetSource: null to AddPackageAsync.
+                Assert.Null(item.PackageSource);
+                // Per-package 'dotnet package add' must use --no-restore so the deferred final restore
+                // sees a fully-updated reference graph (regression guard for https://github.com/dotnet/aspire/issues/15891).
+                Assert.True(item.NoRestore);
                 Assert.Equal(appHostProjectFile.FullName, item.ProjectFile.FullName);
             },
             item =>
             {
                 Assert.Equal("Aspire.StackExchange.Redis.OutputCaching", item.PackageId);
                 Assert.Equal("9.4.1", item.PackageVersion);
-                Assert.Null(item.PackageSource); // Should be null because of --no-restore behavior.
+                // PackageSource is null because ProjectUpdater passes nugetSource: null to AddPackageAsync.
+                Assert.Null(item.PackageSource);
+                // Per-package 'dotnet package add' must use --no-restore so the deferred final restore
+                // sees a fully-updated reference graph (regression guard for https://github.com/dotnet/aspire/issues/15891).
+                Assert.True(item.NoRestore);
                 Assert.Equal(webAppProjectFile.FullName, item.ProjectFile.FullName);
             }
         );
@@ -3137,6 +3157,136 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
         Assert.DoesNotContain("Aspire.Hosting.AppHost", updatedCsprojContent);
         Assert.Contains("Aspire.Hosting.Redis", updatedCsprojContent);
         Assert.Contains("Aspire.AppHost.Sdk/13.0.2", updatedCsprojContent);
+    }
+
+    // Regression guard for https://github.com/dotnet/aspire/issues/15891.
+    //
+    // Repro shape: project on a stable channel referencing two or more Aspire integration
+    // packages whose stable versions are not carried by the daily-style Explicit channel
+    // being switched to. The bug was that ProjectUpdater rewrote nuget.config (adding a
+    // packageSourceMapping pinning Aspire* to the daily feed) and then ran 'dotnet package add'
+    // for each package one at a time *with restore enabled*. The first restore happened against
+    // a half-updated reference graph: the just-bumped package existed in the daily feed but the
+    // others were still on stable versions that didn't, and the new mapping blocked fallback
+    // to nuget.org -> NU1103.
+    //
+    // The fix passes --no-restore to per-package adds and runs a single deferred restore at the
+    // end. This test pins both halves of that contract:
+    //   1. every per-package add was invoked with noRestore=true, and
+    //   2. exactly one restore was invoked, and
+    //   3. the restore came after all the package adds (not interleaved with them).
+    [Fact]
+    public async Task UpdateProjectFileAsync_AppliesAllPackageEditsBeforeFinalRestore()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var appHostFolder = workspace.CreateDirectory("Issue15891.AppHost");
+        var appHostProjectFile = new FileInfo(Path.Combine(appHostFolder.FullName, "Issue15891.AppHost.csproj"));
+
+        await File.WriteAllTextAsync(
+            appHostProjectFile.FullName,
+            """
+            <Project Sdk="Microsoft.NET.Sdk">
+                <Sdk Name="Aspire.AppHost.Sdk" Version="9.4.1" />
+            </Project>
+            """);
+
+        // Use a single shared list so we can assert that all 'add's happened before the 'restore'.
+        // Recording entries as strings keeps the assertion readable when it fails.
+        var calls = new List<string>();
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, config =>
+        {
+            config.DotNetCliRunnerFactory = (sp) =>
+            {
+                return new TestDotNetCliRunner()
+                {
+                    SearchPackagesAsyncCallback = (_, query, _, _, _, _, _, _, _, _) =>
+                    {
+                        var package = query switch
+                        {
+                            "Aspire.AppHost.Sdk" => new NuGetPackageCli { Id = "Aspire.AppHost.Sdk", Version = "9.5.0-preview.1", Source = "daily" },
+                            "Aspire.Hosting.AppHost" => new NuGetPackageCli { Id = "Aspire.Hosting.AppHost", Version = "9.5.0-preview.1", Source = "daily" },
+                            "Aspire.Hosting.Redis" => new NuGetPackageCli { Id = "Aspire.Hosting.Redis", Version = "9.5.0-preview.1", Source = "daily" },
+                            "Aspire.Hosting.PostgreSQL" => new NuGetPackageCli { Id = "Aspire.Hosting.PostgreSQL", Version = "9.5.0-preview.1", Source = "daily" },
+                            "Aspire.Hosting.Kafka" => new NuGetPackageCli { Id = "Aspire.Hosting.Kafka", Version = "9.5.0-preview.1", Source = "daily" },
+                            _ => throw new InvalidOperationException($"Unexpected package query: {query}"),
+                        };
+
+                        return (0, new[] { package });
+                    },
+
+                    GetProjectItemsAndPropertiesAsyncCallback = (projectFile, _, _, _, _) =>
+                    {
+                        var itemsAndProperties = new JsonObject();
+
+                        if (projectFile.FullName == appHostProjectFile.FullName)
+                        {
+                            itemsAndProperties.WithSdkVersion("9.4.1");
+                            itemsAndProperties.WithPackageReference("Aspire.Hosting.AppHost", "9.4.1");
+                            // Three integration packages on the prior stable version - this is the
+                            // shape that fails in the original issue: the first per-package restore
+                            // would resolve the new daily Redis but reject the still-stable PostgreSQL
+                            // and Kafka because the new packageSourceMapping prevents fallback to
+                            // nuget.org for Aspire*.
+                            itemsAndProperties.WithPackageReference("Aspire.Hosting.Redis", "9.4.1");
+                            itemsAndProperties.WithPackageReference("Aspire.Hosting.PostgreSQL", "9.4.1");
+                            itemsAndProperties.WithPackageReference("Aspire.Hosting.Kafka", "9.4.1");
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException($"Unexpected project file: {projectFile.FullName}");
+                        }
+
+                        var json = itemsAndProperties.ToJsonString();
+                        var document = JsonDocument.Parse(json);
+                        return (0, document);
+                    },
+
+                    AddPackageAsyncCallback = (projectFile, packageId, packageVersion, source, noRestore, _, _) =>
+                    {
+                        calls.Add($"add:{packageId}@{packageVersion}:noRestore={noRestore}");
+                        return 0;
+                    },
+
+                    RestoreAsyncCallback = (projectFilePath, _, _) =>
+                    {
+                        calls.Add($"restore:{projectFilePath.Name}");
+                        return 0;
+                    },
+                };
+            };
+
+            config.InteractionServiceFactory = (s) => new TestInteractionService();
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var packagingService = provider.GetRequiredService<IPackagingService>();
+
+        // 'daily' is an Explicit channel (see PackagingService.CreateExplicitChannel), which is
+        // the trigger condition for the NuGetConfigMerger path that surfaces the original bug.
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+        var dailyChannel = channels.Single(c => c.Name == "daily");
+
+        var projectUpdater = provider.GetRequiredService<IProjectUpdater>();
+        var updateResult = await projectUpdater.UpdateProjectAsync(CreateUpdateContext(appHostProjectFile, dailyChannel)).DefaultTimeout();
+
+        Assert.True(updateResult.UpdatedApplied);
+
+        // Every 'dotnet package add' must have been invoked with --no-restore so that NuGet
+        // never sees a half-updated reference graph against the new packageSourceMapping.
+        var addCalls = calls.Where(c => c.StartsWith("add:", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(addCalls);
+        Assert.All(addCalls, c => Assert.EndsWith(":noRestore=True", c));
+
+        // Exactly one restore should have been invoked - the deferred final restore.
+        var restoreCalls = calls.Where(c => c.StartsWith("restore:", StringComparison.Ordinal)).ToList();
+        var restore = Assert.Single(restoreCalls);
+        Assert.Equal($"restore:{appHostProjectFile.Name}", restore);
+
+        // The restore must come after every package add. If anyone re-enables per-package
+        // restore (or moves the final restore back into / before the loop) this fails.
+        Assert.Equal(calls.Count - 1, calls.IndexOf(restore));
     }
 }
 
