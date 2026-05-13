@@ -32,6 +32,9 @@ param(
     [Parameter(HelpMessage = "Do not add the install path to PATH environment variable (useful for portable installs)")]
     [switch]$SkipPath,
 
+    [Parameter(HelpMessage = "Uninstall the Aspire CLI script install and clean up PR hives")]
+    [switch]$Uninstall,
+
     [Parameter(HelpMessage = "Show help message")]
     [switch]$Help
 )
@@ -143,6 +146,7 @@ PARAMETERS:
     -InstallExtension           Install VS Code extension along with the CLI
     -UseInsiders                Install extension to VS Code Insiders instead of VS Code (requires -InstallExtension)
     -SkipPath                   Do not add the install path to PATH environment variable (useful for portable installs)
+    -Uninstall                  Remove the script-installed CLI, PATH entry, stale channel config, and PR hives
     -KeepArchive                Keep downloaded archive files and temporary directory after installation
     -Help                       Show this help message
 
@@ -166,6 +170,7 @@ EXAMPLES:
     .\get-aspire-cli.ps1 -InstallExtension
     .\get-aspire-cli.ps1 -InstallExtension -UseInsiders
     .\get-aspire-cli.ps1 -SkipPath
+    .\get-aspire-cli.ps1 -Uninstall
     .\get-aspire-cli.ps1 -KeepArchive
     .\get-aspire-cli.ps1 -WhatIf
     .\get-aspire-cli.ps1 -Help
@@ -898,6 +903,88 @@ function Update-PathEnvironment {
     }
 }
 
+function Remove-PathEnvironment {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$InstallPath,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("win", "linux", "linux-musl", "osx")]
+        [string]$TargetOS
+    )
+
+    $pathSeparator = [System.IO.Path]::PathSeparator
+    $currentPathArray = $env:PATH.Split($pathSeparator, [StringSplitOptions]::RemoveEmptyEntries)
+    if ($currentPathArray -contains $InstallPath -and $PSCmdlet.ShouldProcess("PATH environment variable", "Remove $InstallPath from current session")) {
+        $env:PATH = ($currentPathArray | Where-Object { $_ -ne $InstallPath }) -join $pathSeparator
+        Write-Message "Removed $InstallPath from PATH for current session" -Level Info
+    }
+
+    if ($TargetOS -eq "win") {
+        try {
+            $userPath = [Environment]::GetEnvironmentVariable("PATH", [EnvironmentVariableTarget]::User)
+            if (-not $userPath) { $userPath = "" }
+            $userPathArray = if ($userPath) { $userPath.Split($pathSeparator, [StringSplitOptions]::RemoveEmptyEntries) } else { @() }
+            if ($userPathArray -contains $InstallPath -and $PSCmdlet.ShouldProcess("User PATH environment variable", "Remove $InstallPath")) {
+                $newUserPath = ($userPathArray | Where-Object { $_ -ne $InstallPath }) -join $pathSeparator
+                [Environment]::SetEnvironmentVariable("PATH", $newUserPath, [EnvironmentVariableTarget]::User)
+                Write-Message "Removed $InstallPath from user PATH environment variable" -Level Info
+            }
+        }
+        catch {
+            Write-Message "Failed to update persistent PATH environment variable: $($_.Exception.Message)" -Level Warning
+        }
+    }
+}
+
+function Remove-AspireCliScriptInstall {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $targetOS = if ([string]::IsNullOrWhiteSpace($OS)) { Get-OperatingSystem } else { $OS }
+    if ($targetOS -eq "unsupported") {
+        throw "Unsupported operating system. Current platform: $([System.Environment]::OSVersion.Platform)"
+    }
+
+    $resolvedInstallPath = Get-InstallPath -InstallPath $InstallPath
+    $cliPath = Get-CliExecutablePath -DestinationPath $resolvedInstallPath -OS $targetOS
+
+    if (Test-Path $cliPath -PathType Leaf) {
+        if ($PSCmdlet.ShouldProcess("global Aspire configuration", "Delete channel setting")) {
+            & $cliPath config delete channel -g *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Message "Removed global channel setting" -Level Success
+            }
+        }
+    }
+    else {
+        Write-Message "If a stale global channel remains, run 'aspire config delete -g channel' with another Aspire CLI install." -Level Info
+    }
+
+    if ((Test-Path $cliPath -PathType Leaf) -and $PSCmdlet.ShouldProcess($cliPath, "Delete Aspire CLI executable")) {
+        Remove-Item -Path $cliPath -Force -ErrorAction Stop
+        Write-Message "Removed Aspire CLI executable: $cliPath" -Level Success
+    }
+    elseif (-not (Test-Path $cliPath -PathType Leaf)) {
+        Write-Message "Aspire CLI executable was not found at: $cliPath" -Level Info
+    }
+
+    Remove-PathEnvironment -InstallPath $resolvedInstallPath -TargetOS $targetOS
+
+    $aspireRoot = Split-Path -Parent $resolvedInstallPath
+    $hivesDirectory = Join-Path $aspireRoot "hives"
+    if (Test-Path $hivesDirectory -PathType Container) {
+        Get-ChildItem -Path $hivesDirectory -Directory -Filter "pr-*" -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($PSCmdlet.ShouldProcess($_.FullName, "Delete PR hive")) {
+                Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction Stop
+                Write-Message "Removed PR hive: $($_.Name)" -Level Success
+            }
+        }
+    }
+}
+
 # Function to download VS Code extension
 function Get-AspireExtension {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1256,6 +1343,11 @@ function Start-AspireCliInstallation {
 
         # Determine the installation path
         $resolvedInstallPath = Get-InstallPath -InstallPath $InstallPath
+
+        if ($Uninstall) {
+            Remove-AspireCliScriptInstall
+            return 0
+        }
 
         # Ensure the installation directory exists
         if (-not (Test-Path $resolvedInstallPath)) {

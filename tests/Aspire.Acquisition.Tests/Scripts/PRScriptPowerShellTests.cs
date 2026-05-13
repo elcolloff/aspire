@@ -65,7 +65,27 @@ public class PRScriptPowerShellTests(ITestOutputHelper testOutput)
         Assert.Contains("SkipExtension", normalized);
         Assert.Contains("UseInsiders", normalized);
         Assert.Contains("SkipPath", normalized);
+        Assert.Contains("Uninstall", normalized);
         Assert.Contains("KeepArchive", normalized);
+    }
+
+    [Fact]
+    public async Task UninstallWhatIf_DoesNotRequirePRNumber()
+    {
+        using var env = new TestEnvironment();
+        var installPrefix = Path.Combine(env.MockHome, ".aspire");
+        var cliBinDir = Path.Combine(installPrefix, "bin");
+        Directory.CreateDirectory(cliBinDir);
+        await File.WriteAllTextAsync(Path.Combine(cliBinDir, OperatingSystem.IsWindows() ? "aspire.exe" : "aspire"), "");
+        Directory.CreateDirectory(Path.Combine(installPrefix, "hives", "pr-15573"));
+
+        using var cmd = new ScriptToolCommand(s_scriptPath, env, _testOutput);
+        var result = await cmd.ExecuteAsync("-Uninstall", "-InstallPath", installPrefix, "-WhatIf");
+
+        result.EnsureSuccessful();
+        Assert.Contains("Delete Aspire CLI executable", result.Output);
+        Assert.Contains("Delete PR hive", result.Output);
+        Assert.DoesNotContain("PRNumber", result.Output);
     }
 
     [Fact]

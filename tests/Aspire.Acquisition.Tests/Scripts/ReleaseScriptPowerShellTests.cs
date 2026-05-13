@@ -86,7 +86,25 @@ public class ReleaseScriptPowerShellTests(ITestOutputHelper testOutput)
         Assert.Contains("InstallExtension", normalized);
         Assert.Contains("UseInsiders", normalized);
         Assert.Contains("SkipPath", normalized);
+        Assert.Contains("Uninstall", normalized);
         Assert.Contains("KeepArchive", normalized);
+    }
+
+    [Fact]
+    public async Task UninstallWhatIf_ShowsCleanupActions()
+    {
+        using var env = new TestEnvironment();
+        var customPath = Path.Combine(env.MockHome, ".aspire", "bin");
+        Directory.CreateDirectory(customPath);
+        await File.WriteAllTextAsync(Path.Combine(customPath, OperatingSystem.IsWindows() ? "aspire.exe" : "aspire"), "");
+        Directory.CreateDirectory(Path.Combine(env.MockHome, ".aspire", "hives", "pr-15573"));
+
+        using var cmd = new ScriptToolCommand(s_scriptPath, env, _testOutput);
+        var result = await cmd.ExecuteAsync("-Uninstall", "-InstallPath", customPath, "-WhatIf");
+
+        result.EnsureSuccessful();
+        Assert.Contains("Delete Aspire CLI executable", result.Output);
+        Assert.Contains("Delete PR hive", result.Output);
     }
 
     [Fact]

@@ -47,6 +47,9 @@
 .PARAMETER SkipPath
     Do not add the install path to PATH environment variable (useful for portable installs)
 
+.PARAMETER Uninstall
+    Uninstall the Aspire CLI PR script install and clean up PR hives.
+
 .PARAMETER KeepArchive
     Keep downloaded archive files after installation
 
@@ -141,6 +144,9 @@ param(
 
     [Parameter(HelpMessage = "Do not add the install path to PATH environment variable (useful for portable installs)")]
     [switch]$SkipPath,
+
+    [Parameter(HelpMessage = "Uninstall the Aspire CLI PR script install and clean up PR hives")]
+    [switch]$Uninstall,
 
     [Parameter(HelpMessage = "Keep downloaded archive files after installation")]
     [switch]$KeepArchive,
@@ -675,6 +681,82 @@ function Update-PathEnvironment {
         }
         catch {
             Write-Message "Failed to update GITHUB_PATH: $($_.Exception.Message)" -Level Warning
+        }
+    }
+}
+
+function Remove-PathEnvironment {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$CliBinDir
+    )
+
+    $pathSeparator = [System.IO.Path]::PathSeparator
+    $currentPathArray = $env:PATH.Split($pathSeparator, [StringSplitOptions]::RemoveEmptyEntries)
+    if ($currentPathArray -contains $CliBinDir -and $PSCmdlet.ShouldProcess("PATH environment variable", "Remove $CliBinDir from current session")) {
+        $env:PATH = ($currentPathArray | Where-Object { $_ -ne $CliBinDir }) -join $pathSeparator
+        Write-Message "Removed $CliBinDir from PATH for current session" -Level Info
+    }
+
+    if ($Script:HostOS -eq "win") {
+        try {
+            $userPath = [Environment]::GetEnvironmentVariable("PATH", [EnvironmentVariableTarget]::User)
+            if (-not $userPath) { $userPath = "" }
+            $userPathArray = if ($userPath) { $userPath.Split($pathSeparator, [StringSplitOptions]::RemoveEmptyEntries) } else { @() }
+            if ($userPathArray -contains $CliBinDir -and $PSCmdlet.ShouldProcess("User PATH environment variable", "Remove $CliBinDir")) {
+                $newUserPath = ($userPathArray | Where-Object { $_ -ne $CliBinDir }) -join $pathSeparator
+                [Environment]::SetEnvironmentVariable("PATH", $newUserPath, [EnvironmentVariableTarget]::User)
+                Write-Message "Removed $CliBinDir from user PATH environment variable" -Level Info
+            }
+        }
+        catch {
+            Write-Message "Failed to update persistent PATH environment variable: $($_.Exception.Message)" -Level Warning
+        }
+    }
+}
+
+function Remove-AspireCliPrScriptInstall {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$ResolvedInstallPrefix
+    )
+
+    $cliBinDir = Join-Path $ResolvedInstallPrefix "bin"
+    $cliPath = Get-CliExecutablePath -DestinationPath $cliBinDir
+
+    if (Test-Path $cliPath -PathType Leaf) {
+        if ($PSCmdlet.ShouldProcess("global Aspire configuration", "Delete channel setting")) {
+            & $cliPath config delete channel -g *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Message "Removed global channel setting" -Level Success
+            }
+        }
+    }
+    else {
+        Write-Message "If a stale global channel remains, run 'aspire config delete -g channel' with another Aspire CLI install." -Level Info
+    }
+
+    if ((Test-Path $cliPath -PathType Leaf) -and $PSCmdlet.ShouldProcess($cliPath, "Delete Aspire CLI executable")) {
+        Remove-Item -Path $cliPath -Force -ErrorAction Stop
+        Write-Message "Removed Aspire CLI executable: $cliPath" -Level Success
+    }
+    elseif (-not (Test-Path $cliPath -PathType Leaf)) {
+        Write-Message "Aspire CLI executable was not found at: $cliPath" -Level Info
+    }
+
+    Remove-PathEnvironment -CliBinDir $cliBinDir
+
+    $hivesDirectory = Join-Path $ResolvedInstallPrefix "hives"
+    if (Test-Path $hivesDirectory -PathType Container) {
+        Get-ChildItem -Path $hivesDirectory -Directory -Filter "pr-*" -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($PSCmdlet.ShouldProcess($_.FullName, "Delete PR hive")) {
+                Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction Stop
+                Write-Message "Removed PR hive: $($_.Name)" -Level Success
+            }
         }
     }
 }
@@ -1515,10 +1597,23 @@ OPTIONS:
     -SkipExtension          Skip VS Code extension download and installation
     -UseInsiders            Install extension to VS Code Insiders instead of VS Code
     -SkipPath               Do not add the install path to PATH environment variable
+    -Uninstall              Remove the script-installed CLI, PATH entry, stale channel config, and PR hives
     -KeepArchive            Keep downloaded archive files after installation
     -Help                   Show this help information
 "@ -Level Info
         if ($InvokedFromFile) { exit 0 } else { return 0 }
+    }
+
+    # Set host OS for PATH environment updates
+    $script:HostOS = Get-OperatingSystem
+
+    # Set default install prefix if not provided
+    $resolvedInstallPrefix = Get-InstallPrefix -InstallPrefix $InstallPath
+
+    if ($Uninstall) {
+        Remove-AspireCliPrScriptInstall -ResolvedInstallPrefix $resolvedInstallPrefix
+        $exitCode = 0
+        if ($InvokedFromFile) { exit $exitCode } else { return $exitCode }
     }
 
     # Validate PRNumber is provided when not showing help or using --local-dir
@@ -1533,16 +1628,10 @@ OPTIONS:
         if ($InvokedFromFile) { exit 1 } else { return 1 }
     }
 
-    # Set host OS for PATH environment updates
-    $script:HostOS = Get-OperatingSystem
-
     # Check gh dependency (not needed for -LocalDir mode)
     if (-not $LocalDir) {
         Test-GitHubCLIDependency
     }
-
-    # Set default install prefix if not provided
-    $resolvedInstallPrefix = Get-InstallPrefix -InstallPrefix $InstallPath
 
     # Create a temporary directory for downloads
     $tempDir = New-TempDirectory -Prefix "aspire-cli-pr-download"
