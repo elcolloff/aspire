@@ -10,7 +10,7 @@ namespace Aspire.Hosting.Kubernetes.Tests;
 public class CertManagerTests
 {
     [Fact]
-    public void AddCertManager_AddsHelmChartButNotWrapperResource()
+    public void AddCertManager_RegistersWrapperAndHelmChartUnderSeparateNames()
     {
         var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
         var k8s = builder.AddKubernetesEnvironment("env");
@@ -20,9 +20,9 @@ public class CertManagerTests
         Assert.Equal("cert-manager", certManager.Resource.Name);
         Assert.Same(k8s.Resource, certManager.Resource.Parent);
 
-        // AddCertManager should compose with the existing AddHelmChart machinery so users
-        // can introspect / further configure the underlying chart via HelmChart.
-        Assert.Equal("cert-manager", certManager.Resource.HelmChart.Name);
+        // The wrapper keeps the natural "{name}" identifier; the helm chart is registered
+        // under "{name}-chart" so both can coexist in the model without colliding.
+        Assert.Equal("cert-manager-chart", certManager.Resource.HelmChart.Name);
         Assert.Equal("oci://quay.io/jetstack/charts/cert-manager", certManager.Resource.HelmChart.ChartReference);
         Assert.StartsWith("v", certManager.Resource.HelmChart.ChartVersion);
 
@@ -31,13 +31,10 @@ public class CertManagerTests
         Assert.Equal("true", certManager.Resource.HelmChart.Values["crds.enabled"]);
         Assert.Equal("true", certManager.Resource.HelmChart.Values["config.enableGatewayAPI"]);
 
-        // The chart is the deployable resource. CertManagerResource itself is just a typed
-        // handle for hanging issuers off and is intentionally not registered in the model
-        // (otherwise it would name-collide with the chart).
         var app = builder.Build();
         var appModel = app.Services.GetRequiredService<DistributedApplicationModel>();
-        Assert.Contains(appModel.Resources, r => r is KubernetesHelmChartResource c && c.Name == "cert-manager");
-        Assert.DoesNotContain(appModel.Resources, r => r is CertManagerResource);
+        Assert.Contains(appModel.Resources, r => r is CertManagerResource c && c.Name == "cert-manager");
+        Assert.Contains(appModel.Resources, r => r is KubernetesHelmChartResource c && c.Name == "cert-manager-chart");
     }
 
     [Fact]
@@ -132,11 +129,11 @@ public class CertManagerTests
     }
 
     [Fact]
-    public void AddCertManager_RunMode_StillCreatesTypedHandle()
+    public void AddCertManager_RunMode_DoesNotRegisterResources()
     {
-        // CertManagerResource is a typed handle (not a model-registered resource) in
-        // every mode. The underlying helm chart resource is still suppressed from the
-        // model in run mode because helm install only happens at deploy time.
+        // In run mode neither the wrapper nor its helm chart get added to the model
+        // (helm install only runs at deploy time, and AddHelmChart already suppresses
+        // its resource in run mode).
         var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
         var k8s = builder.AddKubernetesEnvironment("env");
 

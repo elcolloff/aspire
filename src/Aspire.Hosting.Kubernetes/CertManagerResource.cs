@@ -20,7 +20,9 @@ namespace Aspire.Hosting.Kubernetes;
 /// Under the covers, <see cref="CertManagerExtensions.AddCertManager"/> installs cert-manager
 /// using a <see cref="KubernetesHelmChartResource"/> pointed at the upstream
 /// <c>oci://quay.io/jetstack/charts/cert-manager</c> chart, with CRDs and Gateway API
-/// support enabled. The chart resource is exposed via <see cref="HelmChart"/> for advanced
+/// support enabled. The chart resource is registered in the model under
+/// <c>"{name}-chart"</c> (so the cert-manager wrapper itself can keep the natural
+/// <c>"{name}"</c> identifier) and is exposed via <see cref="HelmChart"/> for advanced
 /// configuration.
 /// </para>
 /// </remarks>

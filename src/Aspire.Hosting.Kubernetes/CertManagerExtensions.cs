@@ -65,8 +65,14 @@ public static class CertManagerExtensions
 
         var version = chartVersion ?? DefaultChartVersion;
 
+        // The helm chart is exposed in the model under "{name}-chart" so the user-facing
+        // CertManagerResource can keep the natural "{name}" identifier without colliding.
+        // Both show up in the dashboard / generated artifacts: the chart is what actually
+        // installs cert-manager, and the wrapper is what hosts the typed issuer children.
+        var chartName = $"{name}-chart";
+
         var chartBuilder = builder
-            .AddHelmChart(name, DefaultChartReference, version)
+            .AddHelmChart(chartName, DefaultChartReference, version)
             .WithHelmValue("crds.enabled", "true")
             // Gateway API support is opt-in in the cert-manager chart. Without these values
             // cert-manager will not provision Certificates for Gateway listeners.
@@ -79,11 +85,12 @@ public static class CertManagerExtensions
 
         var resource = new CertManagerResource(name, builder.Resource, chartBuilder.Resource);
 
-        // CertManagerResource is a typed handle around the underlying KubernetesHelmChartResource:
-        // the chart is what actually gets deployed (it's already in the model via AddHelmChart
-        // above), so we deliberately don't AddResource() here. That keeps the user-visible
-        // resource name (the chart) unique and avoids a name collision with the wrapper.
-        return builder.ApplicationBuilder.CreateResourceBuilder(resource);
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            return builder.ApplicationBuilder.CreateResourceBuilder(resource);
+        }
+
+        return builder.ApplicationBuilder.AddResource(resource).ExcludeFromManifest();
     }
 
     /// <summary>
