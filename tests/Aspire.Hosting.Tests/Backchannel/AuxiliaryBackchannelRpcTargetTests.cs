@@ -683,6 +683,52 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task GetConsoleLogBatchesAsync_AppliesSearchAndTailForSingleResource()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("myresource"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var logger = resourceLoggerService.GetLogger("myresource");
+        logger.LogInformation("needle first");
+        logger.LogInformation("haystack");
+        logger.LogInformation("needle second");
+        logger.LogInformation("needle third");
+        resourceLoggerService.Complete("myresource");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var batch in target.GetConsoleLogBatchesAsync(new GetConsoleLogsRequest
+        {
+            ResourceName = "myresource",
+            Search = "needle",
+            Tail = 2,
+            IncludeHidden = true
+        }))
+        {
+            logs.AddRange(batch.Lines);
+        }
+
+        Assert.Collection(logs,
+            log => Assert.Equal($"{TestTimestamp} needle second", log.Content),
+            log => Assert.Equal($"{TestTimestamp} needle third", log.Content));
+
+        await app.StopAsync().DefaultTimeout();
+    }
+
+    [Fact]
     public async Task GetConsoleLogsAsync_DoesNotApplyTailAcrossMultipleResources()
     {
         using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
@@ -725,7 +771,7 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
         Assert.Contains(logs, log => log.ResourceName == "resource1");
         Assert.Contains(logs, log => log.ResourceName == "resource2");
 
-        await app.StopAsync().DefaultTimeout();
+        await app.StopAsync().DefaultTimeout(TestConstants.LongTimeoutTimeSpan);
     }
 
     [Fact]

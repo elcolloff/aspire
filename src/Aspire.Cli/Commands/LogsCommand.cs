@@ -3,6 +3,7 @@
 
 using System.CommandLine;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -337,7 +338,7 @@ internal sealed class LogsCommand : BaseCommand
             IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
         };
 
-        await foreach (var logLine in GetConsoleLogsAsync(connection, followRequest, cancellationToken).ConfigureAwait(false))
+        await foreach (var logLine in GetConsoleLogLinesAsync(connection, followRequest, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources.
             // We filter by exclusion so that new resources appearing after the
@@ -394,7 +395,7 @@ internal sealed class LogsCommand : BaseCommand
             IncludeHidden = resourceName is not null || resourceWatcher.IncludeHidden
         };
 
-        await foreach (var logLine in GetConsoleLogsAsync(connection, request, cancellationToken).ConfigureAwait(false))
+        await foreach (var logLine in GetConsoleLogLinesAsync(connection, request, cancellationToken).ConfigureAwait(false))
         {
             // When streaming all resources, skip logs from hidden resources
             if (resourceName is null && !resourceWatcher.IncludeHidden)
@@ -411,20 +412,21 @@ internal sealed class LogsCommand : BaseCommand
         return logEntries.GetEntries();
     }
 
-    private static IAsyncEnumerable<ResourceLogLine> GetConsoleLogsAsync(
+    private static async IAsyncEnumerable<ResourceLogLine> GetConsoleLogLinesAsync(
         IAppHostAuxiliaryBackchannel connection,
         GetConsoleLogsRequest request,
-        CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // Older aux.v2 AppHosts require ResourceName on GetConsoleLogsRequest. Keep all-resource
-        // calls on the legacy RPC so the CLI remains compatible until a newer capability can be
-        // assumed. LogsCommand still applies search, tail, and hidden-resource filtering locally.
-        if (request.ResourceName is null)
+        // The batch RPC is capability-gated by the connection. Older AppHosts fall back through
+        // the line-streaming/legacy RPC paths, while newer AppHosts can reduce JSON-RPC overhead
+        // by sending many log lines per stream item.
+        await foreach (var batch in connection.GetConsoleLogBatchesAsync(request, cancellationToken).ConfigureAwait(false))
         {
-            return connection.GetResourceLogsAsync(resourceName: null, follow: request.Follow, cancellationToken: cancellationToken);
+            foreach (var logLine in batch.Lines)
+            {
+                yield return logLine;
+            }
         }
-
-        return connection.GetConsoleLogsAsync(request, cancellationToken);
     }
 
     /// <summary>

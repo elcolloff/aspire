@@ -49,7 +49,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
 
         return Task.FromResult(new GetCapabilitiesResponse
         {
-            Capabilities = [AuxiliaryBackchannelCapabilities.V1, AuxiliaryBackchannelCapabilities.V2]
+            Capabilities = [AuxiliaryBackchannelCapabilities.V1, AuxiliaryBackchannelCapabilities.V2, AuxiliaryBackchannelCapabilities.V3]
         });
     }
 
@@ -213,6 +213,26 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
         ArgumentNullException.ThrowIfNull(request);
         return GetResourceLogsAsync(
             "GetConsoleLogsAsync",
+            request.ProfilingContext,
+            request.ResourceName,
+            request.Follow,
+            request.IncludeHidden,
+            request.Search,
+            request.Tail,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets console logs in batches to reduce per-item JSON-RPC stream overhead.
+    /// </summary>
+    /// <param name="request">The request specifying resource and options.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>An async enumerable of log batches.</returns>
+    public IAsyncEnumerable<ResourceLogBatch> GetConsoleLogBatchesAsync(GetConsoleLogsRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return GetResourceLogBatchesAsync(
+            "GetConsoleLogBatchesAsync",
             request.ProfilingContext,
             request.ResourceName,
             request.Follow,
@@ -955,6 +975,45 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
             cancellationToken).ConfigureAwait(false))
         {
             yield return logLine;
+        }
+    }
+
+    private async IAsyncEnumerable<ResourceLogBatch> GetResourceLogBatchesAsync(
+        string rpcMethodName,
+        BackchannelProfilingContext? profilingContext,
+        string? resourceName,
+        bool follow,
+        bool includeHidden,
+        string? search,
+        int? tail,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var maxBatchSize = follow ? 1 : 256;
+        List<ResourceLogLine>? batch = null;
+
+        await foreach (var logLine in GetResourceLogsAsync(
+            rpcMethodName,
+            profilingContext,
+            resourceName,
+            follow,
+            includeHidden,
+            search,
+            tail,
+            cancellationToken).ConfigureAwait(false))
+        {
+            batch ??= new List<ResourceLogLine>(maxBatchSize);
+            batch.Add(logLine);
+
+            if (batch.Count == maxBatchSize)
+            {
+                yield return new ResourceLogBatch { Lines = batch.ToArray() };
+                batch.Clear();
+            }
+        }
+
+        if (batch is { Count: > 0 })
+        {
+            yield return new ResourceLogBatch { Lines = batch.ToArray() };
         }
     }
 

@@ -94,6 +94,7 @@ internal static class AuxiliaryBackchannelCapabilities
 {
     public const string V1 = "aux.v1";  // 13.1 baseline
     public const string V2 = "aux.v2";  // 13.2+ with request objects
+    public const string V3 = "aux.v3";  // 13.4+ with batched console log streaming
 }
 ```
 
@@ -103,6 +104,7 @@ internal static class AuxiliaryBackchannelCapabilities
 |---------|------------|---------|
 | 13.1 | `aux.v1` | `GetAppHostInformationAsync()`, `GetDashboardMcpConnectionInfoAsync()`, `StopAppHostAsync()` |
 | 13.2 | `aux.v2` | All v1 methods + new request-object-based methods |
+| 13.4 | `aux.v3` | All v2 methods + `GetConsoleLogBatchesAsync(GetConsoleLogsRequest)` |
 
 ### Compatibility Matrix
 
@@ -111,7 +113,7 @@ internal static class AuxiliaryBackchannelCapabilities
 | Old | Old | Works (v1) |
 | Old | New | Works (v1 methods still exist) |
 | New | Old | Works (CLI detects missing capability, falls back) |
-| New | New | Works (uses v2) |
+| New | New | Works (uses the highest shared capability) |
 
 ## Adding New Methods
 
@@ -153,9 +155,9 @@ internal partial class BackchannelJsonSerializerContext : JsonSerializerContext
 ```csharp
 public async Task<GetSomethingResponse> GetSomethingAsync(...)
 {
-    if (!SupportsV2)
+    if (!SupportsV3)
     {
-        // Fall back to v1 behavior or return empty/default
+        // Fall back to older behavior or return empty/default
         return new GetSomethingResponse { Items = [] };
     }
     

@@ -42,6 +42,11 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     bool SupportsV2 { get; }
 
     /// <summary>
+    /// Gets a value indicating whether the AppHost supports v3 API.
+    /// </summary>
+    bool SupportsV3 { get; }
+
+    /// <summary>
     /// Gets AppHost information using the v2 API.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -90,6 +95,16 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of log lines.</returns>
     IAsyncEnumerable<ResourceLogLine> GetConsoleLogsAsync(
+        GetConsoleLogsRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets console log lines from the AppHost in batches.
+    /// </summary>
+    /// <param name="request">The console log request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An async enumerable of log batches.</returns>
+    IAsyncEnumerable<ResourceLogBatch> GetConsoleLogBatchesAsync(
         GetConsoleLogsRequest request,
         CancellationToken cancellationToken = default);
 

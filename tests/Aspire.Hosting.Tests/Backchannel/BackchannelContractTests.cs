@@ -51,6 +51,7 @@ public class BackchannelContractTests
         typeof(ResourceSnapshotEnvironmentVariable),
         typeof(ResourceSnapshotMcpServer),
         typeof(ResourceLogLine),
+        typeof(ResourceLogBatch),
     ];
 
     /// <summary>
@@ -89,7 +90,8 @@ public class BackchannelContractTests
             if (!type.Name.StartsWith("ResourceSnapshot") &&
                 type != typeof(BackchannelProfilingContext) &&
                 type.Name != "McpToolContentItem" &&
-                type.Name != "ResourceLogLine")
+                type.Name != "ResourceLogLine" &&
+                type.Name != "ResourceLogBatch")
             {
                 if (!type.Name.EndsWith("Request") && !type.Name.EndsWith("Response"))
                 {

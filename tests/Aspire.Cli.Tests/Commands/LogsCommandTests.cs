@@ -1123,6 +1123,55 @@ public class LogsCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task LogsCommand_PrefersBatchedConsoleLogsWhenAvailable()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var outputWriter = new TestOutputTextWriter(outputHelper);
+        var batchRequests = new List<GetConsoleLogsRequest>();
+        var consoleRequests = new List<GetConsoleLogsRequest>();
+
+        using var provider = CreateLogsTestServices(workspace, outputWriter, disableAnsi: true,
+            configureConnection: connection =>
+            {
+                connection.SupportsV3 = true;
+                connection.GetConsoleLogBatchesHandler = (request, cancellationToken) =>
+                {
+                    batchRequests.Add(request);
+                    return EnumerateLogBatchesAsync(
+                    [
+                        new ResourceLogBatch
+                        {
+                            Lines =
+                            [
+                                new ResourceLogLine { ResourceName = "redis", LineNumber = 1, Content = "Ready to accept connections", IsError = false }
+                            ]
+                        }
+                    ], cancellationToken);
+                };
+                connection.GetConsoleLogsHandler = (request, _) =>
+                {
+                    consoleRequests.Add(request);
+                    throw new InvalidOperationException("The line-based console logs RPC should not be used when batched logs are available.");
+                };
+            });
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("logs redis --search Ready --tail 2 --format json");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Empty(consoleRequests);
+
+        var request = Assert.Single(batchRequests);
+        Assert.Equal("redis", request.ResourceName);
+        Assert.False(request.Follow);
+        Assert.Equal("Ready", request.Search);
+        Assert.Equal(2, request.Tail);
+        Assert.True(request.IncludeHidden);
+    }
+
+    [Fact]
     public async Task LogsCommand_WithOldAppHost_FallsBackToClientSideSearchAndTail()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -1421,6 +1470,19 @@ public class LogsCommandTests(ITestOutputHelper outputHelper)
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return logLine;
+        }
+
+        await Task.CompletedTask;
+    }
+
+    private static async IAsyncEnumerable<ResourceLogBatch> EnumerateLogBatchesAsync(
+        IEnumerable<ResourceLogBatch> logBatches,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (var logBatch in logBatches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return logBatch;
         }
 
         await Task.CompletedTask;

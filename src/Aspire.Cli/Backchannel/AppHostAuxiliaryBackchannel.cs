@@ -81,6 +81,9 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
     /// <inheritdoc />
     public bool SupportsV2 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V2);
 
+    /// <inheritdoc />
+    public bool SupportsV3 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V3);
+
     /// <summary>
     /// Gets the JSON-RPC proxy for communicating with the AppHost.
     /// </summary>
@@ -626,6 +629,92 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
         }
 
         return GetConsoleLogsV2InternalAsync(request, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<ResourceLogBatch> GetConsoleLogBatchesAsync(
+        GetConsoleLogsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (SupportsV3)
+        {
+            return GetConsoleLogBatchesV3InternalAsync(request, cancellationToken);
+        }
+
+        // Older aux.v2 AppHosts required ResourceName on GetConsoleLogsRequest. Keep all-resource
+        // fallback on the legacy RPC; LogsCommand still applies client-side search/tail/hidden
+        // filters so output remains correct even when the AppHost cannot filter server-side.
+        var logLines = request.ResourceName is null
+            ? GetResourceLogsAsync(resourceName: null, follow: request.Follow, cancellationToken: cancellationToken)
+            : GetConsoleLogsAsync(request, cancellationToken);
+
+        return BatchLogLinesAsync(logLines, request.Follow, cancellationToken);
+    }
+
+    private async IAsyncEnumerable<ResourceLogBatch> GetConsoleLogBatchesV3InternalAsync(
+        GetConsoleLogsRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var rpc = EnsureConnected();
+
+        _logger.LogDebug("Getting console log batches (v3) for {ResourceName}", request.ResourceName);
+
+        IAsyncEnumerable<ResourceLogBatch>? logBatches;
+        try
+        {
+            logBatches = await rpc.InvokeStreamingWithProfilingAsync<ResourceLogBatch>(
+                _profilingTelemetry,
+                "auxiliary",
+                "GetConsoleLogBatchesAsync",
+                [request],
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (RemoteMethodNotFoundException ex)
+        {
+            _logger.LogDebug(ex, "GetConsoleLogBatchesAsync RPC method not available on the remote AppHost. Falling back to log-line streaming.");
+            var logLines = request.ResourceName is null
+                ? GetResourceLogsAsync(resourceName: null, follow: request.Follow, cancellationToken: cancellationToken)
+                : GetConsoleLogsAsync(request, cancellationToken);
+            logBatches = BatchLogLinesAsync(logLines, request.Follow, cancellationToken);
+        }
+
+        if (logBatches is null)
+        {
+            yield break;
+        }
+
+        await foreach (var logBatch in logBatches.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            yield return logBatch;
+        }
+    }
+
+    private static async IAsyncEnumerable<ResourceLogBatch> BatchLogLinesAsync(
+        IAsyncEnumerable<ResourceLogLine> logLines,
+        bool follow,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var maxBatchSize = follow ? 1 : 256;
+        List<ResourceLogLine>? batch = null;
+
+        await foreach (var logLine in logLines.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            batch ??= new List<ResourceLogLine>(maxBatchSize);
+            batch.Add(logLine);
+
+            if (batch.Count == maxBatchSize)
+            {
+                yield return new ResourceLogBatch { Lines = batch.ToArray() };
+                batch.Clear();
+            }
+        }
+
+        if (batch is { Count: > 0 })
+        {
+            yield return new ResourceLogBatch { Lines = batch.ToArray() };
+        }
     }
 
     private async IAsyncEnumerable<ResourceLogLine> GetConsoleLogsV2InternalAsync(

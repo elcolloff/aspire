@@ -45,6 +45,11 @@ internal static class AuxiliaryBackchannelCapabilities
     /// </summary>
     public const string V2 = "aux.v2";
 
+    /// <summary>
+    /// Version 3 capabilities: Batched console log streaming.
+    /// </summary>
+    public const string V3 = "aux.v3";
+
 }
 
 /// <summary>
@@ -1381,4 +1386,15 @@ internal sealed class ResourceLogLine
     /// Gets whether this log line is from stderr (error output).
     /// </summary>
     public bool IsError { get; init; }
+}
+
+/// <summary>
+/// Represents a batch of resource console log lines.
+/// </summary>
+internal sealed class ResourceLogBatch
+{
+    /// <summary>
+    /// Gets the log lines in this batch.
+    /// </summary>
+    public required ResourceLogLine[] Lines { get; init; }
 }
