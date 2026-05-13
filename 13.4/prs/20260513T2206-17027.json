@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Bug fix for graceful shutdown of detached app hosts on Windows using console groups and Ctrl+C signal",
+  "mergedAt": "2026-05-13T22:06:13Z",
+  "number": 17027,
+  "runDate": "2026-05-13T22:28:05Z",
+  "status": "included",
+  "title": "Fix detached App Host graceful shutdown on Windows"
+}

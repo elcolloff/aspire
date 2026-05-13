@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed graceful shutdown for detached app hosts on Windows. Detached app hosts are now assigned to a new console group, and the stop command sends Ctrl+C first to allow a clean shutdown before forcefully killing the process if needed.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛑",
+  "firstMergedAt": "2026-05-13T22:06:13Z",
+  "lastMergedAt": "2026-05-13T22:06:13Z",
+  "name": "Fix detached App Host graceful shutdown on Windows",
+  "owner": "danegsta",
+  "prs": [
+    17027
+  ]
+}
