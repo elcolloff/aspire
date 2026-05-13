@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "TypeScript code block audit and cleanup in docs; not tied to a specific product changelog entry",
+  "mergedAt": "2026-05-13T19:48:01Z",
+  "number": 940,
+  "runDate": "2026-05-13T20:35:04Z",
+  "status": "excluded",
+  "title": "Audit + clean every twoslash TS code block across the docs"
+}

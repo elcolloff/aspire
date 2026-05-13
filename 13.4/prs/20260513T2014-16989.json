@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Dependency version bump - updates .NET 8/9/10 runtime and ASP.NET Core packages to May 2026 servicing release",
+  "mergedAt": "2026-05-13T20:14:20Z",
+  "number": 16989,
+  "runDate": "2026-05-13T20:35:04Z",
+  "status": "excluded",
+  "title": "Update dependencies from latest .NET Servicing"
+}
