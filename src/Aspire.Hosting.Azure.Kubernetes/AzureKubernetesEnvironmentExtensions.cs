@@ -638,7 +638,8 @@ public static class AzureKubernetesEnvironmentExtensions
         // We bump to the oldest preview API version that has both gatewayAPI and
         // applicationLoadBalancer; the injection itself is reflection-based because the
         // Azure.Provisioning.ContainerService types that own these properties are internal.
-        // See the xmldoc on AksPreviewIngressProfileInjector for a full explanation.
+        // The xmldoc on AksPreviewIngressProfileInjector documents the public DefineProperty /
+        // DefineModelProperty alternatives that were tried and empirically ruled out.
         if (aksResource.RequiresPreviewIngressApi)
         {
             aks.ResourceVersion = "2025-09-02-preview";
