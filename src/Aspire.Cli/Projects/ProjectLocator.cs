@@ -38,12 +38,18 @@ internal interface IProjectLocator
     Task<FileInfo?> UseOrFindAppHostProjectFileAsync(FileInfo? projectFile, bool createSettingsFile, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Resolves the AppHost project file from <c>.aspire/settings.json</c> only, without any
-    /// user interaction or recursive filesystem scanning. Returns <c>null</c> when no settings
-    /// file or <c>appHostPath</c> entry is found, or when the configured path is no longer a
-    /// valid AppHost project.
+    /// Resolves the AppHost project file from Aspire settings, without any user interaction or
+    /// recursive filesystem scanning. Returns <c>null</c> when no settings file or AppHost path
+    /// entry is found, or when the configured path is no longer a valid AppHost project.
     /// </summary>
     Task<FileInfo?> GetAppHostFromSettingsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves the AppHost project file from Aspire settings starting in the specified directory,
+    /// without any user interaction or recursive filesystem scanning.
+    /// </summary>
+    Task<FileInfo?> GetAppHostFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, CancellationToken cancellationToken = default)
+        => GetAppHostFromSettingsAsync(cancellationToken);
 }
 
 internal sealed record AppHostProjectCandidate(FileInfo AppHostFile, string Language, AppHostProjectCandidateStatus Status = AppHostProjectCandidateStatus.Buildable);
@@ -271,12 +277,18 @@ internal sealed class ProjectLocator(
     /// <inheritdoc />
     public async Task<FileInfo?> GetAppHostFromSettingsAsync(CancellationToken cancellationToken = default)
     {
-        return await GetValidatedAppHostProjectFileFromSettingsAsync(silent: true, cancellationToken);
+        return await GetAppHostFromSettingsAsync(executionContext.WorkingDirectory, searchParentDirectories: true, cancellationToken);
     }
 
-    private async Task<FileInfo?> GetValidatedAppHostProjectFileFromSettingsAsync(bool silent, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<FileInfo?> GetAppHostFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, CancellationToken cancellationToken = default)
     {
-        var settingsAppHost = await GetAppHostProjectFileFromSettingsAsync(silent, cancellationToken);
+        return await GetValidatedAppHostProjectFileFromSettingsAsync(searchDirectory, searchParentDirectories, silent: true, cancellationToken);
+    }
+
+    private async Task<FileInfo?> GetValidatedAppHostProjectFileFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, bool silent, CancellationToken cancellationToken)
+    {
+        var settingsAppHost = await GetAppHostProjectFileFromSettingsAsync(searchDirectory, searchParentDirectories, silent, cancellationToken);
         if (settingsAppHost is null)
         {
             return null;
@@ -312,10 +324,8 @@ internal sealed class ProjectLocator(
         return null;
     }
 
-    private async Task<FileInfo?> GetAppHostProjectFileFromSettingsAsync(bool silent, CancellationToken cancellationToken)
+    private async Task<FileInfo?> GetAppHostProjectFileFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, bool silent, CancellationToken cancellationToken)
     {
-        var searchDirectory = executionContext.WorkingDirectory;
-
         while (true)
         {
             // Check aspire.config.json first
@@ -382,7 +392,7 @@ internal sealed class ProjectLocator(
                 }
             }
 
-            if (searchDirectory.Parent is not null)
+            if (searchParentDirectories && searchDirectory.Parent is not null)
             {
                 searchDirectory = searchDirectory.Parent;
             }
@@ -509,7 +519,7 @@ internal sealed class ProjectLocator(
             }
         }
 
-        var settingsAppHost = await GetValidatedAppHostProjectFileFromSettingsAsync(silent: true, cancellationToken);
+        var settingsAppHost = await GetValidatedAppHostProjectFileFromSettingsAsync(executionContext.WorkingDirectory, searchParentDirectories: true, silent: true, cancellationToken);
 
         if (settingsAppHost is not null && multipleAppHostProjectsFoundBehavior is not MultipleAppHostProjectsFoundBehavior.None)
         {

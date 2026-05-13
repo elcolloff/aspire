@@ -372,21 +372,16 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
     public async Task DoctorCommand_Json_PreservesCliVersionWhenAppHostDiscoveryFails()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
-        await File.WriteAllTextAsync(
-            Path.Combine(workspace.WorkspaceRoot.FullName, "aspire.config.json"),
-            """
-            {
-              "appHost": {
-                "path": "missing/AppHost.csproj"
-              }
-            }
-            """);
 
         var interactionService = new TestInteractionService();
         var services = CreateDoctorVersionServiceCollection(workspace, outputHelper, options =>
         {
             options.InteractionServiceFactory = _ => interactionService;
             options.CliUpdateNotifierFactory = _ => new TestCliUpdateNotifier();
+            options.ProjectLocatorFactory = _ => new TestProjectLocator
+            {
+                GetAppHostFromSettingsAsyncCallback = _ => throw new IOException("settings lookup failed")
+            };
         });
         using var provider = services.BuildServiceProvider();
 
@@ -406,7 +401,7 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
 
         Assert.Equal("pass", cliVersionCheck.GetProperty("status").GetString());
         Assert.Equal("warning", appHostVersionCheck.GetProperty("status").GetString());
-        Assert.Contains("missing/AppHost.csproj", appHostVersionCheck.GetProperty("details").GetString());
+        Assert.Equal("settings lookup failed", appHostVersionCheck.GetProperty("details").GetString());
     }
 
     [Fact]

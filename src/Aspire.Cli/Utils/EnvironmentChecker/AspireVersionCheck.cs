@@ -3,7 +3,6 @@
 
 using System.Globalization;
 using System.Text.Json.Nodes;
-using Aspire.Cli.Configuration;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
 using Microsoft.Extensions.Logging;
@@ -16,6 +15,7 @@ namespace Aspire.Cli.Utils.EnvironmentChecker;
 /// </summary>
 internal sealed class AspireVersionCheck(
     ICliUpdateNotifier updateNotifier,
+    IProjectLocator projectLocator,
     ILanguageDiscovery languageDiscovery,
     IAppHostProjectFactory projectFactory,
     CliExecutionContext executionContext,
@@ -231,7 +231,7 @@ internal sealed class AspireVersionCheck(
         // the current directory. Avoid recursive discovery so doctor does not choose
         // between multiple AppHosts or pay the cost of project-wide AppHost search for
         // an informational version check.
-        var configuredAppHost = await ResolveAppHostFromCurrentDirectoryConfigAsync(cancellationToken);
+        var configuredAppHost = await projectLocator.GetAppHostFromSettingsAsync(executionContext.WorkingDirectory, searchParentDirectories: false, cancellationToken);
         if (configuredAppHost is not null)
         {
             return [configuredAppHost];
@@ -268,41 +268,6 @@ internal sealed class AspireVersionCheck(
         }
 
         return [.. candidates.Values];
-    }
-
-    private async Task<FileInfo?> ResolveAppHostFromCurrentDirectoryConfigAsync(CancellationToken cancellationToken)
-    {
-        var config = AspireConfigFile.Load(executionContext.WorkingDirectory.FullName);
-        if (config?.AppHost?.Path is not { Length: > 0 } appHostPath)
-        {
-            return null;
-        }
-
-        var qualifiedPath = Path.IsPathRooted(appHostPath)
-            ? appHostPath
-            : Path.Combine(executionContext.WorkingDirectory.FullName, appHostPath);
-
-        var appHostFile = new FileInfo(Path.GetFullPath(qualifiedPath));
-        if (!appHostFile.Exists)
-        {
-            throw new FileNotFoundException($"AppHost path '{appHostPath}' from {AspireConfigFile.FileName} does not exist.", appHostFile.FullName);
-        }
-
-        var languages = await languageDiscovery.GetAvailableLanguagesAsync(cancellationToken);
-        foreach (var language in languages)
-        {
-            var project = projectFactory.GetProject(language);
-            if (project.CanHandle(appHostFile))
-            {
-                return appHostFile;
-            }
-        }
-
-        logger.LogDebug(
-            "Ignoring AppHost path '{AppHostPath}' from {ConfigFile} because no project handler can process it.",
-            appHostFile.FullName,
-            AspireConfigFile.FileName);
-        return null;
     }
 
     private async Task<(bool IsAppHost, string? Version)> ResolveAppHostVersionAsync(FileInfo appHostFile, CancellationToken cancellationToken)
