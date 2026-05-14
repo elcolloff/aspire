@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "CI workflow change in docs repo (update-release-branch trigger), not documenting an Aspire feature",
+  "mergedAt": "2026-05-14T15:21:31Z",
+  "number": 957,
+  "runDate": "2026-05-14T16:46:07Z",
+  "status": "excluded",
+  "title": "Run update-release-branch on every push to main; drop daily cron"
+}
