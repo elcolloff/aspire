@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": true,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The primary Keycloak endpoint is now HTTPS when the dev certificate is enabled, fixing an issue where the HTTPS endpoint was unstable and caused previously issued tokens to become invalid on restart.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔑",
+  "firstMergedAt": "2026-05-13T23:23:06Z",
+  "lastMergedAt": "2026-05-13T23:23:06Z",
+  "name": "Fix Keycloak HTTPS primary endpoint",
+  "owner": "danegsta",
+  "prs": [
+    17058
+  ]
+}

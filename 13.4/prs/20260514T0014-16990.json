@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "New feature: Gateway API and Azure Application Gateway for Containers (AGC) end-to-end in AKS environments",
+  "mergedAt": "2026-05-14T00:14:01Z",
+  "number": 16990,
+  "runDate": "2026-05-14T00:37:23Z",
+  "status": "included",
+  "title": "Enable Gateway API and AGC in AddAzureKubernetesEnvironment"
+}

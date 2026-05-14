@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Breaking bug fix: Keycloak primary endpoint changed to HTTPS to fix unstable endpoint on restart",
+  "mergedAt": "2026-05-13T23:23:06Z",
+  "number": 17058,
+  "runDate": "2026-05-14T00:37:23Z",
+  "status": "included",
+  "title": "Fix Keycloak HTTPS primary endpoint"
+}
