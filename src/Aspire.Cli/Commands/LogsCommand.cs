@@ -281,6 +281,11 @@ internal sealed class LogsCommand : BaseCommand
         }
         else
         {
+            if (entries.Count == 0)
+            {
+                _interactionService.DisplayMessage(KnownEmojis.Information, LogsCommandStrings.NoLogsFound);
+            }
+
             foreach (var entry in entries)
             {
                 OutputLogLine(entry, format, timestamps);
