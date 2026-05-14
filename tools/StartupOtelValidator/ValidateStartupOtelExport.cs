@@ -39,15 +39,19 @@ foreach (var profilingGroup in profilingGroups)
         var traceSpans = traceGroup.ToList();
         var hasStartCommandSpan = traceSpans.Any(span =>
             span.Scope == "Aspire.Cli.Profiling" &&
-            span.Name == "aspire/cli/start_apphost.spawn_child");
+            span.Name?.StartsWith("process ", StringComparison.Ordinal) == true &&
+            span.ChildCommand == "run" &&
+            !string.IsNullOrEmpty(span.ProcessExecutableName) &&
+            span.ProcessCommandArgs.Count > 0);
         var hasChildDiagnosticSpan = traceSpans.Any(span =>
             span.Scope == "Aspire.Cli.Profiling" &&
-            Contains(span.Name,
-                "aspire/cli/apphost.ensure_dev_certificates",
-                "aspire/cli/backchannel.connect",
-                "aspire/cli/backchannel.get_dashboard_urls",
-                "aspire/cli/dotnet.build",
-                "aspire/cli/run"));
+            (Contains(span.Name,
+                    "aspire/cli/apphost.ensure_dev_certificates",
+                    "aspire/cli/backchannel.connect",
+                    "aspire/cli/backchannel.get_dashboard_urls",
+                    "aspire/cli/run") ||
+                (span.Name?.StartsWith("process ", StringComparison.Ordinal) == true &&
+                    span.DotNetCommand == "build")));
         var hasHostingDcpSpan = traceSpans.Any(span =>
             span.Scope == "Aspire.Hosting.Profiling" &&
             Contains(span.Name,
@@ -193,6 +197,11 @@ static List<ExportedSpan> ReadExportedSpans(string exportDirectory)
                         ParentSpanId: GetStringProperty(span, "parentSpanId"),
                         ProfilingSessionId: GetSpanAttributeValue(span, ProfilingSessionIdAttribute) ?? GetSpanAttributeValue(span, LegacyStartupOperationIdAttribute),
                         CommandName: GetSpanAttributeValue(span, "aspire.cli.command.name"),
+                        ChildCommand: GetSpanAttributeValue(span, "aspire.cli.child.command"),
+                        DotNetCommand: GetSpanAttributeValue(span, "aspire.cli.dotnet.command"),
+                        GitCommand: GetSpanAttributeValue(span, "aspire.cli.git.command"),
+                        NpmCommand: GetSpanAttributeValue(span, "aspire.cli.npm.command"),
+                        AppHostServerImplementation: GetSpanAttributeValue(span, "aspire.cli.apphost_server.implementation"),
                         ProcessId: GetSpanAttributeValue(span, "process.pid"),
                         ProcessExecutableName: GetSpanAttributeValue(span, "process.executable.name"),
                         ProcessExecutablePath: GetSpanAttributeValue(span, "process.executable.path"),
@@ -430,6 +439,11 @@ static void WriteExportedSpan(Utf8JsonWriter writer, ExportedSpan span)
     WriteString(writer, nameof(ExportedSpan.ParentSpanId), span.ParentSpanId);
     WriteString(writer, nameof(ExportedSpan.ProfilingSessionId), span.ProfilingSessionId);
     WriteString(writer, nameof(ExportedSpan.CommandName), span.CommandName);
+    WriteString(writer, nameof(ExportedSpan.ChildCommand), span.ChildCommand);
+    WriteString(writer, nameof(ExportedSpan.DotNetCommand), span.DotNetCommand);
+    WriteString(writer, nameof(ExportedSpan.GitCommand), span.GitCommand);
+    WriteString(writer, nameof(ExportedSpan.NpmCommand), span.NpmCommand);
+    WriteString(writer, nameof(ExportedSpan.AppHostServerImplementation), span.AppHostServerImplementation);
     WriteString(writer, nameof(ExportedSpan.ProcessId), span.ProcessId);
     WriteString(writer, nameof(ExportedSpan.ProcessExecutableName), span.ProcessExecutableName);
     WriteString(writer, nameof(ExportedSpan.ProcessExecutablePath), span.ProcessExecutablePath);
@@ -518,6 +532,11 @@ internal sealed record ExportedSpan(
     string? ParentSpanId,
     string? ProfilingSessionId,
     string? CommandName,
+    string? ChildCommand,
+    string? DotNetCommand,
+    string? GitCommand,
+    string? NpmCommand,
+    string? AppHostServerImplementation,
     string? ProcessId,
     string? ProcessExecutableName,
     string? ProcessExecutablePath,

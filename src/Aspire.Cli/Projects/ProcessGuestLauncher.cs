@@ -47,13 +47,14 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
             return (-1, errorOutput);
         }
 
-        activity?.SetTag(TelemetryConstants.Tags.ProcessExecutablePath, resolvedCommand);
-        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessResolved, TelemetryConstants.Tags.ProcessExecutablePath, resolvedCommand);
-        _logger.LogDebug("Executing: {Command} {Args}", resolvedCommand, string.Join(" ", args));
+        var resolvedCommandPath = resolvedCommand ?? throw new InvalidOperationException("Command resolution succeeded without a resolved command path.");
+        ProfilingTelemetry.SetProcessInvocation(activity, resolvedCommandPath, args);
+        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessResolved, TelemetryConstants.Tags.ProcessExecutablePath, resolvedCommandPath);
+        _logger.LogDebug("Executing: {Command} {Args}", resolvedCommandPath, string.Join(" ", args));
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = resolvedCommand,
+            FileName = resolvedCommandPath,
             WorkingDirectory = workingDirectory.FullName,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

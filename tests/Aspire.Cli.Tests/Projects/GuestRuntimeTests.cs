@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aspire.Cli.Diagnostics;
 using Aspire.Cli.Projects;
@@ -165,7 +166,7 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
     [Fact]
     public async Task RunAsync_ProfilingTelemetryRecordsGuestCommandPhasesAndArgs()
     {
-        var stoppedActivities = new List<Activity>();
+        var stoppedActivities = new ConcurrentBag<Activity>();
         using var listener = CreateProfilingActivityListener(stoppedActivities.Add);
         using var profilingTelemetry = CreateProfilingTelemetry(
             (ProfilingTelemetry.EnvironmentVariables.Enabled, "true"),
@@ -194,7 +195,9 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
         await runtime.RunAsync(appHostFile, directory, new Dictionary<string, string>(), watchMode: false, launcher, CancellationToken.None);
 
         var guestActivities = stoppedActivities
-            .Where(activity => activity.OperationName == ProfilingTelemetry.Activities.GuestExecuteCommand)
+            .Where(activity => activity.OperationName == ProfilingTelemetry.Activities.Process &&
+                activity.GetTagItem(ProfilingTelemetry.Tags.ProfilingSessionId) as string == "session-1" &&
+                activity.GetTagItem(ProfilingTelemetry.Tags.GuestCommandPhase) is not null)
             .OrderBy(activity => activity.StartTimeUtc)
             .ToArray();
 
@@ -203,6 +206,7 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
             preExecuteActivity =>
             {
                 Assert.Equal(ProfilingTelemetry.Values.GuestCommandPhasePreExecute, preExecuteActivity.GetTagItem(ProfilingTelemetry.Tags.GuestCommandPhase));
+                Assert.Equal("process npx", preExecuteActivity.DisplayName);
                 Assert.Equal("npx", preExecuteActivity.GetTagItem(ProfilingTelemetry.Tags.GuestCommand));
                 Assert.Equal(new[] { "tsc", "--noEmit", "-p", "tsconfig.apphost.json" }, Assert.IsType<string[]>(preExecuteActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgs)));
                 Assert.Equal(4, preExecuteActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgsCount));
@@ -211,6 +215,7 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
             executeActivity =>
             {
                 Assert.Equal(ProfilingTelemetry.Values.GuestCommandPhaseExecute, executeActivity.GetTagItem(ProfilingTelemetry.Tags.GuestCommandPhase));
+                Assert.Equal("process npx", executeActivity.DisplayName);
                 Assert.Equal("npx", executeActivity.GetTagItem(ProfilingTelemetry.Tags.GuestCommand));
                 Assert.Equal(new[] { "tsx", "--tsconfig", "tsconfig.apphost.json", appHostFile.FullName }, Assert.IsType<string[]>(executeActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgs)));
                 Assert.Equal(4, executeActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgsCount));
@@ -575,7 +580,7 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
     [Fact]
     public async Task ProcessGuestLauncher_AnnotatesAmbientGuestProfilingActivity()
     {
-        var stoppedActivities = new List<Activity>();
+        var stoppedActivities = new ConcurrentBag<Activity>();
         using var listener = CreateProfilingActivityListener(stoppedActivities.Add);
         using var profilingTelemetry = CreateProfilingTelemetry(
             (ProfilingTelemetry.EnvironmentVariables.Enabled, "true"),
@@ -607,8 +612,14 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
             Assert.Contains(output.GetLines(), line => line.Stream == OutputLineStream.StdOut);
         }
 
-        var activity = Assert.Single(stoppedActivities, activity => activity.OperationName == ProfilingTelemetry.Activities.GuestExecuteCommand);
+        var activity = Assert.Single(stoppedActivities, activity =>
+            activity.OperationName == ProfilingTelemetry.Activities.Process &&
+            activity.GetTagItem(ProfilingTelemetry.Tags.ProfilingSessionId) as string == "session-1" &&
+            activity.GetTagItem(ProfilingTelemetry.Tags.GuestCommand) as string == "dotnet");
+        Assert.Equal("process dotnet", activity.DisplayName);
         Assert.Equal("dotnet", activity.GetTagItem(TelemetryConstants.Tags.ProcessExecutablePath));
+        Assert.Equal(new[] { "--version" }, Assert.IsType<string[]>(activity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgs)));
+        Assert.Equal(1, activity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgsCount));
         Assert.Equal(0, activity.GetTagItem(TelemetryConstants.Tags.ProcessExitCode));
         Assert.True((int)activity.GetTagItem(TelemetryConstants.Tags.ProcessPid)! > 0);
         Assert.Contains(activity.Events, @event => @event.Name == ProfilingTelemetry.Events.GuestProcessResolveStart);
