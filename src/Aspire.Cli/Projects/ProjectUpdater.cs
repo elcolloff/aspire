@@ -359,7 +359,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
             if (projectNode is not null)
             {
                 hasPackageReference = projectNode.SelectSingleNode(
-                    "//PackageReference[@Include='Aspire.Hosting.AppHost']") is not null;
+                    CaseInsensitiveIncludeXPath("//PackageReference", "Aspire.Hosting.AppHost")) is not null;
             }
         }
         catch
@@ -377,7 +377,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
                 var propsDocument = new XmlDocument { PreserveWhitespace = true };
                 propsDocument.Load(cpmInfo.DirectoryPackagesPropsFile.FullName);
                 hasOrphanPackageVersion = propsDocument.SelectSingleNode(
-                    "/Project/ItemGroup/PackageVersion[@Include='Aspire.Hosting.AppHost']") is not null;
+                    CaseInsensitiveIncludeXPath("/Project/ItemGroup/PackageVersion", "Aspire.Hosting.AppHost")) is not null;
             }
             catch
             {
@@ -446,7 +446,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
             var usesOldFormat = sdkAttribute is null || !ContainsAspireAppHostSdk(sdkAttribute.Value);
 
             // Check if Aspire.Hosting.AppHost package reference exists (will be removed)
-            var hasAppHostPackage = projectNode.SelectSingleNode("//PackageReference[@Include='Aspire.Hosting.AppHost']") is not null;
+            var hasAppHostPackage = projectNode.SelectSingleNode(CaseInsensitiveIncludeXPath("//PackageReference", "Aspire.Hosting.AppHost")) is not null;
 
             return new SdkMigrationInfo(usesOldFormat, hasAppHostPackage);
         }
@@ -601,6 +601,16 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         await Task.CompletedTask;
     }
 
+    // NuGet package IDs are case-insensitive (https://learn.microsoft.com/nuget/concepts/package-identifier),
+    // so XPath lookups that match on @Include must compare case-insensitively. XPath 1.0 has no lower-case()
+    // function, so we use translate() with the ASCII alphabet — package IDs are restricted to ASCII so this
+    // is sufficient (https://learn.microsoft.com/nuget/reference/errors-and-warnings/nu1003).
+    private const string AsciiUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private const string AsciiLower = "abcdefghijklmnopqrstuvwxyz";
+
+    private static string CaseInsensitiveIncludeXPath(string axisAndElement, string packageId)
+        => $"{axisAndElement}[translate(@Include, '{AsciiUpper}', '{AsciiLower}')='{packageId.ToLowerInvariant()}']";
+
     private static void RemoveNodeWithWhitespace(XmlNode node)
     {
         var parent = node.ParentNode;
@@ -621,7 +631,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
 
     private static void RemovePackageReference(XmlNode projectNode, string packageId)
     {
-        var packageNode = projectNode.SelectSingleNode($"//PackageReference[@Include='{packageId}']");
+        var packageNode = projectNode.SelectSingleNode(CaseInsensitiveIncludeXPath("//PackageReference", packageId));
         if (packageNode?.ParentNode is null)
         {
             return;
@@ -674,7 +684,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
             propsDocument.PreserveWhitespace = true;
             propsDocument.Load(cpmInfo.DirectoryPackagesPropsFile.FullName);
 
-            var packageVersionNode = propsDocument.SelectSingleNode($"/Project/ItemGroup/PackageVersion[@Include='{packageId}']");
+            var packageVersionNode = propsDocument.SelectSingleNode(CaseInsensitiveIncludeXPath("/Project/ItemGroup/PackageVersion", packageId));
             if (packageVersionNode?.ParentNode is null)
             {
                 return;
@@ -913,7 +923,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         {
             var doc = new XmlDocument { PreserveWhitespace = true };
             doc.Load(directoryPackagesPropsFile.FullName);
-            var packageVersionNode = doc.SelectSingleNode($"/Project/ItemGroup/PackageVersion[@Include='{packageId}']");
+            var packageVersionNode = doc.SelectSingleNode(CaseInsensitiveIncludeXPath("/Project/ItemGroup/PackageVersion", packageId));
             var versionAttribute = packageVersionNode?.Attributes?["Version"]?.Value;
 
             if (versionAttribute is null)
@@ -1012,7 +1022,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         var doc = new XmlDocument { PreserveWhitespace = true };
         doc.Load(directoryPackagesPropsFile.FullName);
 
-        var packageVersionNode = doc.SelectSingleNode($"/Project/ItemGroup/PackageVersion[@Include='{packageId}']");
+        var packageVersionNode = doc.SelectSingleNode(CaseInsensitiveIncludeXPath("/Project/ItemGroup/PackageVersion", packageId));
         if (packageVersionNode?.Attributes?["Version"] is null)
         {
             throw new ProjectUpdaterException(string.Format(CultureInfo.InvariantCulture, UpdateCommandStrings.CouldNotFindPackageVersionInDirectoryPackagesProps, packageId, directoryPackagesPropsFile.FullName));
