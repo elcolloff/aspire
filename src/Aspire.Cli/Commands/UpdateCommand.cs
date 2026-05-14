@@ -47,6 +47,11 @@ internal sealed class UpdateCommand : BaseCommand
     {
         Description = UpdateCommandStrings.NuGetConfigDirOptionDescription
     };
+    private static readonly Option<bool> s_skipRestoreCheckOption = new("--skip-restore-check")
+    {
+        Description = UpdateCommandStrings.SkipRestoreCheckOptionDescription,
+        Hidden = true
+    };
     private readonly Option<string?> _channelOption;
     private readonly Option<string?> _qualityOption;
 
@@ -79,6 +84,7 @@ internal sealed class UpdateCommand : BaseCommand
         Options.Add(s_selfOption);
         Options.Add(s_yesOption);
         Options.Add(s_nugetConfigDirOption);
+        Options.Add(s_skipRestoreCheckOption);
 
         AddNonInteractiveRequiresYesValidator(this, s_yesOption);
 
@@ -235,12 +241,16 @@ internal sealed class UpdateCommand : BaseCommand
             // defaultValue: true means the interactive prompt defaults to "yes" (accept).
             var confirmBinding = PromptBinding.Create(parseResult, s_yesOption, defaultValue: true);
             var nugetConfigDirBinding = PromptBinding.Create(parseResult, s_nugetConfigDirOption);
+            var skipRestoreCheck = parseResult.GetValue(s_skipRestoreCheckOption);
+            var nonInteractive = parseResult.GetValue(RootCommand.NonInteractiveOption);
             var updateContext = new UpdatePackagesContext
             {
                 AppHostFile = projectFile,
                 Channel = channel,
                 ConfirmBinding = confirmBinding,
-                NuGetConfigDirBinding = nugetConfigDirBinding
+                NuGetConfigDirBinding = nugetConfigDirBinding,
+                SkipRestoreCheck = skipRestoreCheck,
+                IsNonInteractive = nonInteractive
             };
             await project.UpdatePackagesAsync(updateContext, cancellationToken);
 

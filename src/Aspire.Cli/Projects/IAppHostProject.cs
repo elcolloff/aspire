@@ -42,6 +42,19 @@ internal sealed class UpdatePackagesContext
     /// Enables non-interactive selection via CLI options (e.g. <c>--nuget-config-dir</c>).
     /// </summary>
     public required Interaction.PromptBinding<string?> NuGetConfigDirBinding { get; init; }
+
+    /// <summary>
+    /// When <see langword="true"/>, skip running <c>dotnet restore</c> before and after the update
+    /// to detect newly introduced NuGet warnings or errors. Set by <c>--skip-restore-check</c>.
+    /// </summary>
+    public bool SkipRestoreCheck { get; init; }
+
+    /// <summary>
+    /// When <see langword="true"/>, the user invoked the command in non-interactive mode (e.g. via
+    /// <c>--non-interactive --yes</c>). Updaters must not block on prompts that have no resolved
+    /// value in this mode; instead they should fail-fast so callers (CI scripts) see a non-zero exit.
+    /// </summary>
+    public bool IsNonInteractive { get; init; }
 }
 
 /// <summary>

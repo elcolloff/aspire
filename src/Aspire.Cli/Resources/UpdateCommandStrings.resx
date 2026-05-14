@@ -174,4 +174,31 @@
   <data name="NuGetConfigDirOptionDescription" xml:space="preserve">
     <value>Directory to create or update the NuGet.config file in</value>
   </data>
+  <data name="SkipRestoreCheckOptionDescription" xml:space="preserve">
+    <value>Skip running 'dotnet restore' before and after the update to detect new NuGet warnings or errors</value>
+  </data>
+  <data name="BaselineRestoreStatus" xml:space="preserve">
+    <value>Establishing restore baseline...</value>
+  </data>
+  <data name="PostUpdateRestoreStatus" xml:space="preserve">
+    <value>Validating updates with 'dotnet restore'...</value>
+  </data>
+  <data name="UpdateIntroducedNuGetIssuesHeader" xml:space="preserve">
+    <value>The update introduced the following new NuGet issues that were not present before:</value>
+  </data>
+  <data name="RollbackUpdatesPrompt" xml:space="preserve">
+    <value>Rollback the updates to restore the previous state?</value>
+  </data>
+  <data name="RollbackSuccessMessage" xml:space="preserve">
+    <value>Rolled back update changes. Resolve the underlying package conflicts and re-run 'aspire update'.</value>
+  </data>
+  <data name="ContinueWithIssuesMessage" xml:space="preserve">
+    <value>Update applied with new NuGet issues remaining. You will need to resolve them manually before running the AppHost.</value>
+  </data>
+  <data name="NonInteractiveNewIssuesMessage" xml:space="preserve">
+    <value>The update introduced new NuGet issues. Re-run interactively to choose between continuing or rolling back, or pass --skip-restore-check to bypass this check.</value>
+  </data>
+  <data name="RollbackFailedFormat" xml:space="preserve">
+    <value>Failed to fully rollback update changes for '{0}': {1}. Some files may need to be restored manually.</value>
+  </data>
 </root>

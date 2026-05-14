@@ -77,6 +77,27 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
             return new ProjectUpdateResult { UpdatedApplied = false };
         }
 
+        // Establish a baseline of NuGet diagnostics BEFORE applying updates so we can tell the
+        // difference between issues that pre-existed (which the update may even heal) and issues
+        // newly introduced by the update itself. The baseline is informational only — a failing
+        // pre-restore is not fatal because the update may resolve it.
+        NuGetRestoreResult? baseline = null;
+        if (!context.SkipRestoreCheck)
+        {
+            baseline = await interactionService.ShowStatusAsync(
+                UpdateCommandStrings.BaselineRestoreStatus,
+                () => RunRestoreAndCaptureIssuesAsync(projectFile, cancellationToken));
+
+            if (baseline.HasIssues)
+            {
+                logger.LogDebug(
+                    "Baseline 'dotnet restore' for {ProjectFile} reported {Count} NuGet issue(s) (exitCode={ExitCode}). These will be excluded from the post-update regression check.",
+                    projectFile.FullName,
+                    baseline.Issues.Count,
+                    baseline.ExitCode);
+            }
+        }
+
         if (channel.Type == PackageChannelType.Explicit)
         {
             var (configPathsExitCode, configPaths) = await runner.GetNuGetConfigPathsAsync(projectFile.Directory!, new(), cancellationToken);
@@ -122,7 +143,41 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
                 cancellationToken: cancellationToken);
 
             var nugetConfigDirectory = new DirectoryInfo(selectedPathForNewNuGetConfigFile);
+
+            // Snapshot the NuGet.config that NuGetConfigMerger may create or modify so it can be
+            // rolled back on regression. If no existing file is found, snapshot the default
+            // creation path ("nuget.config" in the target directory).
+            if (!context.SkipRestoreCheck)
+            {
+                var nugetConfigPath = NuGetConfigMerger.TryFindNuGetConfigInDirectory(nugetConfigDirectory, out var existing)
+                    ? existing.FullName
+                    : Path.Combine(nugetConfigDirectory.FullName, "nuget.config");
+                CaptureSnapshot(context, nugetConfigPath);
+            }
+
             await NuGetConfigMerger.CreateOrUpdateAsync(nugetConfigDirectory, channel, (_, orig, proposed, ct) => AnalyzeAndConfirmNuGetConfigChanges(context, orig, proposed, ct), cancellationToken: cancellationToken);
+        }
+
+        // Take snapshots of all files the apply phase will touch so we can rollback if the
+        // post-update restore reveals a regression. The set of mutated files is the union of:
+        //   - the AppHost project file itself (SDK migration / SDK version updates),
+        //   - every distinct PackageUpdateStep.ProjectFile (referenced projects updated by step),
+        //   - the resolved Directory.Packages.props if CPM is in use,
+        //   - the NuGet.config (handled above for Explicit channels).
+        if (!context.SkipRestoreCheck)
+        {
+            CaptureSnapshot(context, projectFile.FullName);
+
+            foreach (var stepProject in updateSteps.OfType<PackageUpdateStep>().Select(s => s.ProjectFile.FullName).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                CaptureSnapshot(context, stepProject);
+            }
+
+            var cpmInfo = DetectCentralPackageManagement(projectFile);
+            if (cpmInfo.UsesCentralPackageManagement && cpmInfo.DirectoryPackagesPropsFile is not null)
+            {
+                CaptureSnapshot(context, cpmInfo.DirectoryPackagesPropsFile.FullName);
+            }
         }
 
         interactionService.DisplayEmptyLine();
@@ -142,9 +197,173 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
 
         interactionService.DisplayEmptyLine();
 
+        // Validate the post-update state by running 'dotnet restore' again and comparing the
+        // captured NuGet diagnostics against the baseline. Anything that wasn't in the baseline
+        // is a regression introduced by this update — surface it and let the user choose.
+        if (!context.SkipRestoreCheck && baseline is not null)
+        {
+            var post = await interactionService.ShowStatusAsync(
+                UpdateCommandStrings.PostUpdateRestoreStatus,
+                () => RunRestoreAndCaptureIssuesAsync(projectFile, cancellationToken));
+
+            var newIssues = post.IssuesNotPresentIn(baseline);
+            if (newIssues.Count > 0)
+            {
+                return await HandlePostRestoreRegressionAsync(context, newIssues, cancellationToken);
+            }
+        }
+
         interactionService.DisplaySuccess(UpdateCommandStrings.UpdateSuccessfulMessage);
         return new ProjectUpdateResult { UpdatedApplied = true };
     }
+
+    /// <summary>
+    /// Handles the case where post-update restore introduced issues that were not present in the
+    /// baseline. In interactive mode the user is prompted to rollback or continue. In
+    /// non-interactive mode we never auto-rollback (destructive); we surface the issues and throw
+    /// so the command exits non-zero, mirroring the issue's design intent.
+    /// </summary>
+    private async Task<ProjectUpdateResult> HandlePostRestoreRegressionAsync(UpdatePackagesContext context, IReadOnlyList<NuGetRestoreIssue> newIssues, CancellationToken cancellationToken)
+    {
+        interactionService.DisplayEmptyLine();
+        interactionService.DisplayMessage(KnownEmojis.Warning, $"[yellow]{UpdateCommandStrings.UpdateIntroducedNuGetIssuesHeader.EscapeMarkup()}[/]", allowMarkup: true);
+        foreach (var issue in newIssues)
+        {
+            interactionService.DisplaySubtleMessage($"[yellow]{issue.RawLine.EscapeMarkup()}[/]", allowMarkup: true);
+        }
+        interactionService.DisplayEmptyLine();
+
+        if (context.IsNonInteractive)
+        {
+            interactionService.DisplayError(UpdateCommandStrings.NonInteractiveNewIssuesMessage);
+            throw new ProjectUpdaterException(UpdateCommandStrings.NonInteractiveNewIssuesMessage);
+        }
+
+        var rollback = await interactionService.PromptConfirmAsync(
+            UpdateCommandStrings.RollbackUpdatesPrompt,
+            PromptBinding.CreateDefault(true),
+            cancellationToken: cancellationToken);
+
+        if (!rollback)
+        {
+            interactionService.DisplayMessage(KnownEmojis.Warning, $"[yellow]{UpdateCommandStrings.ContinueWithIssuesMessage.EscapeMarkup()}[/]", allowMarkup: true);
+            return new ProjectUpdateResult { UpdatedApplied = true };
+        }
+
+        await RollbackSnapshotsAsync(context);
+        interactionService.DisplaySuccess(UpdateCommandStrings.RollbackSuccessMessage);
+        return new ProjectUpdateResult { UpdatedApplied = false };
+    }
+
+    private static void CaptureSnapshot(UpdatePackagesContext context, string filePath)
+    {
+        var snapshots = GetOrCreateSnapshots(context);
+        snapshots.Capture(filePath);
+    }
+
+    private async Task RollbackSnapshotsAsync(UpdatePackagesContext context)
+    {
+        var snapshots = GetOrCreateSnapshots(context);
+        await snapshots.RollbackAsync(interactionService, logger);
+    }
+
+    // The snapshot set is stashed on the context so it survives across the explicit-channel branch
+    // (which captures NuGet.config separately) and the apply phase.
+    private static FileSnapshotSet GetOrCreateSnapshots(UpdatePackagesContext context)
+    {
+        if (s_snapshotSets.TryGetValue(context, out var existing))
+        {
+            return existing;
+        }
+
+        var created = new FileSnapshotSet();
+        s_snapshotSets.Add(context, created);
+        return created;
+    }
+
+    // ConditionalWeakTable lets us attach per-context state without modifying the public
+    // UpdatePackagesContext shape further.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UpdatePackagesContext, FileSnapshotSet> s_snapshotSets = new();
+
+    /// <summary>
+    /// Runs <c>dotnet restore</c> against the AppHost project, capturing NuGet warning/error lines
+    /// from stdout/stderr. Used both for the pre-update baseline and the post-update validation.
+    /// Never throws on a non-zero exit — the caller decides how to interpret that.
+    /// </summary>
+    private async Task<NuGetRestoreResult> RunRestoreAndCaptureIssuesAsync(FileInfo projectFile, CancellationToken cancellationToken)
+    {
+        var issues = new List<NuGetRestoreIssue>();
+        var seen = new HashSet<(string Code, string NormalizedLine)>();
+
+        // NuGet diagnostics observed in the wild look like:
+        //   /path/to/MyApp.AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0...
+        //   error NU1101: Unable to find package 'Bar'. No packages exist with this id in source(s)...
+        //   MyApp.csproj(12,3): error NU1605: Detected package downgrade...
+        // The "warning|error NU####" token is the stable part across formats. We pull both the
+        // code and the original line so we can both diff (by code+normalized line) and display
+        // (raw line).
+        void OnLine(string? line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return;
+            }
+
+            var match = NuGetDiagnosticRegex().Match(line);
+            if (!match.Success)
+            {
+                return;
+            }
+
+            var severity = string.Equals(match.Groups[1].Value, "error", StringComparison.OrdinalIgnoreCase)
+                ? NuGetIssueSeverity.Error
+                : NuGetIssueSeverity.Warning;
+            var code = match.Groups[2].Value;
+            var trimmed = line.Trim();
+            var normalized = NormalizeForDiff(trimmed);
+
+            if (seen.Add((code, normalized)))
+            {
+                issues.Add(new NuGetRestoreIssue(code, severity, trimmed, normalized));
+            }
+        }
+
+        var options = new ProcessInvocationOptions
+        {
+            StandardOutputCallback = OnLine,
+            StandardErrorCallback = OnLine,
+        };
+
+        int exitCode;
+        try
+        {
+            exitCode = await runner.RestoreAsync(projectFile, options, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Treat an exception during restore the same as a failed exit so the baseline still
+            // exists for diff purposes — a thrown post-restore would otherwise be uncomparable.
+            logger.LogDebug(ex, "'dotnet restore' threw while validating {ProjectFile}", projectFile.FullName);
+            exitCode = -1;
+        }
+
+        return new NuGetRestoreResult(exitCode, issues);
+    }
+
+    // Normalize to make the baseline-vs-post comparison resilient to incidental differences
+    // (e.g. absolute paths in the prefix of the line). We strip the leading file-path token
+    // before " : warning|error NUxxxx" if present, leaving just the diagnostic body.
+    //
+    //   "/repo/src/Foo.csproj : warning NU1605: Detected package downgrade: ..."
+    //                       -> "warning NU1605: Detected package downgrade: ..."
+    private static string NormalizeForDiff(string line)
+    {
+        var match = NuGetDiagnosticRegex().Match(line);
+        return match.Success ? line[match.Index..].Trim() : line.Trim();
+    }
+
+    [GeneratedRegex(@"\b(warning|error)\s+(NU\d{4})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex NuGetDiagnosticRegex();
 
     private static bool IsGlobalNuGetConfig(string path)
     {
@@ -1329,3 +1548,82 @@ internal sealed class ProjectUpdaterException : System.Exception
 internal record CentralPackageManagementInfo(bool UsesCentralPackageManagement, FileInfo? DirectoryPackagesPropsFile);
 
 internal record SdkMigrationInfo(bool WillMigrateToNewFormat, bool WillRemoveAppHostPackage);
+
+internal enum NuGetIssueSeverity { Warning, Error }
+
+internal sealed record NuGetRestoreIssue(string Code, NuGetIssueSeverity Severity, string RawLine, string NormalizedLine);
+
+internal sealed record NuGetRestoreResult(int ExitCode, IReadOnlyList<NuGetRestoreIssue> Issues)
+{
+    public bool HasIssues => Issues.Count > 0 || ExitCode != 0;
+
+    /// <summary>
+    /// Returns the issues in this result that are not present in <paramref name="baseline"/> by
+    /// (Code, NormalizedLine). If <paramref name="baseline"/> reported a non-zero exit code with no
+    /// captured issues (i.e. restore was already broken in some non-NuGet way) then a non-zero
+    /// post-restore exit alone is not treated as a regression.
+    /// </summary>
+    public IReadOnlyList<NuGetRestoreIssue> IssuesNotPresentIn(NuGetRestoreResult baseline)
+    {
+        var baselineKeys = baseline.Issues.Select(i => (i.Code, i.NormalizedLine)).ToHashSet();
+        return Issues.Where(i => !baselineKeys.Contains((i.Code, i.NormalizedLine))).ToList();
+    }
+}
+
+/// <summary>
+/// In-memory file snapshot captured before the apply phase of <see cref="ProjectUpdater"/>.
+/// On <see cref="RollbackAsync"/> originals are written back, or files that did not previously
+/// exist are deleted. Errors during restore are surfaced per-file so a single failure does not
+/// abort the rest of the rollback.
+/// </summary>
+internal sealed class FileSnapshotSet
+{
+    private readonly Dictionary<string, byte[]?> _snapshots = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Capture(string path)
+    {
+        if (string.IsNullOrEmpty(path) || _snapshots.ContainsKey(path))
+        {
+            return;
+        }
+
+        try
+        {
+            _snapshots[path] = File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception)
+        {
+            // If we can't read the file, don't capture a snapshot — rollback for this path becomes
+            // a no-op rather than risking writing wrong bytes back later.
+            _snapshots[path] = null;
+        }
+    }
+
+    public async Task RollbackAsync(IInteractionService interactionService, ILogger logger)
+    {
+        foreach (var (path, original) in _snapshots)
+        {
+            try
+            {
+                if (original is null)
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                    }
+                }
+                else
+                {
+                    await File.WriteAllBytesAsync(path, original);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to rollback file: {Path}", path);
+                interactionService.DisplayMessage(
+                    KnownEmojis.Warning,
+                    string.Format(CultureInfo.InvariantCulture, UpdateCommandStrings.RollbackFailedFormat, path, ex.Message));
+            }
+        }
+    }
+}

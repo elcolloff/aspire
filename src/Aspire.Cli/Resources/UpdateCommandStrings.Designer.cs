@@ -119,5 +119,14 @@ namespace Aspire.Cli.Resources {
     internal static string SelfOptionDescription => ResourceManager.GetString("SelfOptionDescription", resourceCulture);
     internal static string YesOptionDescription => ResourceManager.GetString("YesOptionDescription", resourceCulture);
     internal static string NuGetConfigDirOptionDescription => ResourceManager.GetString("NuGetConfigDirOptionDescription", resourceCulture);
+    internal static string SkipRestoreCheckOptionDescription => ResourceManager.GetString("SkipRestoreCheckOptionDescription", resourceCulture);
+    internal static string BaselineRestoreStatus => ResourceManager.GetString("BaselineRestoreStatus", resourceCulture);
+    internal static string PostUpdateRestoreStatus => ResourceManager.GetString("PostUpdateRestoreStatus", resourceCulture);
+    internal static string UpdateIntroducedNuGetIssuesHeader => ResourceManager.GetString("UpdateIntroducedNuGetIssuesHeader", resourceCulture);
+    internal static string RollbackUpdatesPrompt => ResourceManager.GetString("RollbackUpdatesPrompt", resourceCulture);
+    internal static string RollbackSuccessMessage => ResourceManager.GetString("RollbackSuccessMessage", resourceCulture);
+    internal static string ContinueWithIssuesMessage => ResourceManager.GetString("ContinueWithIssuesMessage", resourceCulture);
+    internal static string NonInteractiveNewIssuesMessage => ResourceManager.GetString("NonInteractiveNewIssuesMessage", resourceCulture);
+    internal static string RollbackFailedFormat => ResourceManager.GetString("RollbackFailedFormat", resourceCulture);
     }
 }

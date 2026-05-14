@@ -50,7 +50,7 @@ internal sealed class TestDotNetCliRunner : IDotNetCliRunner
     {
         return RestoreAsyncCallback != null
             ? Task.FromResult(RestoreAsyncCallback(projectFilePath, options, cancellationToken))
-            : throw new NotImplementedException();
+            : Task.FromResult(0); // Default to a clean restore so tests that don't care about the post-update validation flow continue to pass.
     }
 
     public Task<(int ExitCode, bool IsAspireHost, string? AspireHostingVersion)> GetAppHostInformationAsync(FileInfo projectFile, ProcessInvocationOptions options, CancellationToken cancellationToken)

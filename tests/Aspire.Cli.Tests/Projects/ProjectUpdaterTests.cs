@@ -7,6 +7,7 @@ using Aspire.Cli.DotNet;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Packaging;
 using Aspire.Cli.Projects;
+using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Shared;
@@ -3137,6 +3138,222 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
         Assert.DoesNotContain("Aspire.Hosting.AppHost", updatedCsprojContent);
         Assert.Contains("Aspire.Hosting.Redis", updatedCsprojContent);
         Assert.Contains("Aspire.AppHost.Sdk/13.0.2", updatedCsprojContent);
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_NewIssueAndRollback_RestoresOriginalProjectContent()
+    {
+        await RunRestoreValidationScenarioAsync(
+            preRestoreLines: Array.Empty<string>(),
+            postRestoreLines: ["AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0"],
+            isNonInteractive: false,
+            skipRestoreCheck: false,
+            rollbackResponse: true,
+            expectedAppliedFlag: false,
+            assertFinalContent: (originalContent, finalContent) =>
+            {
+                // Rollback must restore the file to its pre-update bytes.
+                Assert.Equal(originalContent, finalContent);
+            });
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_NewIssueAndContinue_LeavesUpdatedContent()
+    {
+        await RunRestoreValidationScenarioAsync(
+            preRestoreLines: Array.Empty<string>(),
+            postRestoreLines: ["AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0"],
+            isNonInteractive: false,
+            skipRestoreCheck: false,
+            rollbackResponse: false,
+            expectedAppliedFlag: true,
+            assertFinalContent: (originalContent, finalContent) =>
+            {
+                // Continue (no rollback): updated content remains.
+                Assert.NotEqual(originalContent, finalContent);
+                Assert.Contains("Aspire.AppHost.Sdk/9.5.0", finalContent);
+            });
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_PreExistingIssueIsNotARegression()
+    {
+        // Both pre and post restore report the SAME NU1605 — update did not introduce it,
+        // and may even have failed to heal it. Either way, we must not prompt or rollback.
+        await RunRestoreValidationScenarioAsync(
+            preRestoreLines: ["AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0"],
+            postRestoreLines: ["AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0"],
+            isNonInteractive: false,
+            skipRestoreCheck: false,
+            rollbackResponse: null, // must not be prompted
+            expectedAppliedFlag: true,
+            assertFinalContent: (_, finalContent) =>
+            {
+                Assert.Contains("Aspire.AppHost.Sdk/9.5.0", finalContent);
+            });
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_NonInteractiveWithNewIssueThrows()
+    {
+        await Assert.ThrowsAsync<ProjectUpdaterException>(() => RunRestoreValidationScenarioAsync(
+            preRestoreLines: Array.Empty<string>(),
+            postRestoreLines: ["AppHost.csproj : warning NU1605: Detected package downgrade: Foo from 9.0.4 to 9.0.0"],
+            isNonInteractive: true,
+            skipRestoreCheck: false,
+            rollbackResponse: null,
+            expectedAppliedFlag: false,
+            assertFinalContent: (originalContent, finalContent) =>
+            {
+                // Non-interactive path leaves changes applied (never auto-rollbacks).
+                Assert.NotEqual(originalContent, finalContent);
+            }));
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_SkipFlag_BypassesRestoreEntirely()
+    {
+        var restoreInvocations = 0;
+        await RunRestoreValidationScenarioAsync(
+            preRestoreLines: Array.Empty<string>(),
+            postRestoreLines: ["should not be observed"],
+            isNonInteractive: false,
+            skipRestoreCheck: true,
+            rollbackResponse: null,
+            expectedAppliedFlag: true,
+            assertFinalContent: (_, finalContent) =>
+            {
+                Assert.Contains("Aspire.AppHost.Sdk/9.5.0", finalContent);
+            },
+            onRestoreInvoked: () => restoreInvocations++);
+        Assert.Equal(0, restoreInvocations);
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_RestoreCheck_PreRestoreFailureIsNonFatal()
+    {
+        // Pre-restore exits non-zero with no captured NU diagnostics — represents a project
+        // that was already broken in some non-NuGet way. The update should still proceed and,
+        // if the post-restore is clean, succeed without prompting.
+        await RunRestoreValidationScenarioAsync(
+            preRestoreLines: Array.Empty<string>(),
+            postRestoreLines: Array.Empty<string>(),
+            isNonInteractive: false,
+            skipRestoreCheck: false,
+            rollbackResponse: null,
+            expectedAppliedFlag: true,
+            assertFinalContent: (_, finalContent) =>
+            {
+                Assert.Contains("Aspire.AppHost.Sdk/9.5.0", finalContent);
+            },
+            preRestoreExitCode: 1);
+    }
+
+    private async Task RunRestoreValidationScenarioAsync(
+        IReadOnlyList<string> preRestoreLines,
+        IReadOnlyList<string> postRestoreLines,
+        bool isNonInteractive,
+        bool skipRestoreCheck,
+        bool? rollbackResponse,
+        bool expectedAppliedFlag,
+        Action<string, string> assertFinalContent,
+        Action? onRestoreInvoked = null,
+        int preRestoreExitCode = 0)
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var appHostFolder = workspace.CreateDirectory("UpdateTester.AppHost");
+        var appHostProjectFile = new FileInfo(Path.Combine(appHostFolder.FullName, "UpdateTester.AppHost.csproj"));
+
+        var originalContent = """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <Sdk Name="Aspire.AppHost.Sdk" Version="9.4.1" />
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net8.0</TargetFramework>
+              </PropertyGroup>
+            </Project>
+            """;
+        await File.WriteAllTextAsync(appHostProjectFile.FullName, originalContent);
+
+        var restoreCallCount = 0;
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, config =>
+        {
+            config.DotNetCliRunnerFactory = (sp) =>
+            {
+                return new TestDotNetCliRunner()
+                {
+                    SearchPackagesAsyncCallback = (_, query, _, _, _, _, _, _, _, _) =>
+                    {
+                        var package = query switch
+                        {
+                            "Aspire.AppHost.Sdk" => new NuGetPackageCli { Id = "Aspire.AppHost.Sdk", Version = "9.5.0", Source = "nuget.org" },
+                            _ => throw new InvalidOperationException($"Unexpected package query: {query}"),
+                        };
+                        return (0, new[] { package });
+                    },
+                    GetProjectItemsAndPropertiesAsyncCallback = (projectFile, _, _, _, _) =>
+                    {
+                        var itemsAndProperties = new JsonObject();
+                        itemsAndProperties.WithSdkVersion("9.4.1");
+                        return (0, JsonDocument.Parse(itemsAndProperties.ToJsonString()));
+                    },
+                    RestoreAsyncCallback = (projectFile, options, _) =>
+                    {
+                        onRestoreInvoked?.Invoke();
+                        var isPre = restoreCallCount == 0;
+                        restoreCallCount++;
+                        var lines = isPre ? preRestoreLines : postRestoreLines;
+                        foreach (var line in lines)
+                        {
+                            options.StandardOutputCallback?.Invoke(line);
+                        }
+                        return isPre ? preRestoreExitCode : 0;
+                    },
+                };
+            };
+
+            config.InteractionServiceFactory = (sp) =>
+            {
+                var interactionService = new TestInteractionService();
+                interactionService.ConfirmCallback = (promptText, defaultValue) =>
+                {
+                    if (promptText == UpdateCommandStrings.RollbackUpdatesPrompt)
+                    {
+                        if (rollbackResponse is null)
+                        {
+                            throw new InvalidOperationException("Rollback prompt was not expected for this scenario.");
+                        }
+                        return rollbackResponse.Value;
+                    }
+                    // First confirm: the standard "perform updates?" prompt.
+                    return true;
+                };
+                return interactionService;
+            };
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var packagingService = provider.GetRequiredService<IPackagingService>();
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+        var selectedChannel = channels.Single(c => c.Name == "default");
+
+        var projectUpdater = provider.GetRequiredService<IProjectUpdater>();
+        var context = new UpdatePackagesContext
+        {
+            AppHostFile = appHostProjectFile,
+            Channel = selectedChannel,
+            ConfirmBinding = PromptBinding.CreateDefault(true),
+            NuGetConfigDirBinding = PromptBinding.CreateDefault<string?>(null),
+            SkipRestoreCheck = skipRestoreCheck,
+            IsNonInteractive = isNonInteractive,
+        };
+
+        var updateResult = await projectUpdater.UpdateProjectAsync(context).DefaultTimeout();
+        Assert.Equal(expectedAppliedFlag, updateResult.UpdatedApplied);
+
+        var finalContent = await File.ReadAllTextAsync(appHostProjectFile.FullName);
+        assertFinalContent(originalContent, finalContent);
     }
 }
 

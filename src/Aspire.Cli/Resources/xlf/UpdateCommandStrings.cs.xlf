@@ -37,6 +37,11 @@
         <target state="translated">Používají se aktualizace…</target>
         <note />
       </trans-unit>
+      <trans-unit id="BaselineRestoreStatus">
+        <source>Establishing restore baseline...</source>
+        <target state="new">Establishing restore baseline...</target>
+        <note />
+      </trans-unit>
       <trans-unit id="CentralPackageManagementNotSupported">
         <source>Central package management is currently not supported by 'aspire update'.</source>
         <target state="translated">Centrální správa balíčků není v současné době přes aspire update podporována.</target>
@@ -55,6 +60,11 @@
       <trans-unit id="CheckingForUpdates">
         <source>Checking for updates...</source>
         <target state="translated">Kontrolují se aktualizace…</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="ContinueWithIssuesMessage">
+        <source>Update applied with new NuGet issues remaining. You will need to resolve them manually before running the AppHost.</source>
+        <target state="new">Update applied with new NuGet issues remaining. You will need to resolve them manually before running the AppHost.</target>
         <note />
       </trans-unit>
       <trans-unit id="CouldNotFindPackageVersionInDirectoryPackagesProps">
@@ -157,6 +167,11 @@
         <target state="translated">Nelze zapisovat do instalačního adresáře {0}. Spusťte prosím aktualizaci se zvýšenými oprávněními (např. pomocí sudo v Linuxu nebo macOS).</target>
         <note />
       </trans-unit>
+      <trans-unit id="NonInteractiveNewIssuesMessage">
+        <source>The update introduced new NuGet issues. Re-run interactively to choose between continuing or rolling back, or pass --skip-restore-check to bypass this check.</source>
+        <target state="new">The update introduced new NuGet issues. Re-run interactively to choose between continuing or rolling back, or pass --skip-restore-check to bypass this check.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="NuGetConfigDirOptionDescription">
         <source>Directory to create or update the NuGet.config file in</source>
         <target state="new">Directory to create or update the NuGet.config file in</target>
@@ -180,6 +195,11 @@
       <trans-unit id="PerformUpdatesPrompt">
         <source>Perform updates?</source>
         <target state="translated">Provést aktualizace?</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="PostUpdateRestoreStatus">
+        <source>Validating updates with 'dotnet restore'...</source>
+        <target state="new">Validating updates with 'dotnet restore'...</target>
         <note />
       </trans-unit>
       <trans-unit id="ProjectArgumentDescription">
@@ -232,6 +252,21 @@
         <target state="translated">Zachováno: {0}</target>
         <note />
       </trans-unit>
+      <trans-unit id="RollbackFailedFormat">
+        <source>Failed to fully rollback update changes for '{0}': {1}. Some files may need to be restored manually.</source>
+        <target state="new">Failed to fully rollback update changes for '{0}': {1}. Some files may need to be restored manually.</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="RollbackSuccessMessage">
+        <source>Rolled back update changes. Resolve the underlying package conflicts and re-run 'aspire update'.</source>
+        <target state="new">Rolled back update changes. Resolve the underlying package conflicts and re-run 'aspire update'.</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="RollbackUpdatesPrompt">
+        <source>Rollback the updates to restore the previous state?</source>
+        <target state="new">Rollback the updates to restore the previous state?</target>
+        <note />
+      </trans-unit>
       <trans-unit id="SelectChannelPrompt">
         <source>Select a channel:</source>
         <target state="translated">Vyberte kanál:</target>
@@ -242,6 +277,11 @@
         <target state="new">Update the Aspire CLI itself to the latest version</target>
         <note />
       </trans-unit>
+      <trans-unit id="SkipRestoreCheckOptionDescription">
+        <source>Skip running 'dotnet restore' before and after the update to detect new NuGet warnings or errors</source>
+        <target state="new">Skip running 'dotnet restore' before and after the update to detect new NuGet warnings or errors</target>
+        <note />
+      </trans-unit>
       <trans-unit id="UnxpectedCodePath">
         <source>Unexpected code path.</source>
         <target state="translated">Neočekávaná cesta kódu.</target>
@@ -250,6 +290,11 @@
       <trans-unit id="UpdateCliAfterProjectUpdatePrompt">
         <source>An update is available for the Aspire CLI. Would you like to update it now?</source>
         <target state="translated">Pro Aspire CLI je k dispozici aktualizace. Chcete aktualizaci provést nyní?</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="UpdateIntroducedNuGetIssuesHeader">
+        <source>The update introduced the following new NuGet issues that were not present before:</source>
+        <target state="new">The update introduced the following new NuGet issues that were not present before:</target>
         <note />
       </trans-unit>
       <trans-unit id="UpdatePackageFormat">
