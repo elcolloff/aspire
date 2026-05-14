@@ -765,15 +765,16 @@ extends:
                   $assetsDir = Join-Path "$(Pipeline.Workspace)" 'aspire-build/BlobArtifacts'
                   Write-Host "Assets dir: $assetsDir"
 
-                  $args = @(
+                  # Use a custom name — $args is an automatic variable in PowerShell.
+                  $scriptArgs = @(
                     '-AssetsDir',    $assetsDir,
                     '-Tag',          $tag,
                     '-AppId',        $env:ASPIRE_BOT_APP_ID,
                     '-PrivateKeyPem',$env:ASPIRE_BOT_PRIVATE_KEY
                   )
-                  if ($dryRun) { $args += '-DryRun' }
+                  if ($dryRun) { $scriptArgs += '-DryRun' }
 
-                  & "$(Build.SourcesDirectory)/eng/pipelines/scripts/publish-release-cli-assets.ps1" @args
+                  & "$(Build.SourcesDirectory)/eng/pipelines/scripts/publish-release-cli-assets.ps1" @scriptArgs
                 displayName: 'Verify SHA512s and upload to GitHub Release'
                 env:
                   ASPIRE_BOT_APP_ID: $(aspire-bot-app-id)

@@ -28,14 +28,23 @@
 param(
     [Parameter(Mandatory = $true)][string]$AssetsDir,
     [Parameter(Mandatory = $true)][string]$Tag,
-    [Parameter(Mandatory = $true)][string]$AppId,
-    [Parameter(Mandatory = $true)][string]$PrivateKeyPem,
+    # AppId / PrivateKeyPem are only required for the actual upload — a dry-run
+    # only verifies SHA512s and never needs to mint a token.
+    [Parameter()][string]$AppId,
+    [Parameter()][string]$PrivateKeyPem,
     [Parameter()][string]$Owner = 'microsoft',
     [Parameter()][string]$Repo = 'aspire',
     [Parameter()][switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $DryRun) {
+    if ([string]::IsNullOrWhiteSpace($AppId) -or [string]::IsNullOrWhiteSpace($PrivateKeyPem)) {
+        Write-Error "AppId and PrivateKeyPem are required when not running in -DryRun mode."
+        exit 1
+    }
+}
 
 Write-Host "=== Publish Release CLI Assets ==="
 Write-Host "AssetsDir: $AssetsDir"
@@ -97,7 +106,7 @@ Write-Host "Verified $verified archive(s)."
 
 if ($DryRun) {
     Write-Host ""
-    Write-Host "🔍 [DRY RUN] Would upload the following to release $Tag in $Owner/$Repo:"
+    Write-Host "🔍 [DRY RUN] Would upload the following to release $Tag in ${Owner}/${Repo}:"
     foreach ($f in $allFiles) {
         $sizeMB = [math]::Round($f.Length / 1MB, 2)
         Write-Host "  - $($f.Name) ($sizeMB MB)"
