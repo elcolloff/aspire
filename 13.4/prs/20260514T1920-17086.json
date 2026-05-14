@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Test-only fix for CI compile break in CLI test process callback signatures",
+  "mergedAt": "2026-05-14T19:20:37Z",
+  "number": 17086,
+  "runDate": "2026-05-14T20:46:36Z",
+  "status": "excluded",
+  "title": "Fix CLI test process callback signatures"
+}

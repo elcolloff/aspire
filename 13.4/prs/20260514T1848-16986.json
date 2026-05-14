@@ -1,0 +1,9 @@
+{
+  "author": "eerhardt",
+  "comment": "Azure.Provisioning.Cdn update removes custom name generation; can cause duplicate resource names during upgrade from 13.3",
+  "mergedAt": "2026-05-14T18:48:04Z",
+  "number": 16986,
+  "runDate": "2026-05-14T20:46:36Z",
+  "status": "included",
+  "title": "Update Azure.Provisioning.Cdn to 1.0.0-beta.2"
+}

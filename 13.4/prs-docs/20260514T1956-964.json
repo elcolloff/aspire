@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "CI revert for NuGet caching in docs repo; not a product feature documentation PR",
+  "mergedAt": "2026-05-14T19:56:58Z",
+  "number": 964,
+  "runDate": "2026-05-14T20:46:36Z",
+  "status": "excluded",
+  "title": "Revert \"ci: Phase 2A — NuGet caching with packages.lock.json (#958)\""
+}
