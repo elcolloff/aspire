@@ -86,14 +86,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ACTOR="${{ github.actor }}"
-          echo "Checking if $ACTOR is authorized to run releases..."
+          ACTOR_ID="${{ github.actor_id }}"
+          echo "Checking if $ACTOR (id=$ACTOR_ID) is authorized to run releases..."
 
           # When the AzDO release pipeline dispatches this workflow, the actor
           # is the aspire-repo-bot GitHub App (login: aspire-repo-bot[bot]).
           # That path is already gated on AzDO release-publish permissions, so
           # we skip the human admin/maintain check for the bot.
+          #
+          # Defense-in-depth notes (in case a reviewer is wondering "can someone
+          # rename their account to bypass this?"):
+          #   1. GitHub reserves the "[bot]" suffix exclusively for GitHub App
+          #      bot accounts. A regular user cannot rename to a login ending
+          #      in "[bot]", so the literal login match already blocks user
+          #      impersonation.
+          #   2. We still verify the actor's account `type == "Bot"` via the
+          #      GitHub API, which catches any edge case where the literal
+          #      string match would otherwise be insufficient.
+          #   3. `github.actor_id` is the immutable numeric account id and does
+          #      not change on rename. We compare it against the id returned
+          #      by the API for the current login; any mismatch means the
+          #      account holding this login is not the same account the
+          #      context claims is acting, and we refuse.
+          # The only remaining theoretical bypass is deleting the aspire-repo-bot
+          # GitHub App and re-creating a new App that takes the same login,
+          # which requires repo-admin privileges (i.e. the attacker already
+          # has authority to run releases anyway).
           if [[ "$ACTOR" == "aspire-repo-bot[bot]" ]]; then
-            echo "✓ Dispatched by aspire-repo-bot via the AzDO release pipeline — skipping human permission check."
+            ACTOR_INFO=$(gh api "users/$ACTOR" 2>/dev/null || echo '')
+            ACTOR_TYPE=$(echo "$ACTOR_INFO" | jq -r '.type // empty')
+            ACTOR_API_ID=$(echo "$ACTOR_INFO" | jq -r '.id // empty')
+
+            if [[ "$ACTOR_TYPE" != "Bot" ]]; then
+              echo "❌ ERROR: $ACTOR resolves to account type '$ACTOR_TYPE', expected 'Bot'."
+              exit 1
+            fi
+
+            if [[ -z "$ACTOR_ID" || -z "$ACTOR_API_ID" || "$ACTOR_ID" != "$ACTOR_API_ID" ]]; then
+              echo "❌ ERROR: actor_id mismatch (context=$ACTOR_ID, api=$ACTOR_API_ID)."
+              exit 1
+            fi
+
+            echo "✓ Verified dispatcher is aspire-repo-bot GitHub App (type=Bot, id=$ACTOR_API_ID) — skipping human permission check."
             exit 0
           fi
 
