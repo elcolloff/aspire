@@ -154,6 +154,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string GuestRuntimeLanguage = "aspire.cli.guest.language";
         public const string GuestRuntimeDisplayName = "aspire.cli.guest.display_name";
         public const string GuestCommand = "aspire.cli.guest.command";
+        public const string GuestCommandPhase = "aspire.cli.guest.command.phase";
         public const string GuestWorkingDirectory = "aspire.cli.guest.working_directory";
         public const string GitCommand = "aspire.cli.git.command";
         public const string GitWorkingDirectory = "aspire.cli.git.working_directory";
@@ -163,6 +164,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string NpmWorkingDirectory = "aspire.cli.npm.working_directory";
         public const string LsIncludeAll = "aspire.cli.ls.include_all";
         public const string LsOutputFormat = "aspire.cli.ls.output_format";
+        public const string ProcessCommandArgs = "process.command_args";
         public const string ProcessCommandArgsCount = "process.command_args.count";
     }
 
@@ -197,6 +199,15 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string JsonRpcResponseReceived = "aspire/cli/jsonrpc.response_received";
         public const string JsonRpcStreamFirstItem = "aspire/cli/jsonrpc.stream.first_item";
         public const string JsonRpcStreamCompleted = "aspire/cli/jsonrpc.stream.completed";
+        public const string GuestProcessResolveStart = "aspire/cli/guest.process_resolve_start";
+        public const string GuestProcessResolved = "aspire/cli/guest.process_resolved";
+        public const string GuestProcessResolveFailed = "aspire/cli/guest.process_resolve_failed";
+        public const string GuestProcessStart = "aspire/cli/guest.process_start";
+        public const string GuestProcessStarted = "aspire/cli/guest.process_started";
+        public const string GuestProcessExited = "aspire/cli/guest.process_exited";
+        public const string GuestFirstStdout = "aspire/cli/guest.first_stdout";
+        public const string GuestFirstStderr = "aspire/cli/guest.first_stderr";
+        public const string GuestOutputDrainTimeout = "aspire/cli/guest.output_drain_timeout";
     }
 
     /// <summary>
@@ -210,6 +221,12 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string AppHostDiscoverySourceNone = "none";
         public const string AppHostDiscoverySourceGit = "git";
         public const string AppHostDiscoverySourceFilesystem = "filesystem";
+        public const string GuestCommandPhaseInitialize = "initialize";
+        public const string GuestCommandPhaseInstallDependencies = "install_dependencies";
+        public const string GuestCommandPhasePreExecute = "pre_execute";
+        public const string GuestCommandPhaseExecute = "execute";
+        public const string GuestCommandPhaseWatchExecute = "watch_execute";
+        public const string GuestCommandPhasePublishExecute = "publish_execute";
     }
 
     public bool IsEnabled => IsProfilingEnabled(configuration);
@@ -369,21 +386,21 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         return activity;
     }
 
-    internal ActivityScope StartGuestInitializeCommand(string languageId, string displayName, string command, int argsCount, DirectoryInfo workingDirectory)
+    internal ActivityScope StartGuestInitializeCommand(string languageId, string displayName, string command, string[] args, DirectoryInfo workingDirectory)
     {
-        var activity = StartGuestProcessActivity(Activities.GuestInitializeCommand, languageId, displayName, command, argsCount, workingDirectory);
+        var activity = StartGuestProcessActivity(Activities.GuestInitializeCommand, languageId, displayName, command, args, workingDirectory, Values.GuestCommandPhaseInitialize);
         return activity;
     }
 
-    internal ActivityScope StartGuestInstallDependencies(string languageId, string displayName, string command, int argsCount, DirectoryInfo workingDirectory)
+    internal ActivityScope StartGuestInstallDependencies(string languageId, string displayName, string command, string[] args, DirectoryInfo workingDirectory)
     {
-        var activity = StartGuestProcessActivity(Activities.GuestInstallDependencies, languageId, displayName, command, argsCount, workingDirectory);
+        var activity = StartGuestProcessActivity(Activities.GuestInstallDependencies, languageId, displayName, command, args, workingDirectory, Values.GuestCommandPhaseInstallDependencies);
         return activity;
     }
 
-    internal ActivityScope StartGuestExecuteCommand(string languageId, string displayName, string command, int argsCount, DirectoryInfo workingDirectory)
+    internal ActivityScope StartGuestExecuteCommand(string languageId, string displayName, string command, string[] args, DirectoryInfo workingDirectory, string phase)
     {
-        var activity = StartGuestProcessActivity(Activities.GuestExecuteCommand, languageId, displayName, command, argsCount, workingDirectory);
+        var activity = StartGuestProcessActivity(Activities.GuestExecuteCommand, languageId, displayName, command, args, workingDirectory, phase);
         return activity;
     }
 
@@ -616,10 +633,10 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || value == "1";
     }
 
-    private ActivityScope StartGuestProcessActivity(string activityName, string languageId, string displayName, string command, int argsCount, DirectoryInfo workingDirectory)
+    private ActivityScope StartGuestProcessActivity(string activityName, string languageId, string displayName, string command, string[] args, DirectoryInfo workingDirectory, string phase)
     {
         var activity = StartActivity(activityName, ActivityKind.Client);
-        activity.SetGuestInvocation(languageId, displayName, command, argsCount, workingDirectory);
+        activity.SetGuestInvocation(languageId, displayName, command, args, workingDirectory, phase);
         return activity;
     }
 
@@ -831,14 +848,16 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
             SetTag(Tags.DotNetDebug, options.Debug);
         }
 
-        public void SetGuestInvocation(string languageId, string displayName, string command, int argsCount, DirectoryInfo workingDirectory)
+        public void SetGuestInvocation(string languageId, string displayName, string command, string[] args, DirectoryInfo workingDirectory, string phase)
         {
             SetTag(Tags.GuestRuntimeLanguage, languageId);
             SetTag(Tags.GuestRuntimeDisplayName, displayName);
             SetTag(Tags.GuestCommand, command);
+            SetTag(Tags.GuestCommandPhase, phase);
             SetTag(Tags.GuestWorkingDirectory, workingDirectory.FullName);
             SetProcessExecutableName(Path.GetFileName(command));
-            SetProcessCommandArgsCount(argsCount);
+            SetProcessCommandArgs(args);
+            SetProcessCommandArgsCount(args.Length);
         }
 
         public void SetGitInvocation(string command, int argsCount, DirectoryInfo workingDirectory)
@@ -927,7 +946,11 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
 
         public void SetProcessCommandArgsCount(int argsCount) => SetTag(Tags.ProcessCommandArgsCount, argsCount);
 
+        public void SetProcessCommandArgs(string[] args) => SetTag(Tags.ProcessCommandArgs, args);
+
         public void SetProcessExecutableName(string? executableName) => SetTag(TelemetryConstants.Tags.ProcessExecutableName, executableName);
+
+        public void SetProcessExecutablePath(string? executablePath) => SetTag(TelemetryConstants.Tags.ProcessExecutablePath, executablePath);
 
         public void SetProcessExitCode(int exitCode) => SetTag(TelemetryConstants.Tags.ProcessExitCode, exitCode);
 

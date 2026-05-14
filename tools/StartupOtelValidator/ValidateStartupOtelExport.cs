@@ -185,12 +185,20 @@ static List<ExportedSpan> ReadExportedSpans(string exportDirectory)
                         File: Path.GetFileName(tracePath),
                         Scope: scopeName,
                         Name: GetStringProperty(span, "name"),
+                        StartTimeUnixNano: GetStringProperty(span, "startTimeUnixNano"),
+                        EndTimeUnixNano: GetStringProperty(span, "endTimeUnixNano"),
+                        DurationMilliseconds: GetSpanDurationMilliseconds(span),
                         TraceId: GetStringProperty(span, "traceId"),
                         SpanId: GetStringProperty(span, "spanId"),
                         ParentSpanId: GetStringProperty(span, "parentSpanId"),
                         ProfilingSessionId: GetSpanAttributeValue(span, ProfilingSessionIdAttribute) ?? GetSpanAttributeValue(span, LegacyStartupOperationIdAttribute),
                         CommandName: GetSpanAttributeValue(span, "aspire.cli.command.name"),
                         ProcessId: GetSpanAttributeValue(span, "process.pid"),
+                        ProcessExecutableName: GetSpanAttributeValue(span, "process.executable.name"),
+                        ProcessExecutablePath: GetSpanAttributeValue(span, "process.executable.path"),
+                        GuestCommand: GetSpanAttributeValue(span, "aspire.cli.guest.command"),
+                        GuestCommandPhase: GetSpanAttributeValue(span, "aspire.cli.guest.command.phase"),
+                        ProcessCommandArgs: GetSpanAttributeValues(span, "process.command_args"),
                         DcpCreateObjectId: GetSpanAttributeValue(span, "aspire.hosting.dcp.create_object.id"),
                         DcpCreateObjectKind: GetSpanAttributeValue(span, "aspire.hosting.dcp.create_object.kind"),
                         DcpCreateObjectName: GetSpanAttributeValue(span, "aspire.hosting.dcp.create_object.name"),
@@ -203,6 +211,19 @@ static List<ExportedSpan> ReadExportedSpans(string exportDirectory)
     }
 
     return spans;
+}
+
+static double? GetSpanDurationMilliseconds(JsonElement span)
+{
+    var start = GetStringProperty(span, "startTimeUnixNano");
+    var end = GetStringProperty(span, "endTimeUnixNano");
+    if (!long.TryParse(start, out var startUnixNano) ||
+        !long.TryParse(end, out var endUnixNano))
+    {
+        return null;
+    }
+
+    return Math.Round((endUnixNano - startUnixNano) / 1_000_000d, 2);
 }
 
 static List<string> ReadLinkSpanIds(JsonElement span)
@@ -246,6 +267,50 @@ static string? GetSpanAttributeValue(JsonElement span, string key)
                 _ => null
             };
         }
+    }
+
+    return null;
+}
+
+static List<string> GetSpanAttributeValues(JsonElement span, string key)
+{
+    foreach (var attribute in EnumerateArrayProperty(span, "attributes"))
+    {
+        if (GetStringProperty(attribute, "key") != key || !TryGetProperty(attribute, "value", out var value))
+        {
+            continue;
+        }
+
+        if (TryGetProperty(value, "arrayValue", out var arrayValue))
+        {
+            return EnumerateArrayProperty(arrayValue, "values")
+                .Select(GetAttributeValue)
+                .Where(value => !string.IsNullOrEmpty(value))
+                .Select(value => value!)
+                .ToList();
+        }
+
+        return GetAttributeValue(value) is { } scalarValue ? [scalarValue] : [];
+    }
+
+    return [];
+}
+
+static string? GetAttributeValue(JsonElement value)
+{
+    foreach (var propertyName in new[] { "stringValue", "intValue", "doubleValue", "boolValue" })
+    {
+        if (!TryGetProperty(value, propertyName, out var propertyValue))
+        {
+            continue;
+        }
+
+        return propertyValue.ValueKind switch
+        {
+            JsonValueKind.String => propertyValue.GetString(),
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => propertyValue.GetRawText(),
+            _ => null
+        };
     }
 
     return null;
@@ -357,12 +422,20 @@ static void WriteExportedSpan(Utf8JsonWriter writer, ExportedSpan span)
     WriteString(writer, nameof(ExportedSpan.File), span.File);
     WriteString(writer, nameof(ExportedSpan.Scope), span.Scope);
     WriteString(writer, nameof(ExportedSpan.Name), span.Name);
+    WriteString(writer, nameof(ExportedSpan.StartTimeUnixNano), span.StartTimeUnixNano);
+    WriteString(writer, nameof(ExportedSpan.EndTimeUnixNano), span.EndTimeUnixNano);
+    WriteNumber(writer, nameof(ExportedSpan.DurationMilliseconds), span.DurationMilliseconds);
     WriteString(writer, nameof(ExportedSpan.TraceId), span.TraceId);
     WriteString(writer, nameof(ExportedSpan.SpanId), span.SpanId);
     WriteString(writer, nameof(ExportedSpan.ParentSpanId), span.ParentSpanId);
     WriteString(writer, nameof(ExportedSpan.ProfilingSessionId), span.ProfilingSessionId);
     WriteString(writer, nameof(ExportedSpan.CommandName), span.CommandName);
     WriteString(writer, nameof(ExportedSpan.ProcessId), span.ProcessId);
+    WriteString(writer, nameof(ExportedSpan.ProcessExecutableName), span.ProcessExecutableName);
+    WriteString(writer, nameof(ExportedSpan.ProcessExecutablePath), span.ProcessExecutablePath);
+    WriteString(writer, nameof(ExportedSpan.GuestCommand), span.GuestCommand);
+    WriteString(writer, nameof(ExportedSpan.GuestCommandPhase), span.GuestCommandPhase);
+    WriteStringArray(writer, nameof(ExportedSpan.ProcessCommandArgs), span.ProcessCommandArgs);
     WriteString(writer, nameof(ExportedSpan.DcpCreateObjectId), span.DcpCreateObjectId);
     WriteString(writer, nameof(ExportedSpan.DcpCreateObjectKind), span.DcpCreateObjectKind);
     WriteString(writer, nameof(ExportedSpan.DcpCreateObjectName), span.DcpCreateObjectName);
@@ -411,6 +484,18 @@ static void WriteString(Utf8JsonWriter writer, string propertyName, string? valu
     }
 }
 
+static void WriteNumber(Utf8JsonWriter writer, string propertyName, double? value)
+{
+    if (value is null)
+    {
+        writer.WriteNull(propertyName);
+    }
+    else
+    {
+        writer.WriteNumber(propertyName, value.Value);
+    }
+}
+
 static void WriteStringArray(Utf8JsonWriter writer, string propertyName, IReadOnlyList<string> values)
 {
     writer.WriteStartArray(propertyName);
@@ -425,12 +510,20 @@ internal sealed record ExportedSpan(
     string File,
     string? Scope,
     string? Name,
+    string? StartTimeUnixNano,
+    string? EndTimeUnixNano,
+    double? DurationMilliseconds,
     string? TraceId,
     string? SpanId,
     string? ParentSpanId,
     string? ProfilingSessionId,
     string? CommandName,
     string? ProcessId,
+    string? ProcessExecutableName,
+    string? ProcessExecutablePath,
+    string? GuestCommand,
+    string? GuestCommandPhase,
+    List<string> ProcessCommandArgs,
     string? DcpCreateObjectId,
     string? DcpCreateObjectKind,
     string? DcpCreateObjectName,
