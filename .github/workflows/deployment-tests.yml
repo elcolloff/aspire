@@ -251,6 +251,15 @@ jobs:
           docker info | head -20
           echo "✅ Docker is available"
 
+      # Pin helm to a version that supports `helm install --server-side`/--force-conflicts
+      # (added in v3.18.0). The default helm preinstalled on the runner image lags behind
+      # this and breaks AKS cert-manager scenarios that need server-side apply to coexist
+      # with the AKS Azure Policy add-on's webhook mutations.
+      - name: Setup Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.21.0
+
       - name: Run deployment test (${{ matrix.shortname }})
         id: run_tests
         env:
