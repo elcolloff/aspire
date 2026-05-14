@@ -39,6 +39,15 @@ Before starting a release:
    - `aspire-bot-app-id` — `aspire-repo-bot` GitHub App ID
    - `aspire-bot-private-key` — `aspire-repo-bot` GitHub App PEM private key
 
+   Both live in the **`Aspire-Release-Secrets`** variable group (AzDO →
+   Pipelines → Library) and are marked as secret. To rotate the private key:
+   generate a new one from the App settings page
+   (github.com/organizations/dotnet/settings/apps/aspire-repo-bot →
+   "Private keys" → "Generate a private key"), paste the full PEM (including
+   the `-----BEGIN/END-----` lines) into the `aspire-bot-private-key`
+   variable, save, then revoke the old key from the same App settings page.
+   The App ID does not change on rotation.
+
 ## Step-by-Step Release Process
 
 ### Step 1: Run the AzDO release pipeline (one click for everything)
