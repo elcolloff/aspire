@@ -8,6 +8,8 @@
 # 5. Dispatches the release-github-tasks GitHub Actions workflow as the
 #    aspire-repo-bot GitHub App (tag, GitHub Release, merge-back PR,
 #    baseline PR) and waits for it to complete
+# 6. Uploads aspire-cli-* archives from the source build's BlobArtifacts
+#    onto the GitHub Release as the aspire-repo-bot
 #
 # For full documentation, see: docs/release-process.md
 
@@ -61,6 +63,11 @@ parameters:
 
   - name: SkipGitHubTasks
     displayName: 'Skip GitHub Tasks dispatch (set true if already completed)'
+    type: boolean
+    default: false
+
+  - name: SkipReleaseAssets
+    displayName: 'Skip CLI asset upload to GitHub Release (set true if already completed)'
     type: boolean
     default: false
 
@@ -536,6 +543,14 @@ extends:
                   } else {
                     Write-Host " (dispatched after Release stage)"
                   }
+                  Write-Host "║ Release Assets: ${{ parameters.SkipReleaseAssets }}" -NoNewline
+                  if ("${{ parameters.SkipReleaseAssets }}" -eq "true") {
+                    Write-Host " (SKIPPED)"
+                  } elseif ("${{ parameters.DryRun }}" -eq "true") {
+                    Write-Host " (verify only; no upload in dry-run)"
+                  } else {
+                    Write-Host " (uploaded after GitHub Tasks job)"
+                  }
                   Write-Host "╚═══════════════════════════════════════════════════════════════╝"
                   Write-Host ""
                 displayName: 'Print Summary'
@@ -597,31 +612,49 @@ extends:
                   dryRun: ${{ parameters.DryRun }}
 
       # ===== STAGE 3: GITHUB TASKS =====
-      # Dispatches the release-github-tasks GitHub Actions workflow (tag,
-      # GitHub Release, merge-back PR, baseline PR) as the aspire-repo-bot
-      # GitHub App, then polls the resulting run and fails the pipeline if
-      # the workflow doesn't succeed.
+      # Two responsibilities, both running as the aspire-repo-bot GitHub App:
       #
-      # Skipped entirely when SkipGitHubTasks=true so partial-failure re-runs
-      # can avoid re-dispatching the workflow.
+      #   1. DispatchGitHubTasksJob — dispatches the release-github-tasks
+      #      GitHub Actions workflow (tag, GitHub Release, merge-back PR,
+      #      baseline PR) and polls the run to completion. Fails the pipeline
+      #      if the workflow doesn't succeed.
       #
-      # DryRun behavior: this stage still runs when DryRun=true (it does NOT
-      # gate on DryRun). The DryRun value is propagated to the GH workflow as
-      # dry_run=true, which keeps the workflow from actually creating tags,
-      # releases or PRs. This is intentional — it lets a release manager
-      # validate the AzDO → GitHub dispatch path end-to-end without performing
-      # a real release.
+      #   2. PublishReleaseAssetsJob — downloads aspire-cli-* archives from
+      #      the signed source build's BlobArtifacts, verifies their SHA512s,
+      #      and uploads them as assets on the GitHub release that the
+      #      dispatch job just created.
+      #
+      # Each job has its own skip flag (SkipGitHubTasks / SkipReleaseAssets)
+      # so partial-failure re-runs can recover either piece independently:
+      #
+      #   | SkipGitHubTasks | SkipReleaseAssets | Behavior                        |
+      #   |-----------------|-------------------|---------------------------------|
+      #   | false           | false             | Full path (default release)     |
+      #   | true            | false             | Skip dispatch, upload assets    |
+      #   | true            | true              | Skip the whole stage            |
+      #   | false           | true              | Dispatch only, no asset upload  |
+      #
+      # DryRun behavior: this stage still runs when DryRun=true. DryRun is
+      # propagated to the GH workflow as dry_run=true (keeps it from
+      # creating tags/releases/PRs) and to the asset script (downloads and
+      # verifies SHA512s but skips the gh release upload). This lets a
+      # release manager validate the full AzDO → GitHub path end-to-end
+      # without performing a real release.
       - stage: GitHubTasks
         displayName: 'Dispatch GitHub Release Tasks'
         dependsOn: Release
         condition: |
           and(
             in(dependencies.Release.result, 'Succeeded', 'SucceededWithIssues'),
-            eq('${{ parameters.SkipGitHubTasks }}', 'false')
+            or(
+              eq('${{ parameters.SkipGitHubTasks }}', 'false'),
+              eq('${{ parameters.SkipReleaseAssets }}', 'false')
+            )
           )
         jobs:
           - job: DispatchGitHubTasksJob
             displayName: 'Dispatch and Wait for release-github-tasks workflow'
+            condition: eq('${{ parameters.SkipGitHubTasks }}', 'false')
             timeoutInMinutes: 90
             pool:
               name: NetCore1ESPool-Internal
@@ -692,3 +725,56 @@ extends:
                 condition: always()
                 env:
                   DISPATCHED_RUN_URL: $(DispatchedRunUrl)
+
+          # Upload aspire-cli-* archives from the signed source build's
+          # BlobArtifacts onto the GitHub release. Depends on the dispatch
+          # job so the release exists before we try to attach assets to it.
+          # When SkipGitHubTasks=true (re-run after the GH workflow already
+          # ran), we still want to try the upload — dependsOn declares only
+          # ordering, and the conditions above let this job run on its own
+          # when its sibling is skipped.
+          - job: PublishReleaseAssetsJob
+            displayName: 'Upload CLI Assets to GitHub Release'
+            dependsOn: DispatchGitHubTasksJob
+            condition: |
+              and(
+                eq('${{ parameters.SkipReleaseAssets }}', 'false'),
+                in(dependencies.DispatchGitHubTasksJob.result, 'Succeeded', 'SucceededWithIssues', 'Skipped')
+              )
+            timeoutInMinutes: 30
+            pool:
+              name: NetCore1ESPool-Internal
+              image: windows.vs2026preview.scout.amd64
+              os: windows
+            steps:
+              - checkout: self
+                displayName: 'Checkout repo (for upload script)'
+                fetchDepth: 1
+
+              # Download aspire-cli-* archives from the source build. Matches
+              # the existing PackageArtifacts/winget/homebrew download pattern.
+              - download: aspire-build
+                displayName: 'Download aspire-cli-* from Source Build'
+                artifact: BlobArtifacts
+                patterns: 'aspire-cli-*'
+
+              - powershell: |
+                  $dryRun = [System.Convert]::ToBoolean("${{ parameters.DryRun }}")
+                  $tag    = "v${{ parameters.ReleaseVersion }}"
+
+                  $assetsDir = Join-Path "$(Pipeline.Workspace)" 'aspire-build/BlobArtifacts'
+                  Write-Host "Assets dir: $assetsDir"
+
+                  $args = @(
+                    '-AssetsDir',    $assetsDir,
+                    '-Tag',          $tag,
+                    '-AppId',        $env:ASPIRE_BOT_APP_ID,
+                    '-PrivateKeyPem',$env:ASPIRE_BOT_PRIVATE_KEY
+                  )
+                  if ($dryRun) { $args += '-DryRun' }
+
+                  & "$(Build.SourcesDirectory)/eng/pipelines/scripts/publish-release-cli-assets.ps1" @args
+                displayName: 'Verify SHA512s and upload to GitHub Release'
+                env:
+                  ASPIRE_BOT_APP_ID: $(aspire-bot-app-id)
+                  ASPIRE_BOT_PRIVATE_KEY: $(aspire-bot-private-key)

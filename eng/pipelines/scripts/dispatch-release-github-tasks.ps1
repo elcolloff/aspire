@@ -3,18 +3,19 @@
 # Exits 0 only if the dispatched run concludes with 'success'.
 #
 # This script is invoked from the AzDO release-publish-nuget pipeline as the
-# final stage of a release. It centralizes the GitHub App JWT mint, installation
-# access token exchange, workflow dispatch, run-id resolution, and run polling
-# so the pipeline YAML stays declarative.
+# final stage of a release. It centralizes the workflow dispatch, run-id
+# resolution, and run polling so the pipeline YAML stays declarative.
 #
-# Authentication flow (all per GitHub App API docs):
+# Authentication (mint a GitHub App installation access token) is delegated to
+# Get-AspireBotInstallationToken.ps1 so the same flow can be reused by other
+# release pipeline scripts (e.g. publish-release-cli-assets.ps1).
+#
+# Dispatch + correlation flow (per GitHub API docs):
 #   https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app
-#   1. Sign a JWT (RS256) with the App's private key. iss=<AppId>, iat=now-60s, exp=now+540s.
-#   2. POST /app/installations/{installationId}/access_tokens with the JWT -> installation token (~1h).
-#   3. POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches with the installation token.
-#   4. Poll GET /repos/.../actions/runs filtered by workflow + branch to find the run we just queued
+#   1. POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches with the installation token.
+#   2. Poll GET /repos/.../actions/runs filtered by workflow + branch to find the run we just queued
 #      (workflow_dispatch does not return a run id directly — this is the documented workaround).
-#   5. Poll the run until status=completed; succeed only if conclusion=success.
+#   3. Poll the run until status=completed; succeed only if conclusion=success.
 
 [CmdletBinding()]
 param(
@@ -30,43 +31,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-function ConvertTo-Base64Url {
-    param([byte[]]$Bytes)
-    # Base64url per RFC 7515 §2: standard Base64 with '+'->'-', '/'->'_', no '=' padding.
-    return [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-}
-
-function New-GitHubAppJwt {
-    param([string]$AppId, [string]$PrivateKeyPem)
-
-    # GitHub requires RS256 JWTs. iat may be backdated up to 60s to tolerate clock skew;
-    # exp must be <=10 minutes from iat. We use 9 minutes to stay safely under the cap.
-    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $header = @{ alg = 'RS256'; typ = 'JWT' } | ConvertTo-Json -Compress
-    $payload = @{ iat = $now - 60; exp = $now + 540; iss = $AppId } | ConvertTo-Json -Compress
-
-    $headerB64 = ConvertTo-Base64Url -Bytes ([Text.Encoding]::UTF8.GetBytes($header))
-    $payloadB64 = ConvertTo-Base64Url -Bytes ([Text.Encoding]::UTF8.GetBytes($payload))
-    $signingInput = "$headerB64.$payloadB64"
-
-    $rsa = [System.Security.Cryptography.RSA]::Create()
-    try {
-        # ImportFromPem handles both PKCS#1 ("BEGIN RSA PRIVATE KEY") and PKCS#8
-        # ("BEGIN PRIVATE KEY") PEMs. GitHub Apps emit PKCS#1 by default.
-        $rsa.ImportFromPem($PrivateKeyPem.ToCharArray())
-        $sigBytes = $rsa.SignData(
-            [Text.Encoding]::UTF8.GetBytes($signingInput),
-            [Security.Cryptography.HashAlgorithmName]::SHA256,
-            [Security.Cryptography.RSASignaturePadding]::Pkcs1)
-    }
-    finally {
-        $rsa.Dispose()
-    }
-
-    $sigB64 = ConvertTo-Base64Url -Bytes $sigBytes
-    return "$signingInput.$sigB64"
-}
 
 function Invoke-GitHubApi {
     param(
@@ -104,23 +68,14 @@ foreach ($key in $Inputs.Keys) {
     Write-Host "  $key = $($Inputs[$key])"
 }
 
-# 1. Mint App JWT.
-Write-Host "Minting GitHub App JWT..."
-$jwt = New-GitHubAppJwt -AppId $AppId -PrivateKeyPem $PrivateKeyPem
-
-# 2. Look up the installation id for the target repo. We avoid hardcoding the
-# installation id so the script stays reusable; the JWT can read it via the
-# /repos/{owner}/{repo}/installation endpoint.
-Write-Host "Looking up installation id for $Owner/$Repo..."
-$installation = Invoke-GitHubApi -Method GET -Uri "https://api.github.com/repos/$Owner/$Repo/installation" -Token $jwt
-$installationId = $installation.id
-Write-Host "Installation id: $installationId"
-
-# 3. Exchange JWT for an installation access token (~1h lifetime).
-Write-Host "Exchanging JWT for installation access token..."
-$tokenResp = Invoke-GitHubApi -Method POST -Uri "https://api.github.com/app/installations/$installationId/access_tokens" -Token $jwt
-$installationToken = $tokenResp.token
-Write-Host "Installation token acquired (expires $($tokenResp.expires_at))."
+# Mint an installation access token via the shared helper (handles JWT mint,
+# installation id lookup, and token exchange).
+$tokenScript = Join-Path $PSScriptRoot 'Get-AspireBotInstallationToken.ps1'
+$installationToken = & $tokenScript -AppId $AppId -PrivateKeyPem $PrivateKeyPem -Owner $Owner -Repo $Repo
+if ([string]::IsNullOrWhiteSpace($installationToken)) {
+    Write-Error "Failed to acquire installation access token from Get-AspireBotInstallationToken.ps1"
+    exit 1
+}
 
 # Record the time *before* dispatching so we can find the resulting run reliably.
 # GitHub's workflow_dispatch endpoint returns 204 with no body — there is no run id
@@ -128,7 +83,7 @@ Write-Host "Installation token acquired (expires $($tokenResp.expires_at))."
 # workflow, branch, and a created>=<dispatch time> timestamp.
 $dispatchedAt = [DateTimeOffset]::UtcNow
 
-# 4. Dispatch the workflow.
+# Dispatch the workflow.
 Write-Host "Dispatching workflow $WorkflowFile on ref=$Ref..."
 $dispatchBody = @{
     ref    = $Ref
@@ -140,7 +95,7 @@ Invoke-GitHubApi -Method POST `
     -Body $dispatchBody | Out-Null
 Write-Host "✓ Workflow dispatch accepted."
 
-# 5. Resolve the run id. The dispatched run is not always queryable instantly,
+# Resolve the run id. The dispatched run is not always queryable instantly,
 # so retry for up to 2 minutes. Filter by created>=dispatchedAt-30s to allow for
 # clock skew between this runner and GitHub.
 $createdFilter = $dispatchedAt.AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -181,7 +136,7 @@ if (-not $runId) {
 Write-Host "##vso[task.setvariable variable=DispatchedRunUrl]$runHtmlUrl"
 Write-Host "##[section]Dispatched run: $runHtmlUrl"
 
-# 6. Poll the run until it reaches a terminal state.
+# Poll the run until it reaches a terminal state.
 $pollDeadline = [DateTime]::UtcNow.AddMinutes($PollTimeoutMinutes)
 $status = $null
 $conclusion = $null

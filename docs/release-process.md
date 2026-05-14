@@ -70,11 +70,15 @@ Before starting a release:
    | `SkipWinGetPublish` | Set `true` if re-running after WinGet success | `false` |
    | `SkipHomebrewPublish` | Set `true` if re-running after Homebrew success | `false` |
    | `SkipGitHubTasks` | Set `true` to skip dispatching the GH workflow | `false` |
+   | `SkipReleaseAssets` | Set `true` to skip uploading aspire-cli-* assets to the GitHub release | `false` |
 
 5. Click "Run" and monitor the pipeline. The final stage (`GitHubTasks`)
-   dispatches `release-github-tasks.yml` and waits for it to complete —
-   the AzDO pipeline only succeeds if the GitHub workflow also succeeds.
-6. Verify packages appear on NuGet.org.
+   dispatches `release-github-tasks.yml`, waits for it to complete, and
+   then uploads the `aspire-cli-*` archives from the source build's
+   `BlobArtifacts` onto the newly-created GitHub release — the AzDO
+   pipeline only succeeds if both pieces succeed.
+6. Verify packages appear on NuGet.org and that the `aspire-cli-*`
+   archives are attached to the GitHub release.
 
 `commit_sha` and `release_branch` for the GitHub workflow are derived
 automatically from the source build resource — no need to copy them by hand.
