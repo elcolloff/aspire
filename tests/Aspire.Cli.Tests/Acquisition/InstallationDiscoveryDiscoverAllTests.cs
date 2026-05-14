@@ -121,6 +121,121 @@ public class InstallationDiscoveryDiscoverAllTests(ITestOutputHelper outputHelpe
     }
 
     [Fact]
+    public async Task DiscoverAllAsync_PrRoute_DerivesChannelFromDogfoodPathWhenPeerOmits()
+    {
+        // The structural channel for a PR install is `pr-<N>` regardless
+        // of whether the older peer's --version output includes channel
+        // info. Discovery should overlay it from the dogfood/pr-<N>/
+        // path layout when probe.Channel comes back null.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var prDir = Path.Combine(workspace.WorkspaceRoot.FullName, ".aspire", "dogfood", "pr-12345", "bin");
+        Directory.CreateDirectory(prDir);
+        var binary = WriteFakeBinary(prDir);
+        File.WriteAllText(Path.Combine(prDir, InstallSidecarReader.SidecarFileName), "{\"source\":\"pr\"}");
+
+        var probe = new FakePeerInstallProbe(new Dictionary<string, PeerProbeResult>
+        {
+            // Older peer using --version fallback: version only, no channel.
+            [binary] = new PeerProbeResult.Ok(new InstallationInfo
+            {
+                Path = binary,
+                Version = "13.4.0-pr.12345.gabcdef",
+                Status = InstallationInfoStatus.Ok,
+            }),
+        });
+
+        using var _ = new EnvVarOverride("HOME", workspace.WorkspaceRoot.FullName);
+        using var __ = new EnvVarOverride("USERPROFILE", workspace.WorkspaceRoot.FullName);
+
+        var discovery = NewDiscovery(probe);
+        var results = await discovery.DiscoverAllAsync(TestContext.Current.CancellationToken);
+
+        var prRow = results.Single(r =>
+            string.Equals(r.CanonicalPath, binary, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
+        Assert.Equal("pr-12345", prRow.Channel);
+        Assert.Equal("pr", prRow.Route);
+        Assert.Equal("13.4.0-pr.12345.gabcdef", prRow.Version);
+    }
+
+    [Fact]
+    public async Task DiscoverAllAsync_PrRoute_DoesNotOverwritePeerReportedChannel()
+    {
+        // When the peer DOES report a channel (i.e., it has the new
+        // `info` command), the discovery layer must not overwrite it
+        // with the path-derived value, even if they happen to match.
+        // This guards against a bug where overlay logic assumes channel
+        // is always missing on the fallback path.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var prDir = Path.Combine(workspace.WorkspaceRoot.FullName, ".aspire", "dogfood", "pr-12345", "bin");
+        Directory.CreateDirectory(prDir);
+        var binary = WriteFakeBinary(prDir);
+        File.WriteAllText(Path.Combine(prDir, InstallSidecarReader.SidecarFileName), "{\"source\":\"pr\"}");
+
+        var probe = new FakePeerInstallProbe(new Dictionary<string, PeerProbeResult>
+        {
+            [binary] = new PeerProbeResult.Ok(new InstallationInfo
+            {
+                Path = binary,
+                Version = "13.4.0-pr.12345.gabcdef",
+                Channel = "pr-12345-from-peer", // intentionally distinct
+                Status = InstallationInfoStatus.Ok,
+            }),
+        });
+
+        using var _ = new EnvVarOverride("HOME", workspace.WorkspaceRoot.FullName);
+        using var __ = new EnvVarOverride("USERPROFILE", workspace.WorkspaceRoot.FullName);
+
+        var discovery = NewDiscovery(probe);
+        var results = await discovery.DiscoverAllAsync(TestContext.Current.CancellationToken);
+
+        var prRow = results.Single(r =>
+            string.Equals(r.CanonicalPath, binary, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
+        Assert.Equal("pr-12345-from-peer", prRow.Channel);
+    }
+
+    [Theory]
+    [InlineData("pr-")]              // empty PR number suffix
+    [InlineData("pr-not-digits")]    // non-digit suffix
+    [InlineData("pull-12345")]       // wrong prefix
+    public void TryDerivePrChannel_RejectsMalformedPrLabels(string labelName)
+    {
+        // We only synthesize a channel when the directory name strictly
+        // matches `pr-<digits>`; anything else (custom --install-path
+        // installs, manual layouts, future label shapes) returns null so
+        // we don't surface a misleading channel string.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var binary = Path.Combine(workspace.WorkspaceRoot.FullName, "dogfood", labelName, "bin", "aspire");
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+
+        var derived = InstallationDiscovery.TryDerivePrChannel(binary);
+        Assert.Null(derived);
+    }
+
+    [Fact]
+    public void TryDerivePrChannel_RejectsNonDogfoodGrandparent()
+    {
+        // The grandparent dir must literally be `dogfood` — anything else
+        // (e.g., `~/.aspire/staging/pr-1/bin`) is not the conventional
+        // PR-script layout and we shouldn't synthesize a channel from it.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var binary = Path.Combine(workspace.WorkspaceRoot.FullName, "staging", "pr-1234", "bin", "aspire");
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+
+        var derived = InstallationDiscovery.TryDerivePrChannel(binary);
+        Assert.Null(derived);
+    }
+
+    [Fact]
+    public void TryDerivePrChannel_AcceptsValidDogfoodLayout()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var binary = Path.Combine(workspace.WorkspaceRoot.FullName, "dogfood", "pr-9876", "bin", "aspire");
+
+        var derived = InstallationDiscovery.TryDerivePrChannel(binary);
+        Assert.Equal("pr-9876", derived);
+    }
+
+    [Fact]
     public async Task DiscoverAllAsync_RunningCliIsAlwaysFirst()
     {
         // Self must appear first regardless of what walks find — both for

@@ -138,11 +138,23 @@ internal sealed class InstallationDiscovery : IInstallationDiscovery
                     // the LOCAL sidecar so older peers using the
                     // --version fallback (which can't report route) still
                     // surface the install route we already know about.
+                    // Also derive the channel for PR-route installs from
+                    // the directory layout — the channel is structurally
+                    // `pr-<N>` for a PR install, so we can show it even
+                    // when the older peer didn't report it.
+                    var route = ok.Info.Route ?? sidecar.Source.ToWireString();
+                    var channel = ok.Info.Channel;
+                    if (string.IsNullOrEmpty(channel) && sidecar.Source == InstallSource.Pr)
+                    {
+                        channel = TryDerivePrChannel(canonical);
+                    }
+
                     results.Add(ok.Info with
                     {
                         Path = candidate.BinaryPath,
                         CanonicalPath = canonical,
-                        Route = ok.Info.Route ?? sidecar.Source.ToWireString(),
+                        Route = route,
+                        Channel = channel,
                         IsOnPath = canonical.Equals(pathHit?.CanonicalPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal),
                     });
                     break;
@@ -160,6 +172,65 @@ internal sealed class InstallationDiscovery : IInstallationDiscovery
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Derives the <c>pr-&lt;N&gt;</c> identity channel for a PR-route install
+    /// from its on-disk path. The PR install layout is, by convention,
+    /// <c>&lt;root&gt;/dogfood/pr-&lt;N&gt;/bin/aspire</c> (or with a
+    /// <c>.exe</c>); this method walks up two directories from the binary
+    /// and returns the second-to-last component when it matches that
+    /// shape. For custom-prefix PR installs (<c>--install-path</c> with a
+    /// non-default layout) the lookup returns <see langword="null"/> and
+    /// the row falls back to <c>(unknown)</c> for channel.
+    /// </summary>
+    /// <remarks>
+    /// This derivation is purely cosmetic for the user-facing table: it
+    /// fills in the channel column when the older peer at the discovered
+    /// path has no surface to report its baked <c>AspireCliChannel</c>.
+    /// It is not used for any decision-making logic (extract dir, hive
+    /// resolution, etc.) — those continue to use the sidecar source.
+    /// </remarks>
+    internal static string? TryDerivePrChannel(string canonicalBinaryPath)
+    {
+        // canonicalBinaryPath: <root>/dogfood/pr-<N>/bin/aspire[.exe]
+        //    parent           = <root>/dogfood/pr-<N>/bin
+        //    grandparent      = <root>/dogfood/pr-<N>           ← we want the basename
+        //    great-grandparent= <root>/dogfood                   ← which must equal "dogfood"
+        var bin = Path.GetDirectoryName(canonicalBinaryPath);
+        if (string.IsNullOrEmpty(bin))
+        {
+            return null;
+        }
+
+        var prDir = Path.GetDirectoryName(bin);
+        if (string.IsNullOrEmpty(prDir))
+        {
+            return null;
+        }
+
+        var dogfoodDir = Path.GetDirectoryName(prDir);
+        if (string.IsNullOrEmpty(dogfoodDir) ||
+            !string.Equals(Path.GetFileName(dogfoodDir), "dogfood", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var label = Path.GetFileName(prDir);
+        if (string.IsNullOrEmpty(label) || !label.StartsWith("pr-", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Validate the suffix is digits-only so e.g. `pr-foo` from a manual
+        // prefix doesn't get surfaced as an identity channel.
+        var suffix = label.AsSpan(3);
+        if (suffix.IsEmpty || suffix.ContainsAnyExceptInRange('0', '9'))
+        {
+            return null;
+        }
+
+        return label;
     }
 
     /// <summary>
