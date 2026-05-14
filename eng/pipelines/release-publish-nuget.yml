@@ -51,7 +51,7 @@ parameters:
   # build resource. release_version is provided explicitly; is_prerelease
   # defaults to false because preview releases are rare.
   - name: ReleaseVersion
-    displayName: 'Release Version (e.g. 9.2.0). Used as the v<version> tag.'
+    displayName: 'Release Version (e.g. 13.0.0). Used as the v<version> tag.'
     type: string
 
   - name: IsPrerelease

@@ -53,7 +53,7 @@ Before starting a release:
    | Parameter | Description | Example |
    |-----------|-------------|---------|
    | `GaChannelName` | Target GA channel | `Aspire 9.x GA` |
-   | `ReleaseVersion` | Release version (used as `v<version>` tag) | `9.2.0` |
+   | `ReleaseVersion` | Release version (used as `v<version>` tag) | `13.0.0` |
    | `IsPrerelease` | `true` for preview releases | `false` |
    | `DryRun` | Set `true` to test without publishing or tagging | `false` |
    | `SkipNuGetPublish` | Set `true` if re-running after NuGet success | `false` |
@@ -92,7 +92,7 @@ only the GitHub work, you can:
 
    | Parameter | Description | Example |
    |-----------|-------------|---------|
-   | `release_version` | The version being released | `9.2.0` |
+   | `release_version` | The version being released | `13.0.0` |
    | `commit_sha` | Full 40-char commit SHA from the build | `abc123...` |
    | `release_branch` | Release branch name | `release/9.2` |
    | `is_prerelease` | `true` for preview releases | `false` |
