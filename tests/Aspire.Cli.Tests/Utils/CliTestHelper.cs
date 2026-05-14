@@ -363,7 +363,10 @@ internal sealed class CliServiceCollectionTestOptions
         var logger = NullLoggerFactory.Instance.CreateLogger<CliUpdateNotifier>();
         var nuGetPackageCache = serviceProvider.GetRequiredService<INuGetPackageCache>();
         var interactionService = serviceProvider.GetRequiredService<IInteractionService>();
-        return new CliUpdateNotifier(logger, nuGetPackageCache, interactionService);
+        var installationDiscovery = serviceProvider.GetRequiredService<IInstallationDiscovery>();
+        var upgradeInstructionProvider = serviceProvider.GetRequiredService<IUpgradeInstructionProvider>();
+        var executionContext = serviceProvider.GetRequiredService<CliExecutionContext>();
+        return new CliUpdateNotifier(logger, nuGetPackageCache, interactionService, installationDiscovery, upgradeInstructionProvider, executionContext);
     };
 
     public Func<IServiceProvider, IAddCommandPrompter> AddCommandPrompterFactory { get; set; } = (IServiceProvider serviceProvider) =>

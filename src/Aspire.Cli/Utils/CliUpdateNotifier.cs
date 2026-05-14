@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Aspire.Cli.Acquisition;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.NuGet;
 using Aspire.Shared;
@@ -43,7 +44,10 @@ internal static class PackageUpdateRecommendationChannels
 internal class CliUpdateNotifier(
     ILogger<CliUpdateNotifier> logger,
     INuGetPackageCache nuGetPackageCache,
-    IInteractionService interactionService) : ICliUpdateNotifier
+    IInteractionService interactionService,
+    IInstallationDiscovery installationDiscovery,
+    IUpgradeInstructionProvider upgradeInstructionProvider,
+    CliExecutionContext executionContext) : ICliUpdateNotifier
 {
     private IEnumerable<Shared.NuGetPackageCli>? _availablePackages;
 
@@ -116,7 +120,7 @@ internal class CliUpdateNotifier(
         }
 
         var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, _availablePackages);
-        var updateCommand = newerVersion is null ? null : DotNetToolDetection.GetDotNetToolUpdateCommand() ?? "aspire update";
+        var updateCommand = newerVersion is null ? null : GetRouteAwareUpdateCommand();
         // Derive the lane the recommendation comes from so doctor can show
         // 'Latest version is X (channel: stable)' vs '(channel: prerelease)'.
         // GetNewerVersion picks between newestStable and newestPrerelease
@@ -127,6 +131,33 @@ internal class CliUpdateNotifier(
             ? null
             : (newerVersion.IsPrerelease ? PackageUpdateRecommendationChannels.Prerelease : PackageUpdateRecommendationChannels.Stable);
         return new CliVersionStatus(currentVersionString, newerVersion?.ToString(), updateCommand, UpdateCheckError: null, LatestVersionChannel: latestChannel);
+    }
+
+    /// <summary>
+    /// Returns the route-appropriate command to recommend in the
+    /// "version X available" notification. For script-route and Unknown
+    /// installs we suggest <c>aspire update --self</c> (which actually
+    /// performs the in-process update for script). For every other route we
+    /// defer to <see cref="IUpgradeInstructionProvider"/> so users see the
+    /// command that matches how they installed the CLI (winget upgrade,
+    /// brew upgrade --cask, dotnet tool update, get-aspire-cli-pr, etc.).
+    /// </summary>
+    private string GetRouteAwareUpdateCommand()
+    {
+        var info = installationDiscovery.DescribeSelf();
+        var source = InstallSourceExtensions.ParseInstallSource(info.Route);
+        var canonicalPath = info.CanonicalPath ?? info.Path;
+
+        // Legacy fallback for pre-sidecar dotnet-tool installs (mirrors the
+        // UpdateCommand --self resolution rule). Uses the no-arg overload so
+        // the AsyncLocal test override is honored.
+        if (source == InstallSource.Unknown && DotNetToolDetection.IsRunningAsDotNetTool())
+        {
+            source = InstallSource.DotnetTool;
+        }
+
+        return upgradeInstructionProvider.GetUpdateCommand(source, canonicalPath, executionContext.IdentityChannel)
+            ?? "aspire update --self";
     }
 
     private async Task<IEnumerable<Shared.NuGetPackageCli>> GetCliPackagesAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
