@@ -93,7 +93,7 @@ internal sealed class AspireVersionCheck(
                     Status = EnvironmentCheckStatus.Warning,
                     Message = FormatCliVersionMessage(currentVersion, identityChannel),
                     Details = $"{DoctorCommandStrings.CliVersionUpdateCheckFailedMessage}: {updateCheckError}",
-                    Metadata = BuildCliVersionMetadata(currentVersion, latestVersion: null, status.UpdateCommand, updateCheckError, identityChannel)
+                    Metadata = BuildCliVersionMetadata(currentVersion, latestVersion: null, status.UpdateCommand, updateCheckError, identityChannel, latestVersionChannel: null)
                 };
             }
 
@@ -104,18 +104,21 @@ internal sealed class AspireVersionCheck(
                     Category = "aspire",
                     Name = "cli-version",
                     Status = EnvironmentCheckStatus.Warning,
-                    // Embed the channel suffix into the CURRENT version slot
-                    // (not at the end of the message) so the channel is
-                    // unambiguously attached to the version it qualifies.
-                    // Before: "...version 13.4.0-dev is out of date. Latest is X (channel: local)"
-                    // After:  "...version 13.4.0-dev (channel: local) is out of date. Latest is X"
+                    // Both versions get their channel inline next to them so
+                    // the message is unambiguous:
+                    //   "...version 13.4.0-dev (channel: local) is out of
+                    //    date. Latest version is X (channel: prerelease)"
+                    // The current-version channel comes from the running
+                    // CLI's baked AspireCliChannel; the latest-version
+                    // channel comes from the update notifier's recommendation
+                    // lane (stable vs prerelease).
                     Message = string.Format(
                         CultureInfo.CurrentCulture,
                         DoctorCommandStrings.CliVersionOutOfDateMessageFormat,
                         WithChannelSuffix(currentVersion, identityChannel),
-                        latestVersion),
+                        WithChannelSuffix(latestVersion, status.LatestVersionChannel)),
                     Fix = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.CliVersionOutOfDateFixFormat, status.UpdateCommand ?? "aspire update"),
-                    Metadata = BuildCliVersionMetadata(currentVersion, latestVersion, status.UpdateCommand, updateCheckError: null, identityChannel)
+                    Metadata = BuildCliVersionMetadata(currentVersion, latestVersion, status.UpdateCommand, updateCheckError: null, identityChannel, status.LatestVersionChannel)
                 };
             }
 
@@ -125,7 +128,7 @@ internal sealed class AspireVersionCheck(
                 Name = "cli-version",
                 Status = EnvironmentCheckStatus.Pass,
                 Message = FormatCliVersionMessage(currentVersion, identityChannel),
-                Metadata = BuildCliVersionMetadata(currentVersion, latestVersion: null, status.UpdateCommand, updateCheckError: null, identityChannel)
+                Metadata = BuildCliVersionMetadata(currentVersion, latestVersion: null, status.UpdateCommand, updateCheckError: null, identityChannel, latestVersionChannel: null)
             };
         }
         catch (OperationCanceledException)
@@ -143,7 +146,7 @@ internal sealed class AspireVersionCheck(
                 Status = EnvironmentCheckStatus.Warning,
                 Message = DoctorCommandStrings.CliVersionUpdateCheckFailedMessage,
                 Details = ex.Message,
-                Metadata = BuildCliVersionMetadata(currentVersion: null, latestVersion: null, updateCommand: null, updateCheckError: ex.Message, identityChannel)
+                Metadata = BuildCliVersionMetadata(currentVersion: null, latestVersion: null, updateCommand: null, updateCheckError: ex.Message, identityChannel, latestVersionChannel: null)
             };
         }
     }
@@ -403,7 +406,7 @@ internal sealed class AspireVersionCheck(
         return Path.GetRelativePath(executionContext.WorkingDirectory.FullName, file.FullName);
     }
 
-    private static JsonObject BuildCliVersionMetadata(string? currentVersion, string? latestVersion, string? updateCommand, string? updateCheckError, string? identityChannel)
+    private static JsonObject BuildCliVersionMetadata(string? currentVersion, string? latestVersion, string? updateCommand, string? updateCheckError, string? identityChannel, string? latestVersionChannel)
     {
         var metadata = new JsonObject();
 
@@ -430,6 +433,11 @@ internal sealed class AspireVersionCheck(
         if (!string.IsNullOrWhiteSpace(identityChannel))
         {
             metadata["identityChannel"] = identityChannel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(latestVersionChannel))
+        {
+            metadata["latestVersionChannel"] = latestVersionChannel;
         }
 
         return metadata;

@@ -609,6 +609,58 @@ public class DoctorCommandTests(ITestOutputHelper outputHelper)
         Assert.DoesNotContain("channel:", appHostVersionCheck.GetProperty("message").GetString()!);
     }
 
+    [Fact]
+    public async Task DoctorCommand_Json_CliVersion_IncludesLatestVersionChannel_WhenUpdateAvailable()
+    {
+        // When an update is available, doctor should surface BOTH channel
+        // labels — identityChannel for the running CLI, latestVersionChannel
+        // for the recommendation lane (stable vs prerelease) — so the user
+        // can see exactly where the recommendation is being pulled from.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var interactionService = new TestInteractionService();
+        var services = CreateDoctorVersionServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => interactionService;
+            options.CliUpdateNotifierFactory = _ => new TestCliUpdateNotifier
+            {
+                GetVersionStatusAsyncCallback = (_, _) => Task.FromResult(new CliVersionStatus(
+                    CurrentVersion: "13.4.0-dev",
+                    LatestVersion: "13.4.0-preview.1.26264.8",
+                    UpdateCommand: "aspire update",
+                    UpdateCheckError: null,
+                    LatestVersionChannel: "prerelease"))
+            };
+        });
+        services.RemoveAll<IIdentityChannelReader>();
+        services.AddSingleton<IIdentityChannelReader>(_ => new FakeIdentityChannelReader("local"));
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<Aspire.Cli.Commands.RootCommand>();
+        var result = command.Parse("doctor --format json");
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+        Assert.Equal(ExitCodeConstants.Success, exitCode);
+
+        var (json, _) = Assert.Single(interactionService.DisplayedRawText);
+        using var doc = JsonDocument.Parse(json);
+        var cliVersionCheck = doc.RootElement.GetProperty("checks").EnumerateArray()
+            .Single(c => c.GetProperty("name").GetString() == "cli-version");
+
+        // Both channels surface in metadata.
+        var metadata = cliVersionCheck.GetProperty("metadata");
+        Assert.Equal("local", metadata.GetProperty("identityChannel").GetString());
+        Assert.Equal("prerelease", metadata.GetProperty("latestVersionChannel").GetString());
+
+        // The human-readable message attaches the channel to each version
+        // it qualifies. Both must appear at well-defined positions so the
+        // user can't mis-read which channel is which.
+        var message = cliVersionCheck.GetProperty("message").GetString()!;
+        var currentIdx = message.IndexOf("13.4.0-dev (channel: local)", StringComparison.Ordinal);
+        var latestIdx = message.IndexOf("13.4.0-preview.1.26264.8 (channel: prerelease)", StringComparison.Ordinal);
+        Assert.True(currentIdx >= 0, $"Expected current version with channel suffix in message; got: {message}");
+        Assert.True(latestIdx >= 0, $"Expected latest version with channel suffix in message; got: {message}");
+        Assert.True(currentIdx < latestIdx, "Current version must appear before latest version in message.");
+    }
+
     private static IServiceCollection CreateDoctorVersionServiceCollection(
         TemporaryWorkspace workspace,
         ITestOutputHelper outputHelper,
