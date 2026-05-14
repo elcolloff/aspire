@@ -160,7 +160,10 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
 
         // Create JSON-RPC connection with proper formatter
         var stream = new NetworkStream(socket, ownsSocket: true);
-        var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream, stream, BackchannelJsonSerializerContext.CreateRpcMessageFormatter()));
+        var rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream, stream, BackchannelJsonSerializerContext.CreateRpcMessageFormatter()))
+        {
+            ActivityTracingStrategy = new ActivityTracingStrategy()
+        };
         rpc.StartListening();
 
         logger.LogDebug("Connected to auxiliary backchannel at {SocketPath}", socketPath);

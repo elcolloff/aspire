@@ -46,7 +46,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
 #pragma warning restore CA1822
     {
         _ = cancellationToken;
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetCapabilitiesAsync), streaming: false, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetCapabilitiesAsync), streaming: false, request?.TraceContext);
 
         return Task.FromResult(new GetCapabilitiesResponse
         {
@@ -62,7 +62,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <returns>The AppHost information response.</returns>
     public async Task<GetAppHostInfoResponse> GetAppHostInfoAsync(GetAppHostInfoRequest? request = null, CancellationToken cancellationToken = default)
     {
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetAppHostInfoAsync), streaming: false, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetAppHostInfoAsync), streaming: false, request?.TraceContext);
 
         var legacyInfo = await GetAppHostInformationAsync(cancellationToken).ConfigureAwait(false);
 
@@ -117,7 +117,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <returns>The Dashboard information response.</returns>
     public async Task<GetDashboardInfoResponse> GetDashboardInfoAsync(GetDashboardInfoRequest? request = null, CancellationToken cancellationToken = default)
     {
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetDashboardInfoAsync), streaming: false, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetDashboardInfoAsync), streaming: false, request?.TraceContext);
 
         var info = await DashboardUrlsHelper.GetDashboardConnectionInfoAsync(serviceProvider, logger, cancellationToken).ConfigureAwait(false);
 
@@ -148,7 +148,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <returns>The resources response containing snapshots.</returns>
     public async Task<GetResourcesResponse> GetResourcesAsync(GetResourcesRequest? request = null, CancellationToken cancellationToken = default)
     {
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetResourcesAsync), streaming: false, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(GetResourcesAsync), streaming: false, request?.TraceContext);
         var snapshots = await GetResourceSnapshotsAsync(cancellationToken).ConfigureAwait(false);
 
         // Apply filter if specified
@@ -172,7 +172,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <returns>An async enumerable of resource snapshots as they change.</returns>
     public async IAsyncEnumerable<ResourceSnapshot> WatchResourcesAsync(WatchResourcesRequest? request = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(WatchResourcesAsync), streaming: true, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(WatchResourcesAsync), streaming: true, request?.TraceContext);
         var filter = request?.Filter;
         var yieldedCount = 0;
 
@@ -214,7 +214,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
         ArgumentNullException.ThrowIfNull(request);
         return GetResourceLogsAsync(
             "GetConsoleLogsAsync",
-            request.ProfilingContext,
+            request.TraceContext,
             request.ResourceName,
             request.Follow,
             request.IncludeHidden,
@@ -234,7 +234,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
         ArgumentNullException.ThrowIfNull(request);
         return GetResourceLogBatchesAsync(
             "GetConsoleLogBatchesAsync",
-            request.ProfilingContext,
+            request.TraceContext,
             request.ResourceName,
             request.Follow,
             request.IncludeHidden,
@@ -252,7 +252,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     public async Task<CallMcpToolResponse> CallMcpToolAsync(CallMcpToolRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(CallMcpToolAsync), streaming: false, request.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(CallMcpToolAsync), streaming: false, request.TraceContext);
 
         // Convert JsonElement arguments to Dictionary<string, object?> with proper value conversion
         var arguments = new Dictionary<string, object?>();
@@ -285,7 +285,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     /// <returns>The stop response.</returns>
     public async Task<StopAppHostResponse> StopAsync(StopAppHostRequest? request = null, CancellationToken cancellationToken = default)
     {
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(StopAsync), streaming: false, request?.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(StopAsync), streaming: false, request?.TraceContext);
         await StopAppHostAsync(cancellationToken).ConfigureAwait(false);
         return new StopAppHostResponse();
     }
@@ -299,7 +299,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     public async Task<ExecuteResourceCommandResponse> ExecuteResourceCommandAsync(ExecuteResourceCommandRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(ExecuteResourceCommandAsync), streaming: false, request.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(ExecuteResourceCommandAsync), streaming: false, request.TraceContext);
 
         var resourceCommandService = serviceProvider.GetRequiredService<ResourceCommandService>();
         var (arguments, argumentErrorMessage) = CreateCommandArguments(resourceCommandService, request);
@@ -442,7 +442,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
     public async Task<WaitForResourceResponse> WaitForResourceAsync(WaitForResourceRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(WaitForResourceAsync), streaming: false, request.ProfilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(nameof(WaitForResourceAsync), streaming: false, request.TraceContext);
 
         var notificationService = serviceProvider.GetRequiredService<ResourceNotificationService>();
         var targetResolution = ResolveWaitTarget(notificationService, request.ResourceName);
@@ -981,7 +981,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
 
     private async IAsyncEnumerable<ResourceLogBatch> GetResourceLogBatchesAsync(
         string rpcMethodName,
-        BackchannelProfilingContext? profilingContext,
+        BackchannelTraceContext? traceContext,
         string? resourceName,
         bool follow,
         bool includeHidden,
@@ -994,7 +994,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
 
         await foreach (var logLine in GetResourceLogsAsync(
             rpcMethodName,
-            profilingContext,
+            traceContext,
             resourceName,
             follow,
             includeHidden,
@@ -1020,7 +1020,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
 
     private async IAsyncEnumerable<ResourceLogLine> GetResourceLogsAsync(
         string rpcMethodName,
-        BackchannelProfilingContext? profilingContext,
+        BackchannelTraceContext? traceContext,
         string? resourceName,
         bool follow,
         bool includeHidden,
@@ -1031,7 +1031,7 @@ internal sealed class AuxiliaryBackchannelRpcTarget(
         var resourceLoggerService = serviceProvider.GetRequiredService<ResourceLoggerService>();
         var appModel = serviceProvider.GetRequiredService<DistributedApplicationModel>();
         var notificationService = serviceProvider.GetRequiredService<ResourceNotificationService>();
-        using var activity = profilingTelemetry.StartJsonRpcServerCall(rpcMethodName, streaming: true, profilingContext);
+        using var activity = profilingTelemetry.StartJsonRpcServerCall(rpcMethodName, streaming: true, traceContext);
         var yieldedCount = 0;
         using var logStreamCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var logStreamCancellationToken = logStreamCts.Token;

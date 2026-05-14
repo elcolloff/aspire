@@ -106,6 +106,21 @@ public class ProfilingTelemetryTests
         });
     }
 
+    [Fact]
+    public void BackchannelTraceContextCarriesActivityBaggage()
+    {
+        using var listener = CreateProfilingActivityListener(_ => { });
+        using var profilingTelemetry = new ProfilingTelemetry(CreateConfiguration(
+            (ProfilingTelemetry.EnvironmentVariables.Enabled, "true"),
+            (ProfilingTelemetry.EnvironmentVariables.SessionId, "session-1")));
+
+        using var activity = profilingTelemetry.StartJsonRpcClientCall("aux", "GetCapabilitiesAsync", streaming: false);
+        var traceContext = activity.CreateBackchannelTraceContext();
+
+        Assert.NotNull(traceContext);
+        Assert.Equal("session-1", traceContext.Baggage[ProfilingTelemetry.Baggage.SessionId]);
+    }
+
     private static ActivityListener CreateProfilingActivityListener(Action<Activity> activityStarted)
     {
         return CreateActivityListener(ProfilingTelemetry.ActivitySourceName, activityStarted);

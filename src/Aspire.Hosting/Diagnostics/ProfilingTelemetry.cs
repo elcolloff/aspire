@@ -255,9 +255,9 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
         return activity;
     }
 
-    public ActivityScope StartJsonRpcServerCall(string methodName, bool streaming, BackchannelProfilingContext? profilingContext = null)
+    public ActivityScope StartJsonRpcServerCall(string methodName, bool streaming, BackchannelTraceContext? traceContext = null)
     {
-        var activity = StartActivityFromProfilingContext(Activities.JsonRpcServerCall, ActivityKind.Server, profilingContext);
+        var activity = StartActivityFromTraceContext(Activities.JsonRpcServerCall, ActivityKind.Server, traceContext);
         activity.SetJsonRpcCall(methodName, streaming);
         return activity;
     }
@@ -329,31 +329,22 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
         return new ActivityScope(activity, configuration);
     }
 
-    private ActivityScope StartActivityFromProfilingContext(string name, ActivityKind activityKind, BackchannelProfilingContext? profilingContext)
+    private ActivityScope StartActivityFromTraceContext(string name, ActivityKind activityKind, BackchannelTraceContext? traceContext)
     {
         if (!IsEnabled(_configuration))
         {
             return default;
         }
 
-        Activity? activity = null;
-        if (!string.IsNullOrEmpty(profilingContext?.TraceParent) &&
-            ActivityContext.TryParse(profilingContext.TraceParent, profilingContext.TraceState, out var parentContext))
-        {
-            // JSON-RPC calls cross a process boundary without ambient Activity.Current, so
-            // the CLI serializes W3C trace context into the request object. Start the
-            // Hosting span from that context to keep client and server RPC spans in one trace.
-            activity = s_activitySource.StartActivity(name, activityKind, parentContext);
-        }
+        // StreamJsonRpc's ActivityTracingStrategy creates Activity.Current from the W3C
+        // traceparent/tracestate values on the JSON-RPC request envelope. If the caller is
+        // older or tracing was unavailable, fall back to the configured profiling parent.
+        var activity = Activity.Current is null && TryGetProfilingParentContext(_configuration, out var parentContext)
+            ? s_activitySource.StartActivity(name, activityKind, parentContext)
+            : s_activitySource.StartActivity(name, activityKind);
 
-        if (activity is null)
-        {
-            // Fall back to the normal profiling parent from configuration when the call came
-            // from an older CLI/AppHost pair or the request did not carry trace context.
-            return StartActivity(_configuration, name, activityKind);
-        }
-
-        AddProfilingSessionId(activity, _configuration, profilingContext);
+        AddBaggage(activity, traceContext);
+        AddProfilingSessionId(activity, _configuration, traceContext);
         return new ActivityScope(activity, _configuration);
     }
 
@@ -378,23 +369,38 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
             : GetConfigurationValue(configuration, KnownConfigNames.ProfilingSessionId, KnownConfigNames.Legacy.StartupOperationId);
         if (!string.IsNullOrEmpty(sessionId))
         {
+            activity.SetBaggage(Tags.ProfilingSessionId, sessionId);
             activity.SetTag(Tags.ProfilingSessionId, sessionId);
             activity.SetTag(Tags.LegacyStartupOperationId, sessionId);
         }
     }
 
-    private static void AddProfilingSessionId(Activity? activity, IConfiguration? configuration, BackchannelProfilingContext? profilingContext)
+    private static void AddBaggage(Activity? activity, BackchannelTraceContext? traceContext)
+    {
+        if (activity is null || traceContext is null)
+        {
+            return;
+        }
+
+        foreach (var (key, value) in traceContext.Baggage)
+        {
+            activity.SetBaggage(key, value);
+        }
+    }
+
+    private static void AddProfilingSessionId(Activity? activity, IConfiguration? configuration, BackchannelTraceContext? traceContext)
     {
         if (activity is null)
         {
             return;
         }
 
-        var sessionId = !string.IsNullOrEmpty(profilingContext?.ProfilingSessionId)
-            ? profilingContext.ProfilingSessionId
+        var sessionId = traceContext?.Baggage.TryGetValue(Tags.ProfilingSessionId, out var baggageSessionId) == true && !string.IsNullOrEmpty(baggageSessionId)
+            ? baggageSessionId
             : GetConfigurationValue(configuration, KnownConfigNames.ProfilingSessionId, KnownConfigNames.Legacy.StartupOperationId);
         if (!string.IsNullOrEmpty(sessionId))
         {
+            activity.SetBaggage(Tags.ProfilingSessionId, sessionId);
             activity.SetTag(Tags.ProfilingSessionId, sessionId);
             activity.SetTag(Tags.LegacyStartupOperationId, sessionId);
         }

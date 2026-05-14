@@ -1,10 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Aspire.Hosting.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using StreamJsonRpc;
 
 namespace Aspire.Hosting.Backchannel;
 
@@ -34,7 +38,7 @@ public class BackchannelContractTests
     [
         .. s_requestTypes,
         typeof(GetCapabilitiesResponse),
-        typeof(BackchannelProfilingContext),
+        typeof(BackchannelTraceContext),
         typeof(GetAppHostInfoResponse),
         typeof(GetDashboardInfoResponse),
         typeof(GetResourcesResponse),
@@ -90,7 +94,7 @@ public class BackchannelContractTests
 
             // Rule 6: Naming convention (skip helper types)
             if (!type.Name.StartsWith("ResourceSnapshot") &&
-                type != typeof(BackchannelProfilingContext) &&
+                type != typeof(BackchannelTraceContext) &&
                 type.Name != "McpToolContentItem" &&
                 type.Name != "ResourceLogLine" &&
                 type.Name != "ResourceLogBatch")
@@ -165,14 +169,15 @@ public class BackchannelContractTests
     }
 
     [Fact]
-    public void RequestWithProfilingContext_PreservesRequestProperties()
+    public void RequestWithTraceContext_PreservesRequestProperties()
     {
         var errors = new StringBuilder();
-        var profilingContext = new BackchannelProfilingContext
+        var traceContext = new BackchannelTraceContext
         {
-            ProfilingSessionId = "new-session",
-            TraceParent = "00-11111111111111111111111111111111-2222222222222222-01",
-            TraceState = "new-state"
+            Baggage = new()
+            {
+                ["aspire.profiling.session_id"] = "new-session"
+            }
         };
 
         foreach (var requestType in s_requestTypes)
@@ -188,12 +193,13 @@ public class BackchannelContractTests
                     continue;
                 }
 
-                var value = property.Name == nameof(BackchannelRequest.ProfilingContext)
-                    ? new BackchannelProfilingContext
+                var value = property.Name == nameof(BackchannelRequest.TraceContext)
+                    ? new BackchannelTraceContext
                     {
-                        ProfilingSessionId = "original-session",
-                        TraceParent = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
-                        TraceState = "original-state"
+                        Baggage = new()
+                        {
+                            ["aspire.profiling.session_id"] = "original-session"
+                        }
                     }
                     : CreateNonDefaultValue(requestType, property, property.GetValue(defaultRequest));
 
@@ -201,18 +207,18 @@ public class BackchannelContractTests
                 expectedValues.Add(property, value);
             }
 
-            var copy = request.WithProfilingContext(profilingContext);
+            var copy = request.WithTraceContext(traceContext);
 
             if (copy.GetType() != requestType)
             {
-                errors.AppendLine($"ERROR {requestType.Name}: {nameof(BackchannelRequest.WithProfilingContext)} returned {copy.GetType().Name}");
+                errors.AppendLine($"ERROR {requestType.Name}: {nameof(BackchannelRequest.WithTraceContext)} returned {copy.GetType().Name}");
                 continue;
             }
 
             foreach (var (property, originalValue) in expectedValues)
             {
-                var expectedValue = property.Name == nameof(BackchannelRequest.ProfilingContext)
-                    ? profilingContext
+                var expectedValue = property.Name == nameof(BackchannelRequest.TraceContext)
+                    ? traceContext
                     : originalValue;
                 var actualValue = property.GetValue(copy);
 
@@ -223,7 +229,58 @@ public class BackchannelContractTests
             }
         }
 
-        Assert.True(errors.Length == 0, $"Profiling copy violations found:\n{errors}");
+        Assert.True(errors.Length == 0, $"Trace context copy violations found:\n{errors}");
+    }
+
+    [Fact]
+    public void ActivityTracingStrategy_PropagatesW3CTraceContextOnJsonRpcRequest()
+    {
+        using var listener = CreateActivityListener("test-json-rpc-trace");
+        using var source = new ActivitySource("test-json-rpc-trace");
+        using var clientActivity = source.StartActivity("client", ActivityKind.Client);
+        Assert.NotNull(clientActivity);
+
+        var formatter = new SystemTextJsonFormatter();
+        var request = ((IJsonRpcMessageFactory)formatter).CreateRequestMessage();
+        request.Method = "GetCapabilitiesAsync";
+        request.Arguments = Array.Empty<object>();
+
+        var strategy = new ActivityTracingStrategy(source);
+        strategy.ApplyOutboundActivity(request);
+
+        Assert.NotNull(request.TraceParent);
+        using (strategy.ApplyInboundActivity(request))
+        {
+            Assert.NotNull(Activity.Current);
+            Assert.Equal(clientActivity.TraceId, Activity.Current.TraceId);
+            Assert.Equal(clientActivity.SpanId, Activity.Current.ParentSpanId);
+        }
+    }
+
+    [Fact]
+    public void JsonRpcServerCall_RestoresTraceContextBaggage()
+    {
+        Activity? startedActivity = null;
+        using var listener = CreateActivityListener(ProfilingTelemetry.ActivitySourceName, activity => startedActivity = activity);
+        var telemetry = new ProfilingTelemetry(CreateConfiguration(
+            (KnownConfigNames.ProfilingEnabled, "true")));
+
+        using var activity = telemetry.StartJsonRpcServerCall(
+            "GetCapabilitiesAsync",
+            streaming: false,
+            new BackchannelTraceContext
+            {
+                Baggage = new()
+                {
+                    [ProfilingTelemetry.Tags.ProfilingSessionId] = "session-1",
+                    ["custom"] = "value"
+                }
+            });
+
+        Assert.NotNull(startedActivity);
+        Assert.Equal("session-1", startedActivity.GetBaggageItem(ProfilingTelemetry.Tags.ProfilingSessionId));
+        Assert.Equal("value", startedActivity.GetBaggageItem("custom"));
+        Assert.Equal("session-1", startedActivity.GetTagItem(ProfilingTelemetry.Tags.ProfilingSessionId));
     }
 
     private static bool IsAllowedCollectionType(Type type)
@@ -266,6 +323,11 @@ public class BackchannelContractTests
             return JsonNode.Parse($$"""{ "property": "{{propertyName}}" }""")!;
         }
 
+        if (property.PropertyType == typeof(Dictionary<string, string>))
+        {
+            return new Dictionary<string, string> { ["property"] = propertyName };
+        }
+
         throw new NotSupportedException($"{requestType.Name}.{property.Name} has unsupported test value type {property.PropertyType}.");
     }
 
@@ -282,6 +344,12 @@ public class BackchannelContractTests
             return expectedNode.ToJsonString() == actualNode.ToJsonString();
         }
 
+        if (expected is Dictionary<string, string> expectedDictionary && actual is Dictionary<string, string> actualDictionary)
+        {
+            return expectedDictionary.Count == actualDictionary.Count &&
+                   expectedDictionary.All(item => actualDictionary.TryGetValue(item.Key, out var actualValue) && item.Value == actualValue);
+        }
+
         return Equals(expected, actual);
     }
 
@@ -291,7 +359,26 @@ public class BackchannelContractTests
             null => "<null>",
             JsonElement json => json.GetRawText(),
             JsonNode node => node.ToJsonString(),
-            BackchannelProfilingContext context => $"{nameof(BackchannelProfilingContext)}({context.ProfilingSessionId})",
+            BackchannelTraceContext context => $"{nameof(BackchannelTraceContext)}({context.Baggage.Count} baggage items)",
             _ => value.ToString() ?? string.Empty
         };
+
+    private static ActivityListener CreateActivityListener(string sourceName, Action<Activity>? activityStarted = null)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == sourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = activityStarted
+        };
+        ActivitySource.AddActivityListener(listener);
+        return listener;
+    }
+
+    private static IConfiguration CreateConfiguration(params (string Key, string? Value)[] values)
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values.Select(value => new KeyValuePair<string, string?>(value.Key, value.Value)))
+            .Build();
+    }
 }

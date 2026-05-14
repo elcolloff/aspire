@@ -165,7 +165,10 @@ internal sealed class AuxiliaryBackchannelService(
             };
 
             var handler = new HeaderDelimitedMessageHandler(stream, formatter);
-            using var rpc = new JsonRpc(handler, rpcTarget);
+            using var rpc = new JsonRpc(handler, rpcTarget)
+            {
+                ActivityTracingStrategy = new ActivityTracingStrategy()
+            };
             rpc.StartListening();
 
             // Wait for the connection to be disposed (client disconnect or cancellation)

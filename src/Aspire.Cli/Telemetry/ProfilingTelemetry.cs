@@ -864,18 +864,25 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
 
         public void SetJsonRpcStreamItemCount(int count) => SetTag(Tags.JsonRpcStreamItemCount, count);
 
-        public BackchannelProfilingContext? CreateBackchannelProfilingContext()
+        public BackchannelTraceContext? CreateBackchannelTraceContext()
         {
             if (activity is null)
             {
                 return null;
             }
 
-            return new BackchannelProfilingContext
+            var baggage = new Dictionary<string, string>();
+            foreach (var (key, value) in activity.Baggage)
             {
-                ProfilingSessionId = activity.GetBaggageItem(Baggage.SessionId),
-                TraceParent = activity.Id,
-                TraceState = activity.TraceStateString
+                if (value is not null)
+                {
+                    baggage[key] = value;
+                }
+            }
+
+            return new BackchannelTraceContext
+            {
+                Baggage = baggage
             };
         }
 

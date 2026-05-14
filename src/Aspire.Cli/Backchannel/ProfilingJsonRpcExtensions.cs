@@ -8,12 +8,12 @@ using StreamJsonRpc;
 namespace Aspire.Cli.Backchannel;
 
 /// <summary>
-/// Adds profiling spans and trace-context propagation around StreamJsonRpc calls.
+/// Adds profiling spans and trace-context metadata around StreamJsonRpc calls.
 /// </summary>
 /// <remarks>
-/// StreamJsonRpc does not flow Activity.Current across the CLI/AppHost
-/// process boundary for this backchannel, so these helpers wrap client calls and inject
-/// W3C trace context into request-object RPC parameters.
+/// The JSON-RPC connection carries W3C traceparent/tracestate via StreamJsonRpc's request
+/// envelope support. These helpers wrap client calls and inject extra trace metadata, such as
+/// baggage, into request-object RPC parameters.
 /// </remarks>
 internal static class ProfilingJsonRpcExtensions
 {
@@ -26,7 +26,7 @@ internal static class ProfilingJsonRpcExtensions
         CancellationToken cancellationToken)
     {
         using var activity = profilingTelemetry?.StartJsonRpcClientCall(connectionName, methodName, streaming: false) ?? default;
-        arguments = WithProfilingContext(arguments, activity.CreateBackchannelProfilingContext());
+        arguments = WithTraceContext(arguments, activity.CreateBackchannelTraceContext());
 
         try
         {
@@ -49,7 +49,7 @@ internal static class ProfilingJsonRpcExtensions
         CancellationToken cancellationToken)
     {
         using var activity = profilingTelemetry?.StartJsonRpcClientCall(connectionName, methodName, streaming: false) ?? default;
-        arguments = WithProfilingContext(arguments, activity.CreateBackchannelProfilingContext());
+        arguments = WithTraceContext(arguments, activity.CreateBackchannelTraceContext());
 
         try
         {
@@ -76,7 +76,7 @@ internal static class ProfilingJsonRpcExtensions
         // transfers to the returned enumerable. If a caller obtains the enumerable
         // but never enumerates it, EnumerateWithProfiling will not dispose the activity.
         var activity = profilingTelemetry?.StartJsonRpcClientCall(connectionName, methodName, streaming: true) ?? default;
-        arguments = WithProfilingContext(arguments, activity.CreateBackchannelProfilingContext());
+        arguments = WithTraceContext(arguments, activity.CreateBackchannelTraceContext());
 
         try
         {
@@ -147,18 +147,18 @@ internal static class ProfilingJsonRpcExtensions
         }
     }
 
-    private static object?[] WithProfilingContext(object?[] arguments, BackchannelProfilingContext? profilingContext)
+    private static object?[] WithTraceContext(object?[] arguments, BackchannelTraceContext? traceContext)
     {
-        if (profilingContext is null || arguments.Length != 1)
+        if (traceContext is null || arguments.Length != 1)
         {
             return arguments;
         }
 
         // StreamJsonRpc accepts RPC parameters as an object array. The auxiliary backchannel
         // contract uses a single request object parameter, so replace that one argument with
-        // a copy carrying the profiling context instead of mutating the caller's instance.
+        // a copy carrying trace metadata instead of mutating the caller's instance.
         return arguments[0] is BackchannelRequest request
-            ? [request.WithProfilingContext(profilingContext)]
+            ? [request.WithTraceContext(traceContext)]
             : arguments;
     }
 

@@ -67,24 +67,14 @@ internal static class KnownCommandVisibility
 #region V2 Request/Response Types
 
 /// <summary>
-/// Profiling trace context propagated over the auxiliary backchannel.
+/// Trace context metadata propagated over the auxiliary backchannel.
 /// </summary>
-internal sealed class BackchannelProfilingContext
+internal sealed class BackchannelTraceContext
 {
     /// <summary>
-    /// Gets the profiling session ID.
+    /// Gets the baggage values associated with the trace.
     /// </summary>
-    public string? ProfilingSessionId { get; init; }
-
-    /// <summary>
-    /// Gets the W3C traceparent value for the client-side JSON-RPC span.
-    /// </summary>
-    public string? TraceParent { get; init; }
-
-    /// <summary>
-    /// Gets the W3C tracestate value for the client-side JSON-RPC span.
-    /// </summary>
-    public string? TraceState { get; init; }
+    public Dictionary<string, string> Baggage { get; init; } = [];
 }
 
 /// <summary>
@@ -93,19 +83,21 @@ internal sealed class BackchannelProfilingContext
 internal abstract class BackchannelRequest
 {
     /// <summary>
-    /// Gets profiling trace context propagated by the CLI.
+    /// Gets trace context metadata propagated by the CLI.
     /// </summary>
-    public BackchannelProfilingContext? ProfilingContext { get; init; }
+    public BackchannelTraceContext? TraceContext { get; init; }
 
     /// <summary>
-    /// Creates a copy of this request with the specified profiling context.
+    /// Creates a copy of this request with the specified trace context.
     /// </summary>
     /// <remarks>
-    /// The CLI injects trace context into already-created request instances before sending
-    /// them over StreamJsonRpc. Each request type owns its copy logic so this stays AOT- and
-    /// trimming-friendly instead of relying on reflection to clone arbitrary records/classes.
+    /// StreamJsonRpc carries W3C traceparent/tracestate on the JSON-RPC request envelope.
+    /// See https://microsoft.github.io/vs-streamjsonrpc/docs/resiliency.html#activity-tracing.
+    /// The request object only carries extra trace metadata such as baggage values. Each
+    /// request type owns its copy logic so this stays AOT- and trimming-friendly instead of
+    /// relying on reflection to clone arbitrary records/classes.
     /// </remarks>
-    public abstract BackchannelRequest WithProfilingContext(BackchannelProfilingContext profilingContext);
+    public abstract BackchannelRequest WithTraceContext(BackchannelTraceContext traceContext);
 }
 
 /// <summary>
@@ -114,7 +106,7 @@ internal abstract class BackchannelRequest
 internal sealed class GetCapabilitiesRequest : BackchannelRequest
 {
     /// <inheritdoc />
-    public override GetCapabilitiesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+    public override GetCapabilitiesRequest WithTraceContext(BackchannelTraceContext traceContext) => new() { TraceContext = traceContext };
 }
 
 /// <summary>
@@ -134,7 +126,7 @@ internal sealed class GetCapabilitiesResponse
 internal sealed class GetAppHostInfoRequest : BackchannelRequest
 {
     /// <inheritdoc />
-    public override GetAppHostInfoRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+    public override GetAppHostInfoRequest WithTraceContext(BackchannelTraceContext traceContext) => new() { TraceContext = traceContext };
 }
 
 /// <summary>
@@ -174,7 +166,7 @@ internal sealed class GetAppHostInfoResponse
 internal sealed class GetDashboardInfoRequest : BackchannelRequest
 {
     /// <inheritdoc />
-    public override GetDashboardInfoRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new() { ProfilingContext = profilingContext };
+    public override GetDashboardInfoRequest WithTraceContext(BackchannelTraceContext traceContext) => new() { TraceContext = traceContext };
 }
 
 /// <summary>
@@ -215,9 +207,9 @@ internal sealed class GetResourcesRequest : BackchannelRequest
     public string? Filter { get; init; }
 
     /// <inheritdoc />
-    public override GetResourcesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override GetResourcesRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         Filter = Filter
     };
 }
@@ -244,9 +236,9 @@ internal sealed class WatchResourcesRequest : BackchannelRequest
     public string? Filter { get; init; }
 
     /// <inheritdoc />
-    public override WatchResourcesRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override WatchResourcesRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         Filter = Filter
     };
 }
@@ -282,9 +274,9 @@ internal sealed class GetConsoleLogsRequest : BackchannelRequest
     public bool IncludeHidden { get; init; }
 
     /// <inheritdoc />
-    public override GetConsoleLogsRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override GetConsoleLogsRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         ResourceName = ResourceName,
         Follow = Follow,
         Search = Search,
@@ -314,9 +306,9 @@ internal sealed class CallMcpToolRequest : BackchannelRequest
     public JsonElement? Arguments { get; init; }
 
     /// <inheritdoc />
-    public override CallMcpToolRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override CallMcpToolRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         ResourceName = ResourceName,
         ToolName = ToolName,
         Arguments = Arguments
@@ -366,9 +358,9 @@ internal sealed class StopAppHostRequest : BackchannelRequest
     public int? ExitCode { get; init; }
 
     /// <inheritdoc />
-    public override StopAppHostRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override StopAppHostRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         ExitCode = ExitCode
     };
 }
@@ -410,9 +402,9 @@ internal sealed class ExecuteResourceCommandRequest : BackchannelRequest
     public bool NonInteractive { get; init; } = true;
 
     /// <inheritdoc />
-    public override ExecuteResourceCommandRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override ExecuteResourceCommandRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         ResourceName = ResourceName,
         CommandName = CommandName,
         Arguments = Arguments,
@@ -567,9 +559,9 @@ internal sealed class WaitForResourceRequest : BackchannelRequest
     public int TimeoutSeconds { get; init; } = 120;
 
     /// <inheritdoc />
-    public override WaitForResourceRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override WaitForResourceRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         ResourceName = ResourceName,
         Status = Status,
         TimeoutSeconds = TimeoutSeconds
@@ -923,9 +915,9 @@ internal sealed class GetPipelineStepsRequest : BackchannelRequest
     public string? Step { get; init; }
 
     /// <inheritdoc />
-    public override GetPipelineStepsRequest WithProfilingContext(BackchannelProfilingContext profilingContext) => new()
+    public override GetPipelineStepsRequest WithTraceContext(BackchannelTraceContext traceContext) => new()
     {
-        ProfilingContext = profilingContext,
+        TraceContext = traceContext,
         Step = Step
     };
 }

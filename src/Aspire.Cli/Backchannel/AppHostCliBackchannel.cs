@@ -295,7 +295,10 @@ internal sealed class AppHostCliBackchannel(
             JsonRpc? rpc = null;
             try
             {
-                rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream, stream, BackchannelJsonSerializerContext.CreateRpcMessageFormatter()));
+                rpc = new JsonRpc(new HeaderDelimitedMessageHandler(stream, stream, BackchannelJsonSerializerContext.CreateRpcMessageFormatter()))
+                {
+                    ActivityTracingStrategy = new ActivityTracingStrategy()
+                };
                 rpc.StartListening();
                 activity.AddBackchannelRpcListeningEvent();
 
