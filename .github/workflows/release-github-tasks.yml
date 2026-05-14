@@ -89,29 +89,10 @@ jobs:
           ACTOR_ID="${{ github.actor_id }}"
           echo "Checking if $ACTOR (id=$ACTOR_ID) is authorized to run releases..."
 
-          # When the AzDO release pipeline dispatches this workflow, the actor
-          # is the aspire-repo-bot GitHub App (login: aspire-repo-bot[bot]).
-          # That path is already gated on AzDO release-publish permissions, so
-          # we skip the human admin/maintain check for the bot.
-          #
-          # Defense-in-depth notes (in case a reviewer is wondering "can someone
-          # rename their account to bypass this?"):
-          #   1. GitHub reserves the "[bot]" suffix exclusively for GitHub App
-          #      bot accounts. A regular user cannot rename to a login ending
-          #      in "[bot]", so the literal login match already blocks user
-          #      impersonation.
-          #   2. We still verify the actor's account `type == "Bot"` via the
-          #      GitHub API, which catches any edge case where the literal
-          #      string match would otherwise be insufficient.
-          #   3. `github.actor_id` is the immutable numeric account id and does
-          #      not change on rename. We compare it against the id returned
-          #      by the API for the current login; any mismatch means the
-          #      account holding this login is not the same account the
-          #      context claims is acting, and we refuse.
-          # The only remaining theoretical bypass is deleting the aspire-repo-bot
-          # GitHub App and re-creating a new App that takes the same login,
-          # which requires repo-admin privileges (i.e. the attacker already
-          # has authority to run releases anyway).
+          # The AzDO release pipeline dispatches this workflow as the
+          # aspire-repo-bot GitHub App. That path is already gated on AzDO
+          # release-publish permissions, so we skip the human admin/maintain
+          # check for the bot after verifying the actor identity.
           if [[ "$ACTOR" == "aspire-repo-bot[bot]" ]]; then
             ACTOR_INFO=$(gh api "users/$ACTOR" 2>/dev/null || echo '')
             ACTOR_TYPE=$(echo "$ACTOR_INFO" | jq -r '.type // empty')
