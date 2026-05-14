@@ -603,7 +603,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                 SecretName = await ResolveExpressionAsync(tls.SecretName, cancellationToken).ConfigureAwait(false),
             };
 
-            foreach (var host in tls.Hosts)
+            foreach (var host in ingressResource.Hostnames)
             {
                 tlsEntry.Hosts.Add(await ResolveExpressionAsync(host, cancellationToken).ConfigureAwait(false));
             }
@@ -622,7 +622,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
 
             foreach (var tls in ingressResource.TlsConfigs)
             {
-                foreach (var host in tls.Hosts)
+                foreach (var host in ingressResource.Hostnames)
                 {
                     var resolvedHost = await ResolveExpressionAsync(host, cancellationToken).ConfigureAwait(false);
                     if (!hostsWithRules.Contains(resolvedHost))
@@ -767,7 +767,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
         {
             var resolvedSecretName = await ResolveExpressionAsync(tls.SecretName, cancellationToken).ConfigureAwait(false);
 
-            if (tls.Hosts.Count == 0)
+            if (gatewayResource.Hostnames.Count == 0)
             {
                 // No hostnames specified — create an HTTPS listener without a hostname restriction.
                 // The hostname will be discovered from the Gateway's assigned address after deployment
@@ -793,7 +793,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
             }
             else
             {
-                foreach (var host in tls.Hosts)
+                foreach (var host in gatewayResource.Hostnames)
                 {
                     var listenerName = tlsListenerIndex == 0 ? "https" : $"https-{tlsListenerIndex}";
                     tlsListenerIndex++;
@@ -924,7 +924,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
         {
             foreach (var tls in gateway.TlsConfigs)
             {
-                foreach (var host in tls.Hosts)
+                foreach (var host in gateway.Hostnames)
                 {
                     tlsSecrets.Add((tls.SecretName, host));
                 }
@@ -935,7 +935,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
         {
             foreach (var tls in ingress.TlsConfigs)
             {
-                foreach (var host in tls.Hosts)
+                foreach (var host in ingress.Hostnames)
                 {
                     tlsSecrets.Add((tls.SecretName, host));
                 }
@@ -959,7 +959,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
         {
             foreach (var tls in gateway.TlsConfigs)
             {
-                if (tls.Hosts.Count == 0)
+                if (gateway.Hostnames.Count == 0)
                 {
                     results.Add((gateway, tls.SecretName));
                 }
