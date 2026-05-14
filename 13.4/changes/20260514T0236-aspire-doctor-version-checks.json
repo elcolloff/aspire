@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "aspire doctor now reports the current Aspire CLI version (with an update notice if a newer version is available) and the AppHost SDK version when an AppHost is detected, making version mismatches immediately visible without running other commands.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🩺",
+  "firstMergedAt": "2026-05-14T02:36:40Z",
+  "lastMergedAt": "2026-05-14T02:36:40Z",
+  "name": "Aspire version checks in aspire doctor",
+  "owner": "davidfowl",
+  "prs": [
+    17003
+  ]
+}

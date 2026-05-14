@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The release publish pipeline now skips WinGet and Homebrew artifact downloads and SBOM-stamping when the corresponding SkipWinGetPublish or SkipHomebrewPublish flags are set, eliminating unnecessary work during conditional pipeline re-runs.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛠️",
+  "firstMergedAt": "2026-05-14T01:41:04Z",
+  "lastMergedAt": "2026-05-14T01:41:04Z",
+  "name": "Skip WinGet/Homebrew artifact work when publish is skipped",
+  "owner": "joperezr",
+  "prs": [
+    17069
+  ]
+}

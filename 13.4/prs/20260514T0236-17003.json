@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "New version checks in aspire doctor: CLI version with update notice and AppHost SDK version",
+  "mergedAt": "2026-05-14T02:36:40Z",
+  "number": 17003,
+  "runDate": "2026-05-14T03:06:06Z",
+  "status": "included",
+  "title": "Add doctor Aspire version checks"
+}

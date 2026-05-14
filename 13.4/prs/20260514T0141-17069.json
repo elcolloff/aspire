@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Release pipeline improvement: skip WinGet/Homebrew artifact downloads and SBOM stamping when publish is skipped",
+  "mergedAt": "2026-05-14T01:41:04Z",
+  "number": 17069,
+  "runDate": "2026-05-14T03:06:06Z",
+  "status": "included",
+  "title": "Skip WinGet/Homebrew downloads in PrepareArtifacts stage when publish is skipped"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Server-side log search filtering for aspire logs --search; grouped with PR #16939 search filter entry",
+  "mergedAt": "2026-05-14T02:33:56Z",
+  "number": 17010,
+  "runDate": "2026-05-14T03:06:06Z",
+  "status": "included",
+  "title": "Improve Aspire logs search performance"
+}
