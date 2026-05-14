@@ -104,9 +104,16 @@ internal sealed class AspireVersionCheck(
                     Category = "aspire",
                     Name = "cli-version",
                     Status = EnvironmentCheckStatus.Warning,
-                    Message = AppendChannelSuffix(
-                        string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.CliVersionOutOfDateMessageFormat, currentVersion, latestVersion),
-                        identityChannel),
+                    // Embed the channel suffix into the CURRENT version slot
+                    // (not at the end of the message) so the channel is
+                    // unambiguously attached to the version it qualifies.
+                    // Before: "...version 13.4.0-dev is out of date. Latest is X (channel: local)"
+                    // After:  "...version 13.4.0-dev (channel: local) is out of date. Latest is X"
+                    Message = string.Format(
+                        CultureInfo.CurrentCulture,
+                        DoctorCommandStrings.CliVersionOutOfDateMessageFormat,
+                        WithChannelSuffix(currentVersion, identityChannel),
+                        latestVersion),
                     Fix = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.CliVersionOutOfDateFixFormat, status.UpdateCommand ?? "aspire update"),
                     Metadata = BuildCliVersionMetadata(currentVersion, latestVersion, status.UpdateCommand, updateCheckError: null, identityChannel)
                 };
@@ -143,10 +150,35 @@ internal sealed class AspireVersionCheck(
 
     private static string FormatCliVersionMessage(string currentVersion, string? identityChannel)
     {
-        var baseMessage = string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.CliVersionMessageFormat, currentVersion);
-        return AppendChannelSuffix(baseMessage, identityChannel);
+        return string.Format(
+            CultureInfo.CurrentCulture,
+            DoctorCommandStrings.CliVersionMessageFormat,
+            WithChannelSuffix(currentVersion, identityChannel));
     }
 
+    /// <summary>
+    /// Returns <paramref name="version"/> with the channel suffix appended
+    /// inline (e.g. <c>"13.0.0 (channel: stable)"</c>) so the channel is
+    /// unambiguously attached to that specific version in any message
+    /// template that mentions multiple versions.
+    /// </summary>
+    private static string WithChannelSuffix(string version, string? channel)
+    {
+        if (string.IsNullOrEmpty(channel))
+        {
+            return version;
+        }
+
+        return version + string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.ChannelSuffixFormat, channel);
+    }
+
+    /// <summary>
+    /// Appends the channel suffix to an arbitrary message. Used only for
+    /// message templates that mention exactly one version (so there's no
+    /// ambiguity about which version the channel qualifies). For templates
+    /// with multiple versions, use <see cref="WithChannelSuffix"/> inline
+    /// on the relevant version slot instead.
+    /// </summary>
     private static string AppendChannelSuffix(string message, string? channel)
     {
         if (string.IsNullOrEmpty(channel))
@@ -251,9 +283,17 @@ internal sealed class AspireVersionCheck(
                     Category = "apphost",
                     Name = "apphost-version",
                     Status = EnvironmentCheckStatus.Pass,
-                    Message = AppendChannelSuffix(
-                        string.Format(CultureInfo.CurrentCulture, DoctorCommandStrings.AppHostVersionMessageFormat, version, relativePath),
-                        pinnedChannel),
+                    // Channel goes inline next to the version, not at the
+                    // end of the message: "AppHost version 13.0.0 (channel: stable) (path/to/AppHost.csproj)"
+                    // rather than "AppHost version 13.0.0 (path/to/AppHost.csproj) (channel: stable)"
+                    // — the format trails the version with the AppHost
+                    // path, so a tail-appended channel would attach to the
+                    // path instead.
+                    Message = string.Format(
+                        CultureInfo.CurrentCulture,
+                        DoctorCommandStrings.AppHostVersionMessageFormat,
+                        WithChannelSuffix(version, pinnedChannel),
+                        relativePath),
                     Metadata = BuildAppHostVersionMetadata(relativePath, version, pinnedChannel)
                 };
             }
