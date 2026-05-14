@@ -23,7 +23,7 @@ public static class CertManagerExtensions
     // The pinned default cert-manager chart version. Bump deliberately when validating against
     // a newer release; the Helm chart's API and CRDs evolve across minor versions.
     private const string DefaultChartReference = "oci://quay.io/jetstack/charts/cert-manager";
-    private const string DefaultChartVersion = "v1.18.2";
+    private const string DefaultChartVersion = "v1.20.2";
 
     // Well-known ACME directory endpoints. See https://letsencrypt.org/docs/acme-protocol-updates/
     // for the current canonical URLs.
