@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "New typed cert-manager API for Kubernetes/AKS environments",
+  "mergedAt": "2026-05-14T12:36:05Z",
+  "number": 17008,
+  "runDate": "2026-05-14T14:54:25Z",
+  "status": "included",
+  "title": "Add typed cert-manager API for Kubernetes/AKS environments"
+}

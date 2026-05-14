@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Typed cert-manager API for Kubernetes environments lets you install cert-manager, create ClusterIssuers backed by Let's Encrypt (staging or production) or a custom ACME server, and wire TLS directly to gateways — all through the Aspire app model without dropping into raw Helm values or annotations.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔐",
+  "firstMergedAt": "2026-05-14T12:36:05Z",
+  "lastMergedAt": "2026-05-14T12:36:05Z",
+  "name": "Cert-manager integration for Kubernetes and AKS",
+  "owner": "mitchdenny",
+  "prs": [
+    17008
+  ]
+}

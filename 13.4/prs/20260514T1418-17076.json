@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Internal changelog generator instruction file change only; no user-visible impact",
+  "mergedAt": "2026-05-14T14:18:18Z",
+  "number": 17076,
+  "runDate": "2026-05-14T14:54:25Z",
+  "status": "excluded",
+  "title": "Require docs for breaking changelog entries"
+}

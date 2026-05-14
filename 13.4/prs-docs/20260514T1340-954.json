@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Removes client-side language auto-detect redirect from docs site; not related to a 13.4 feature changelog entry",
+  "mergedAt": "2026-05-14T13:40:13Z",
+  "number": 954,
+  "runDate": "2026-05-14T14:54:25Z",
+  "status": "excluded",
+  "title": "Remove client-side language auto-detect redirect"
+}

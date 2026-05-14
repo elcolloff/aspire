@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "NuGet package-backed integrations are now loaded from a probe manifest instead of being copied into mutable `.aspire/.../libs` folders during AppHost restore. This fixes stale-cache issues when integration packages change and ensures corrupt or outdated cache entries are detected and regenerated.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📦",
+  "firstMergedAt": "2026-05-14T14:52:42Z",
+  "lastMergedAt": "2026-05-14T14:52:42Z",
+  "name": "Fix NuGet integration restore in AppHost",
+  "owner": "danegsta",
+  "prs": [
+    16683
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Fixes NuGet integration restore to use probe manifest instead of copying assets",
+  "mergedAt": "2026-05-14T14:52:42Z",
+  "number": 16683,
+  "runDate": "2026-05-14T14:54:25Z",
+  "status": "included",
+  "title": "Avoid copying NuGet integration assets during AppHost restore"
+}
