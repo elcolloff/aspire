@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" msdata:Ordinal="5" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Description" xml:space="preserve">
+    <value>Show information about Aspire CLI installations</value>
+  </data>
+  <data name="AllOptionDescription" xml:space="preserve">
+    <value>Discover and describe all Aspire CLI installations on this machine (default: only the currently running CLI)</value>
+  </data>
+  <data name="FormatOptionDescription" xml:space="preserve">
+    <value>Output format (Table or Json)</value>
+  </data>
+  <data name="HeaderInstallations" xml:space="preserve">
+    <value>Aspire CLI Installations</value>
+  </data>
+  <data name="ColumnPath" xml:space="preserve">
+    <value>Path</value>
+  </data>
+  <data name="ColumnVersion" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="ColumnChannel" xml:space="preserve">
+    <value>Channel</value>
+  </data>
+  <data name="ColumnRoute" xml:space="preserve">
+    <value>Route</value>
+  </data>
+  <data name="ColumnOnPath" xml:space="preserve">
+    <value>On PATH</value>
+  </data>
+  <data name="ValueCurrentMarker" xml:space="preserve">
+    <value>(current)</value>
+    <comment>Suffix appended to the running CLI's path so the user can identify which install is themselves.</comment>
+  </data>
+  <data name="ValueUnknown" xml:space="preserve">
+    <value>(unknown)</value>
+    <comment>Placeholder shown in the table when a field could not be determined for a discovered install.</comment>
+  </data>
+  <data name="ValueNotProbed" xml:space="preserve">
+    <value>(not probed)</value>
+    <comment>Placeholder shown in the table when an install was found but not asked to self-describe (e.g., trust gate).</comment>
+  </data>
+  <data name="ValueYes" xml:space="preserve">
+    <value>yes</value>
+  </data>
+  <data name="ValueNo" xml:space="preserve">
+    <value>no</value>
+  </data>
+</root>
