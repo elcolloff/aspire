@@ -244,12 +244,17 @@ public sealed class CentralPackageManagementTests(ITestOutputHelper output)
         // Second update: SDK is already current, so AnalyzeAppHostSdkAsync will
         // skip the SDK update step. The updater must still detect and remove the
         // orphan PackageVersion - that cleanup is itself an update step, so the
-        // run will prompt for confirmation just like the first update did. The
-        // NuGet.config prompts only appear when no NuGet.config is present yet,
-        // and the first run already wrote one, so they are not expected here.
+        // run prompts for confirmation just like the first update did, and
+        // re-prompts for the NuGet.config because any update step (not just SDK
+        // migration) can introduce package mappings the existing config may not
+        // cover.
         await auto.TypeAsync($"aspire update --project \"{containerAppHostCsprojPath}\" --channel stable");
         await auto.EnterAsync();
         await auto.WaitUntilTextAsync("Perform updates?", timeout: TimeSpan.FromSeconds(60));
+        await auto.EnterAsync();
+        await auto.WaitUntilTextAsync("Which directory for NuGet.config file?", timeout: TimeSpan.FromSeconds(30));
+        await auto.EnterAsync();
+        await auto.WaitUntilTextAsync("Apply these changes to NuGet.config?", timeout: TimeSpan.FromSeconds(30));
         await auto.EnterAsync();
         await auto.WaitUntilTextAsync("Update successful!", timeout: TimeSpan.FromSeconds(60));
         await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromSeconds(120));
