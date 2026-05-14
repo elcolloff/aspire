@@ -301,7 +301,20 @@ builder.Build().Run();
             await auto.EnterAsync();
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(4));
 
-            output.WriteLine("Step 18: Destroying deployment...");
+            // Re-deploy without --clear-cache to exercise the helm UPGRADE path on top of the
+            // already-installed cert-manager release. This guards against bugs that only manifest
+            // on the second deploy — e.g. helm CLI flag parsing changes between major versions
+            // (helm v4 made --server-side a string flag, which would silently consume the
+            // following --force-conflicts as its value during install and then fail every
+            // subsequent upgrade with "invalid/unknown release server-side apply method:
+            // --force-conflicts"). The first deploy alone would not catch this.
+            output.WriteLine("Step 18: Re-deploying to validate helm upgrade idempotency...");
+            await auto.TypeAsync("aspire deploy");
+            await auto.EnterAsync();
+            await auto.WaitForPipelineSuccessAsync(timeout: TimeSpan.FromMinutes(20));
+            await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(2));
+
+            output.WriteLine("Step 19: Destroying deployment...");
             await auto.AspireDestroyAsync(counter);
 
             await auto.TypeAsync("exit");
