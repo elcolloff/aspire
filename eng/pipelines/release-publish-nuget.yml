@@ -17,41 +17,11 @@ trigger: none  # Manual trigger only
 pr: none       # Not triggered by PRs
 
 parameters:
-  - name: GaChannelName
-    displayName: 'GA Channel Name'
-    type: string
-    default: 'Aspire 9.x GA'
+  # ===== COMMON PARAMETERS =====
+  # The two most common knobs for a release run. Most other parameters below
+  # are flagged [Advanced] and should be left at their defaults unless you
+  # are deliberately re-running after a partial failure.
 
-  - name: DryRun
-    displayName: 'Dry Run (skip actual publish - for testing)'
-    type: boolean
-    default: false
-
-  # Idempotency flags for re-running after partial failures
-  - name: SkipNuGetPublish
-    displayName: 'Skip NuGet Publishing (set true if already completed)'
-    type: boolean
-    default: false
-
-  - name: SkipChannelPromotion
-    displayName: 'Skip Channel Promotion (set true if already completed)'
-    type: boolean
-    default: false
-
-  - name: SkipWinGetPublish
-    displayName: 'Skip WinGet Publishing (set true if already completed)'
-    type: boolean
-    default: false
-
-  - name: SkipHomebrewPublish
-    displayName: 'Skip Homebrew Publishing (set true if already completed)'
-    type: boolean
-    default: false
-
-  # Inputs required to dispatch the release-github-tasks workflow at the end of
-  # the pipeline. commit_sha and release_branch are derived from the source
-  # build resource. release_version is provided explicitly; is_prerelease
-  # defaults to false because preview releases are rare.
   - name: ReleaseVersion
     displayName: 'Release Version (e.g. 13.0.0). Used as the v<version> tag.'
     type: string
@@ -61,13 +31,48 @@ parameters:
     type: boolean
     default: false
 
+  - name: DryRun
+    displayName: 'Dry Run (skip actual publish - for testing)'
+    type: boolean
+    default: false
+
+  - name: GaChannelName
+    displayName: 'GA Channel Name'
+    type: string
+    default: 'Aspire 9.x GA'
+
+  # ===== ADVANCED PARAMETERS =====
+  # Below this point: leave defaults unless you know exactly what you are
+  # changing. The Skip* booleans are for re-running after a partial failure;
+  # GitHubTasksWorkflowRef is for testing pipeline changes on a topic branch.
+
+  - name: SkipNuGetPublish
+    displayName: '[Advanced] Skip NuGet Publishing (re-run after success)'
+    type: boolean
+    default: false
+
+  - name: SkipChannelPromotion
+    displayName: '[Advanced] Skip Channel Promotion (re-run after success)'
+    type: boolean
+    default: false
+
+  - name: SkipWinGetPublish
+    displayName: '[Advanced] Skip WinGet Publishing (re-run after success)'
+    type: boolean
+    default: false
+
+  - name: SkipHomebrewPublish
+    displayName: '[Advanced] Skip Homebrew Publishing (re-run after success)'
+    type: boolean
+    default: false
+
   - name: SkipGitHubTasks
-    displayName: 'Skip GitHub Tasks dispatch (set true if already completed)'
+    displayName: '[Advanced] Skip GitHub Tasks dispatch (re-run after success)'
     type: boolean
     default: false
 
   - name: SkipReleaseAssets
-    displayName: 'Skip CLI asset upload to GitHub Release (set true if already completed)'
+    displayName: '[Advanced] Skip CLI asset upload to GitHub Release (re-run after success)'
     type: boolean
     default: false
 
@@ -78,7 +83,7 @@ parameters:
   # affects the workflow source — not what gets tagged or released. Defaults to
   # 'main' so workflow fixes don't require backporting to every release branch.
   - name: GitHubTasksWorkflowRef
-    displayName: 'Ref to dispatch release-github-tasks.yml from (workflow source only)'
+    displayName: '[Advanced] Ref to dispatch release-github-tasks.yml from (workflow source only)'
     type: string
     default: 'main'
 
@@ -101,6 +106,12 @@ resources:
     - pipeline: aspire-build
       source: microsoft-aspire  # Name of the main build pipeline
       project: internal      # AzDO project name
+      # Default the source-build picker to the newest build from a release/*
+      # branch. This is what the release pipeline is actually run against
+      # ~100% of the time; without this filter AzDO defaults to the absolute
+      # latest build (often from `main`), which has to be manually changed
+      # every run.
+      branch: refs/heads/release/*
       trigger: none          # Manual trigger only - no automatic releases
 
 extends:
@@ -370,29 +381,40 @@ extends:
                   displayName: 'List Packages'
 
                 # ===== VERIFY SIGNATURES =====
-                - powershell: |
+                # Verify packages in parallel via ForEach-Object -Parallel.
+                # Sequential verification was the single biggest time sink in
+                # this stage (~1.5s per package * ~80 packages). Throttle to
+                # 8 to avoid saturating the runner's CPU / network for the
+                # cert-revocation checks `dotnet nuget verify` performs. The
+                # runner ships PowerShell 7+, so -Parallel is available.
+                - pwsh: |
                     $packagesPath = "$(Pipeline.Workspace)/packages/PackageArtifacts"
-                    Write-Host "=== Verifying Package Signatures ==="
+                    Write-Host "=== Verifying Package Signatures (parallel) ==="
 
                     $packages = Get-ChildItem -Path $packagesPath -Filter "*.nupkg" -Recurse
-                    $failedVerification = @()
+                    Write-Host "Found $($packages.Count) packages to verify"
 
-                    foreach ($package in $packages) {
-                      Write-Host "Verifying: $($package.Name)"
+                    # ConcurrentBag is thread-safe; we collect failed package
+                    # names across runspaces without locking.
+                    $failedVerification = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
 
-                      # Use $ErrorActionPreference to prevent PowerShell from treating stderr as terminating error
-                      $originalErrorActionPreference = $ErrorActionPreference
+                    $packages | ForEach-Object -ThrottleLimit 8 -Parallel {
+                      $package = $_
+                      $bag = $using:failedVerification
+
+                      # Prevent PowerShell from treating stderr writes from
+                      # the verify command as terminating errors inside the
+                      # parallel runspace.
                       $ErrorActionPreference = 'Continue'
                       $result = dotnet nuget verify $package.FullName 2>&1
                       $verifyExitCode = $LASTEXITCODE
-                      $ErrorActionPreference = $originalErrorActionPreference
 
                       if ($verifyExitCode -ne 0) {
-                        Write-Host "  ❌ Signature verification FAILED"
+                        Write-Host "  ❌ $($package.Name): signature verification FAILED"
                         Write-Host $result
-                        $failedVerification += $package.Name
+                        $bag.Add($package.Name)
                       } else {
-                        Write-Host "  ✓ Signature valid"
+                        Write-Host "  ✓ $($package.Name)"
                       }
                     }
 

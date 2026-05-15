@@ -6,7 +6,7 @@ This document describes the release process for microsoft/aspire, including both
 
 The Aspire release process involves two main automation components:
 
-1. **Azure DevOps Pipeline** (`eng/pipelines/release-publish-nuget.yml`)
+1. **Azure DevOps Pipeline** ([`release-publish-nuget`](https://dev.azure.com/dnceng/internal/_build?definitionId=1600&_a=summary), source: `eng/pipelines/release-publish-nuget.yml`)
    - Publishes NuGet packages to NuGet.org
    - Promotes the build to the GA channel via darc
    - Submits WinGet and Homebrew installer PRs
@@ -52,19 +52,31 @@ Before starting a release:
 
 ### Step 1: Run the AzDO release pipeline (one click for everything)
 
-1. Navigate to the Azure DevOps pipeline: `release-publish-nuget`
+1. Navigate to the Azure DevOps pipeline:
+   [release-publish-nuget](https://dev.azure.com/dnceng/internal/_build?definitionId=1600&_a=summary)
+   (definition `1600` in `dnceng/internal`)
 2. Click "Run pipeline"
 3. Under **Resources**, select the source build from the `aspire-build` dropdown
    - This shows recent builds from the `dotnet-aspire` pipeline
    - Select the specific signed build you want to release
-4. Fill in the parameters:
+4. Fill in the parameters. **Most should stay at their defaults** — the
+   ones flagged `[Advanced]` in the run-pipeline form are only for
+   re-running after a partial failure or for testing pipeline changes on a
+   topic branch.
+
+   **Common (you may set these every release):**
 
    | Parameter | Description | Example |
    |-----------|-------------|---------|
-   | `GaChannelName` | Target GA channel | `Aspire 9.x GA` |
    | `ReleaseVersion` | Release version (used as `v<version>` tag) | `13.0.0` |
    | `IsPrerelease` | `true` for preview releases | `false` |
    | `DryRun` | Set `true` to test without publishing or tagging | `false` |
+   | `GaChannelName` | Target GA channel | `Aspire 9.x GA` |
+
+   **Advanced (leave defaults unless you know what you're doing):**
+
+   | Parameter | Description | Default |
+   |-----------|-------------|---------|
    | `SkipNuGetPublish` | Set `true` if re-running after NuGet success | `false` |
    | `SkipChannelPromotion` | Set `true` if re-running after darc success | `false` |
    | `SkipWinGetPublish` | Set `true` if re-running after WinGet success | `false` |
@@ -154,13 +166,25 @@ The pipeline runs as a single stage with all steps in sequence. If a step fails:
 
 ### GitHub Actions Failures
 
-| Job Failed | Resolution |
-|------------|------------|
-| validate | Fix the input parameters and re-run |
-| create-tag | If tag exists with wrong SHA, requires manual resolution |
-| create-release | Re-run with `skip_tagging: true` |
-| create-merge-pr | Re-run with `skip_tagging: true`, `skip_github_release: true` |
-| create-baseline-pr | Re-run with all prior skips set to `true` |
+The GitHub workflow runs as a single `release` job with all tasks as
+sequential steps. The previous design split these across six jobs and paid
+the runner-provisioning tax on each; consolidation cuts that to one. If a
+step fails, drill into the run UI to see exactly which step (tag, release,
+merge PR, baseline PR) hit the issue.
+
+Re-run with the corresponding `skip_*` input set to `true` to skip steps
+that have already succeeded. The skip inputs are still passed step-by-step
+so partial-failure re-runs behave the same way they did before
+consolidation.
+
+| Step Failed | Resolution |
+|-------------|------------|
+| Authorize | Caller lacks admin/maintain permission (or AzDO bot identity check failed) |
+| Validate Version Format / Commit SHA | Fix the input parameters and re-run |
+| Create Tag | If tag exists with wrong SHA, requires manual resolution |
+| Create GitHub Release | Re-run with `skip_tagging: true` |
+| Create Merge PR | Re-run with `skip_tagging: true`, `skip_github_release: true` |
+| Create Baseline PR | Re-run with all prior skips set to `true` |
 
 ## Configuration
 
