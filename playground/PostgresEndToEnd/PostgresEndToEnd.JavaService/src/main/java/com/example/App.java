@@ -1,189 +1,118 @@
 package com.example;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.sql.*;
-import java.util.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
-import com.azure.identity.DefaultAzureCredential;
 import com.azure.identity.DefaultAzureCredentialBuilder;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
+import io.javalin.Javalin;
 
-public class App {
+/**
+ * Minimal HTTP service used by Aspire's PostgresEndToEnd playground. Exposes a single
+ * GET / endpoint that inserts a row into a "entries" table and returns every row,
+ * optionally authenticating against Azure Database for PostgreSQL with Entra credentials.
+ */
+public final class App {
     private static final String AZURE_DB_FOR_POSTGRES_SCOPE = "https://ossrdbms-aad.database.windows.net/.default";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public static void main(String[] args) throws IOException {
-        int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "4567"));
-        System.out.println("Starting Java service on port " + port);
-
-        // Use the JDK's built-in HTTP server instead of a third-party framework. This avoids
-        // pulling in Spark + Jetty 9.x transitives that show up as Component Governance
-        // security alerts. The endpoint surface here is intentionally tiny (a single GET / handler),
-        // so HttpServer is sufficient.
-        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-        server.createContext("/", App::handleRoot);
-        server.start();
-
-        System.out.println("Java service is ready and listening on port " + port);
+    private App() {
     }
 
-    private static void handleRoot(HttpExchange exchange) throws IOException {
-        URI requestUri = exchange.getRequestURI();
-        System.out.println("Received " + exchange.getRequestMethod() + " request to " + requestUri.getPath());
-
-        // Only handle exact "/" to avoid HttpServer's default prefix matching behavior
-        // (it would otherwise dispatch e.g. "/anything" here as well, which we don't want).
-        if (!"/".equals(requestUri.getPath())) {
-            sendResponse(exchange, 404, "application/json", "{\"error\":\"not found\"}");
-            return;
-        }
-
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            exchange.getResponseHeaders().add("Allow", "GET");
-            sendResponse(exchange, 405, "application/json", "{\"error\":\"method not allowed\"}");
-            return;
-        }
-
-        try {
-            String response = buildEntriesResponse();
-            sendResponse(exchange, 200, "application/json", response);
-        } catch (Exception e) {
-            System.err.println("Request error: " + e.getMessage());
-            e.printStackTrace();
-            sendResponse(exchange, 500, "application/json",
-                String.format("{\"error\":\"%s\"}", escapeJson(e.getMessage())));
-        }
+    public static void main(String[] args) {
+        var port = Integer.parseInt(System.getenv().getOrDefault("PORT", "4567"));
+        // Javalin 7 requires routes to be registered via config.routes inside the
+        // create() lambda; you can no longer attach them after start().
+        Javalin.create(config ->
+            config.routes.get("/", ctx -> ctx.json(listEntries()))
+        ).start(port);
     }
 
-    private static String buildEntriesResponse() throws Exception {
-        String uri = System.getenv("DB1_JDBCCONNECTIONSTRING");
-        String user = System.getenv("DB1_USERNAME");
-        String password = System.getenv("DB1_PASSWORD");
+    private static Map<String, Object> listEntries() throws Exception {
+        var uri = System.getenv("DB1_JDBCCONNECTIONSTRING");
+        var user = System.getenv("DB1_USERNAME");
+        var password = System.getenv("DB1_PASSWORD");
 
-        // If user is not provided, use Entra authentication
+        // If no username is configured, fall back to Entra authentication. We extract the
+        // username from the access token's claims and use the token as the password — the
+        // standard pattern for Azure Database for PostgreSQL with passwordless auth.
         if (user == null || user.isEmpty()) {
-            System.out.println("Using Entra authentication");
-            DefaultAzureCredential credential = new DefaultAzureCredentialBuilder().build();
-            EntraConnInfo connInfo = getEntraConnInfo(credential);
-
-            user = connInfo.user;
-            password = connInfo.password;
-            System.out.println("Extracted username from token: " + user);
+            var conn = resolveEntraConnection(new DefaultAzureCredentialBuilder().build());
+            user = conn.user();
+            password = conn.password();
         }
 
-        System.out.println("Connecting to database: " + uri);
-        List<String> entries = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(uri, user, password)) {
-            System.out.println("Connected to database successfully");
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute("CREATE TABLE IF NOT EXISTS entries (id UUID PRIMARY KEY);");
-                System.out.println("Table 'entries' checked/created");
+        var entries = new ArrayList<String>();
+        try (var connection = DriverManager.getConnection(uri, user, password)) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("CREATE TABLE IF NOT EXISTS entries (id UUID PRIMARY KEY);");
             }
-            try (PreparedStatement ps = conn.prepareStatement("INSERT INTO entries (id) VALUES (?);")) {
-                UUID newId = UUID.randomUUID();
-                ps.setObject(1, newId);
-                ps.executeUpdate();
-                System.out.println("Inserted new entry: " + newId);
+            try (PreparedStatement insert = connection.prepareStatement("INSERT INTO entries (id) VALUES (?);")) {
+                insert.setObject(1, UUID.randomUUID());
+                insert.executeUpdate();
             }
-            try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT id FROM entries;")) {
-                while (rs.next()) entries.add(rs.getString("id"));
+            try (Statement statement = connection.createStatement();
+                 ResultSet rs = statement.executeQuery("SELECT id FROM entries;")) {
+                while (rs.next()) {
+                    entries.add(rs.getString("id"));
+                }
             }
-            System.out.println("Total entries retrieved: " + entries.size());
         }
 
-        return String.format("{\"totalEntries\": %d, \"entries\": %s}", entries.size(), entries.toString());
-    }
-
-    private static void sendResponse(HttpExchange exchange, int status, String contentType, String body) throws IOException {
-        byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.sendResponseHeaders(status, payload.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(payload);
-        }
-    }
-
-    private static String escapeJson(String value) {
-        if (value == null) {
-            return "";
-        }
-        // Minimal JSON escaping for error strings. Enough for short server-generated messages
-        // (e.g. SQL exception text); full RFC 8259 escaping is unnecessary here.
-        return value.replace("\\", "\\\\").replace("\"", "\\\"")
-            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+        return Map.of("totalEntries", entries.size(), "entries", entries);
     }
 
     /**
-     * Container for database connection information from Entra authentication.
+     * Connection info derived from an Entra access token.
      */
-    static class EntraConnInfo {
-        String user;
-        String password;
-
-        EntraConnInfo(String user, String password) {
-            this.user = user;
-            this.password = password;
-        }
+    private record EntraConnection(String user, String password) {
     }
 
-    /**
-     * Decodes a JWT token to extract its payload claims.
-     */
-    private static Map<String, Object> decodeJwt(String token) throws Exception {
-        // JWT layout: header.payload.signature, all base64url-encoded. We only need the
-        // middle segment (the claims set) to extract the username; the signature is verified
-        // by the issuer when the token was minted.
-        String[] parts = token.split("\\.");
+    private static EntraConnection resolveEntraConnection(TokenCredential credential) {
+        var request = new TokenRequestContext().addScopes(AZURE_DB_FOR_POSTGRES_SCOPE);
+        AccessToken accessToken = credential.getToken(request).block();
+        if (accessToken == null) {
+            throw new IllegalStateException("Failed to acquire an Entra access token.");
+        }
+
+        var token = accessToken.getToken();
+        var claims = decodeJwtPayload(token);
+
+        // Entra emits the username under different claim names depending on the account type
+        // (work/school vs. personal, federated vs. cloud-only). Try the common ones in order.
+        for (var name : List.of("upn", "preferred_username", "unique_name")) {
+            if (claims.get(name) instanceof String value && !value.isEmpty()) {
+                return new EntraConnection(value, token);
+            }
+        }
+
+        throw new IllegalStateException("Could not extract a username from the access token. Have you logged in?");
+    }
+
+    private static Map<String, Object> decodeJwtPayload(String token) {
+        // JWT layout: header.payload.signature, each segment base64url-encoded. We only
+        // need the middle (claims) segment; the signature was verified by the issuer.
+        var parts = token.split("\\.");
         if (parts.length < 2) {
-            throw new IllegalArgumentException("Invalid JWT token format");
+            throw new IllegalArgumentException("Invalid JWT token format.");
         }
-
-        String payload = parts[1];
-        byte[] decodedBytes = Base64.getUrlDecoder().decode(payload);
-        String decodedPayload = new String(decodedBytes, StandardCharsets.UTF_8);
-
-        ObjectMapper mapper = new ObjectMapper();
-        return mapper.readValue(decodedPayload, Map.class);
-    }
-
-    /**
-     * Obtains connection information from Entra authentication for Azure PostgreSQL.
-     * Acquires a token and extracts the username from the token claims.
-     */
-    private static EntraConnInfo getEntraConnInfo(TokenCredential credential) throws Exception {
-        // Fetch a new token and extract the username
-        TokenRequestContext request = new TokenRequestContext().addScopes(AZURE_DB_FOR_POSTGRES_SCOPE);
-        AccessToken tokenResponse = credential.getToken(request).block();
-
-        if (tokenResponse == null) {
-            throw new RuntimeException("Failed to acquire token from credential");
+        try {
+            return MAPPER.readValue(Base64.getUrlDecoder().decode(parts[1]),
+                new TypeReference<Map<String, Object>>() { });
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Failed to decode JWT payload.", ex);
         }
-
-        String token = tokenResponse.getToken();
-        Map<String, Object> claims = decodeJwt(token);
-
-        String username = null;
-        if (claims.containsKey("upn")) {
-            username = (String) claims.get("upn");
-        } else if (claims.containsKey("preferred_username")) {
-            username = (String) claims.get("preferred_username");
-        } else if (claims.containsKey("unique_name")) {
-            username = (String) claims.get("unique_name");
-        }
-
-        if (username == null) {
-            throw new RuntimeException("Could not extract username from token. Have you logged in?");
-        }
-
-        return new EntraConnInfo(username, token);
     }
 }

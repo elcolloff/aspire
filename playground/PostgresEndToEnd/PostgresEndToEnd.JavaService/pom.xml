@@ -72,10 +72,15 @@
 
     <dependencies>
         <!--
-            HTTP server: we use the JDK's built-in com.sun.net.httpserver.HttpServer (see App.java),
-            so there is intentionally no third-party web framework dependency here. This avoids
-            transitive Jetty/Netty versions that Component Governance flags.
+            Javalin gives us a tiny Sinatra-style HTTP framework with a modern Jetty 12 (Jakarta
+            EE 10) transitive stack, which avoids the Jetty 9.4.x components that Component
+            Governance flagged on the previous Spark-based service.
         -->
+        <dependency>
+            <groupId>io.javalin</groupId>
+            <artifactId>javalin</artifactId>
+            <version>7.2.2</version>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
