@@ -350,30 +350,50 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
     {
         var projectFile = context.AppHostProjectFile;
 
-        // Only project-style AppHosts (.csproj/.fsproj/.vbproj) can carry these
-        // legacy references. Single-file AppHosts (.cs with #:sdk directive)
-        // never have a csproj or Directory.Packages.props to worry about.
-        if (!ProjectFileExtensions.Supported.Contains(projectFile.Extension))
+        if (ProjectFileExtensions.Supported.Contains(projectFile.Extension))
         {
+            var (hasPackageReference, hasOrphanPackageVersion) = DetectLegacyAppHostReferences(projectFile);
+            if (!hasPackageReference && !hasOrphanPackageVersion)
+            {
+                return;
+            }
+
+            var step = new PackageUpdateStep(
+                UpdateCommandStrings.RemovedObsoleteAppHostPackage,
+                () => RemoveLegacyAppHostPackageReferencesAsync(projectFile, hasPackageReference, hasOrphanPackageVersion),
+                "Aspire.Hosting.AppHost",
+                // The new SDK adds Aspire.Hosting.AppHost implicitly, so there is no
+                // user-visible "current version" to display - report it as implicit.
+                "implicit",
+                "(removed)",
+                projectFile);
+            context.UpdateSteps.Enqueue(step);
             return;
         }
 
-        var (hasPackageReference, hasOrphanPackageVersion) = DetectLegacyAppHostReferences(projectFile);
-        if (!hasPackageReference && !hasOrphanPackageVersion)
+        // Single-file AppHosts (.cs with #:sdk directive) bring Aspire.Hosting.AppHost
+        // in implicitly via the SDK, just like the new csproj SDK format does. An
+        // explicit `#:package Aspire.Hosting.AppHost@<version>` directive in the
+        // .cs file is therefore redundant and, after a channel switch, becomes
+        // actively harmful: the deferred restore will fail with NU1103 because
+        // the now-mapped Aspire feed does not carry the user's stable version.
+        // See https://github.com/dotnet/aspire/issues/15891.
+        if (string.Equals(projectFile.Extension, ".cs", StringComparison.OrdinalIgnoreCase))
         {
-            return;
-        }
+            if (!HasLegacyAppHostPackageDirective(projectFile))
+            {
+                return;
+            }
 
-        var step = new PackageUpdateStep(
-            UpdateCommandStrings.RemovedObsoleteAppHostPackage,
-            () => RemoveLegacyAppHostPackageReferencesAsync(projectFile, hasPackageReference, hasOrphanPackageVersion),
-            "Aspire.Hosting.AppHost",
-            // The new SDK adds Aspire.Hosting.AppHost implicitly, so there is no
-            // user-visible "current version" to display - report it as implicit.
-            "implicit",
-            "(removed)",
-            projectFile);
-        context.UpdateSteps.Enqueue(step);
+            var step = new PackageUpdateStep(
+                UpdateCommandStrings.RemovedObsoleteAppHostPackage,
+                () => RemoveLegacyAppHostPackageDirectiveAsync(projectFile),
+                "Aspire.Hosting.AppHost",
+                "implicit",
+                "(removed)",
+                projectFile);
+            context.UpdateSteps.Enqueue(step);
+        }
     }
 
     private static (bool HasPackageReference, bool HasOrphanPackageVersion) DetectLegacyAppHostReferences(FileInfo projectFile)
@@ -765,11 +785,51 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         var newDirective = $"#:sdk Aspire.AppHost.Sdk@{package.Version}";
         var updatedContent = SdkDirectiveRegex().Replace(fileContent, newDirective, 1);
 
+        // The new SDK pulls Aspire.Hosting.AppHost in implicitly, so a leftover
+        // explicit `#:package Aspire.Hosting.AppHost@<version>` directive in the
+        // same file is redundant. Strip it here so the SDK-bump path matches
+        // the csproj migration in UpdateSdkVersionInProjectAppHostAsync. The
+        // SDK-already-current path goes through EnqueueLegacyAppHostCleanupStepIfNeeded.
+        updatedContent = LegacyAppHostPackageDirectiveRegex().Replace(updatedContent, string.Empty);
+
         await File.WriteAllTextAsync(projectFile.FullName, updatedContent);
     }
 
     [GeneratedRegex(@"#:sdk\s+Aspire\.AppHost\.Sdk@(?:[\d\.\-a-zA-Z]+|\*)")]
     internal static partial Regex SdkDirectiveRegex();
+
+    // Matches a whole line of the form "#:package Aspire.Hosting.AppHost@<version>"
+    // (case-insensitive on the package id), including trailing line break, so the
+    // whole directive can be removed without leaving a blank line behind. NuGet
+    // package IDs are case-insensitive (https://learn.microsoft.com/nuget/concepts/package-identifier).
+    [GeneratedRegex(@"^[ \t]*#:package\s+Aspire\.Hosting\.AppHost@\S+[ \t]*\r?\n?", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    internal static partial Regex LegacyAppHostPackageDirectiveRegex();
+
+    private static bool HasLegacyAppHostPackageDirective(FileInfo projectFile)
+    {
+        try
+        {
+            var fileContent = File.ReadAllText(projectFile.FullName);
+            return LegacyAppHostPackageDirectiveRegex().IsMatch(fileContent);
+        }
+        catch
+        {
+            // If the .cs file cannot be read here, leave detection (and the
+            // resulting failure) to the deferred restore step.
+            return false;
+        }
+    }
+
+    private static async Task RemoveLegacyAppHostPackageDirectiveAsync(FileInfo projectFile)
+    {
+        var fileContent = await File.ReadAllTextAsync(projectFile.FullName);
+        var updatedContent = LegacyAppHostPackageDirectiveRegex().Replace(fileContent, string.Empty);
+
+        if (!string.Equals(fileContent, updatedContent, StringComparison.Ordinal))
+        {
+            await File.WriteAllTextAsync(projectFile.FullName, updatedContent);
+        }
+    }
 
     private async Task AnalyzeProjectAsync(FileInfo projectFile, UpdateContext context, CancellationToken cancellationToken)
     {

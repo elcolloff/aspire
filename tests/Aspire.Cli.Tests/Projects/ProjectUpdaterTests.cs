@@ -2339,6 +2339,186 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task UpdateProjectFileAsync_SingleFileAppHost_RemovesLegacyAppHostPackageDirectiveDuringSdkBump()
+    {
+        // Companion to the .csproj path covered by
+        // UpdateProjectFileAsync_StaleAppHostPackageReference_RemovedEvenWhenSdkAlreadyCurrent.
+        // Aspire.AppHost.Sdk pulls Aspire.Hosting.AppHost in implicitly, so an
+        // explicit `#:package Aspire.Hosting.AppHost@<version>` directive in a
+        // single-file AppHost is redundant. After a channel switch rewrites
+        // nuget.config to pin Aspire* to the channel feed, the deferred restore
+        // would otherwise hit NU1103 because the pinned channel does not carry
+        // the user's stable version.
+        // See https://github.com/dotnet/aspire/issues/15891.
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var appHostFolder = workspace.CreateDirectory("UpdateTester.AppHost");
+        var appHostFile = new FileInfo(Path.Combine(appHostFolder.FullName, "apphost.cs"));
+
+        await File.WriteAllTextAsync(
+            appHostFile.FullName,
+            """
+            #:sdk Aspire.AppHost.Sdk@9.4.1
+            #:package Aspire.Hosting.AppHost@9.4.1
+            #:package Aspire.Hosting.Redis@9.4.1
+            using Aspire.Hosting;
+            var builder = DistributedApplication.CreateBuilder(args);
+            builder.AddRedis("redis");
+            builder.Build().Run();
+            """);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, config =>
+        {
+            config.DotNetCliRunnerFactory = (sp) =>
+            {
+                return new TestDotNetCliRunner()
+                {
+                    SearchPackagesAsyncCallback = (_, query, _, _, _, _, _, _, _, _) =>
+                    {
+                        var packages = new List<NuGetPackageCli>
+                        {
+                            query switch
+                            {
+                                "Aspire.AppHost.Sdk" => new NuGetPackageCli { Id = "Aspire.AppHost.Sdk", Version = "9.5.0", Source = "nuget.org" },
+                                "Aspire.Hosting.Redis" => new NuGetPackageCli { Id = "Aspire.Hosting.Redis", Version = "9.5.0", Source = "nuget.org" },
+                                _ => throw new InvalidOperationException($"Unexpected package query: {query}"),
+                            }
+                        };
+                        return (0, packages.ToArray());
+                    },
+                    GetProjectItemsAndPropertiesAsyncCallback = (projectFile, _, _, _, _) =>
+                    {
+                        var itemsAndProperties = new JsonObject();
+                        itemsAndProperties.WithSdkVersion("9.4.1");
+                        // Surface the explicit Aspire.Hosting.AppHost / Aspire.Hosting.Redis
+                        // directives the way MSBuild would for an apphost.cs file.
+                        var items = new JsonObject
+                        {
+                            ["PackageReference"] = new JsonArray
+                            {
+                                new JsonObject { ["Identity"] = "Aspire.Hosting.AppHost", ["Version"] = "9.4.1" },
+                                new JsonObject { ["Identity"] = "Aspire.Hosting.Redis", ["Version"] = "9.4.1" },
+                            },
+                        };
+                        itemsAndProperties["Items"] = items;
+                        var json = itemsAndProperties.ToJsonString();
+                        var document = JsonDocument.Parse(json);
+                        return (0, document);
+                    },
+                    AddPackageAsyncCallback = (_, _, _, _, _, _, _) => 0,
+                };
+            };
+
+            config.InteractionServiceFactory = (sp) =>
+            {
+                var interactionService = new TestInteractionService();
+                interactionService.ConfirmCallback = (_, _) => true;
+                return interactionService;
+            };
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var packagingService = provider.GetRequiredService<IPackagingService>();
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+        var selectedChannel = channels.Single(c => c.Name == "default");
+
+        var projectUpdater = provider.GetRequiredService<IProjectUpdater>();
+        var updateResult = await projectUpdater.UpdateProjectAsync(CreateUpdateContext(appHostFile, selectedChannel)).DefaultTimeout();
+
+        Assert.True(updateResult.UpdatedApplied);
+
+        var updatedContent = await File.ReadAllTextAsync(appHostFile.FullName);
+        Assert.Contains("#:sdk Aspire.AppHost.Sdk@9.5.0", updatedContent);
+        Assert.DoesNotContain("Aspire.Hosting.AppHost", updatedContent);
+        // Aspire.Hosting.Redis directive is preserved (and bumped via dotnet package add,
+        // which is mocked here, so the source text still shows 9.4.1; the important
+        // assertion is that the directive line itself was not removed).
+        Assert.Contains("#:package Aspire.Hosting.Redis@", updatedContent);
+    }
+
+    [Fact]
+    public async Task UpdateProjectFileAsync_SingleFileAppHost_RemovesLegacyAppHostPackageDirectiveWhenSdkAlreadyCurrent()
+    {
+        // SDK is already on the latest version, so AnalyzeAppHostSdkAsync
+        // early-returns. The cleanup step path must still strip the redundant
+        // `#:package Aspire.Hosting.AppHost@<version>` directive so a re-run of
+        // `aspire update` after a partial migration recovers cleanly.
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var appHostFolder = workspace.CreateDirectory("UpdateTester.AppHost");
+        var appHostFile = new FileInfo(Path.Combine(appHostFolder.FullName, "apphost.cs"));
+
+        await File.WriteAllTextAsync(
+            appHostFile.FullName,
+            """
+            #:sdk Aspire.AppHost.Sdk@9.5.0
+            #:package Aspire.Hosting.AppHost@9.5.0
+            using Aspire.Hosting;
+            var builder = DistributedApplication.CreateBuilder(args);
+            builder.Build().Run();
+            """);
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, config =>
+        {
+            config.DotNetCliRunnerFactory = (sp) =>
+            {
+                return new TestDotNetCliRunner()
+                {
+                    SearchPackagesAsyncCallback = (_, query, _, _, _, _, _, _, _, _) =>
+                    {
+                        var packages = new List<NuGetPackageCli>
+                        {
+                            query switch
+                            {
+                                "Aspire.AppHost.Sdk" => new NuGetPackageCli { Id = "Aspire.AppHost.Sdk", Version = "9.5.0", Source = "nuget.org" },
+                                _ => throw new InvalidOperationException($"Unexpected package query: {query}"),
+                            }
+                        };
+                        return (0, packages.ToArray());
+                    },
+                    GetProjectItemsAndPropertiesAsyncCallback = (projectFile, _, _, _, _) =>
+                    {
+                        var itemsAndProperties = new JsonObject();
+                        itemsAndProperties.WithSdkVersion("9.5.0");
+                        var items = new JsonObject
+                        {
+                            ["PackageReference"] = new JsonArray
+                            {
+                                new JsonObject { ["Identity"] = "Aspire.Hosting.AppHost", ["Version"] = "9.5.0" },
+                            },
+                        };
+                        itemsAndProperties["Items"] = items;
+                        var json = itemsAndProperties.ToJsonString();
+                        var document = JsonDocument.Parse(json);
+                        return (0, document);
+                    }
+                };
+            };
+
+            config.InteractionServiceFactory = (sp) =>
+            {
+                var interactionService = new TestInteractionService();
+                interactionService.ConfirmCallback = (_, _) => true;
+                return interactionService;
+            };
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var packagingService = provider.GetRequiredService<IPackagingService>();
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+        var selectedChannel = channels.Single(c => c.Name == "default");
+
+        var projectUpdater = provider.GetRequiredService<IProjectUpdater>();
+        await projectUpdater.UpdateProjectAsync(CreateUpdateContext(appHostFile, selectedChannel)).DefaultTimeout();
+
+        var updatedContent = await File.ReadAllTextAsync(appHostFile.FullName);
+        Assert.DoesNotContain("Aspire.Hosting.AppHost", updatedContent);
+        Assert.Contains("#:sdk Aspire.AppHost.Sdk@9.5.0", updatedContent);
+    }
+
+    [Fact]
     public async Task UpdateProjectFileAsync_SingleFileAppHost_UpdatesSdkDirectiveWithWildcard()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -2767,6 +2947,23 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
         var match = regex.IsMatch(directive);
 
         Assert.Equal(shouldMatch, match);
+    }
+
+    [Theory]
+    [InlineData("#:package Aspire.Hosting.AppHost@13.2.1", true)]
+    [InlineData("  #:package Aspire.Hosting.AppHost@13.2.1", true)]
+    [InlineData("#:package aspire.hosting.apphost@13.2.1", true)]
+    [InlineData("#:package Aspire.Hosting.AppHost@*", true)]
+    [InlineData("#:package Aspire.Hosting.AppHost@10.0.0-preview.1.26264.14", true)]
+    [InlineData("#:package Aspire.Hosting.Redis@13.2.1", false)]
+    [InlineData("#:sdk Aspire.AppHost.Sdk@13.2.1", false)]
+    [InlineData("// #:package Aspire.Hosting.AppHost@13.2.1", false)]
+    [InlineData("#:package Aspire.Hosting.AppHost", false)]
+    [InlineData("#:package Aspire.Hosting.AppHost@", false)]
+    public void LegacyAppHostPackageDirectiveRegex_MatchesOnlyAppHostDirective(string line, bool shouldMatch)
+    {
+        var regex = ProjectUpdater.LegacyAppHostPackageDirectiveRegex();
+        Assert.Equal(shouldMatch, regex.IsMatch(line));
     }
 
     [Fact]
