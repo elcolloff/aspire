@@ -12,40 +12,47 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Aspire.Cli.Tests.Acquisition;
 
 /// <summary>
-/// End-to-end regression guard for the silent-PR-demotion and
+/// End-to-end regression guard for the silent route-demotion and
 /// package-manager binary-clobber bugs on <c>aspire update --self</c>.
-/// Pre-fix: an in-process binary swap ran unconditionally for every
-/// non-dotnet-tool route, overwriting WinGet / Homebrew / PR-pinned
-/// binaries with the latest stable archive. Post-fix: each non-script
-/// route gets refused with the installer-appropriate command and the
-/// binary is left untouched.
 /// </summary>
 public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
 {
-    // Each row encodes (sidecar source, identityChannel for PR substitution,
-    // expected refusal command). Script and Unknown stay in-process by design,
-    // so they're excluded from this regression net.
     [Theory]
-    [InlineData("pr", "pr-16817", "get-aspire-cli-pr.sh 16817    # or: get-aspire-cli-pr.ps1 -PRNumber 16817")]
-    [InlineData("winget", "stable", "winget upgrade Microsoft.Aspire")]
-    [InlineData("brew", "stable", "brew upgrade --cask aspire")]
-    [InlineData("localhive", "local", "./localhive.sh   # re-run from your Aspire checkout")]
-    public async Task SelfUpdate_OnGatedRoute_RefusesWithRouteAppropriateCommand(
-        string sidecarSource,
+    [InlineData("script", "stable", false, true, null)]
+    [InlineData("script", "stable", true, true, null)]
+    [InlineData("brew", "stable", false, false, "brew upgrade --cask aspire")]
+    [InlineData("brew", "stable", true, true, null)]
+    [InlineData("winget", "stable", false, false, "winget upgrade Microsoft.Aspire")]
+    [InlineData("winget", "stable", true, true, null)]
+    [InlineData("dotnet-tool", "stable", false, false, "dotnet tool update -g Aspire.Cli")]
+    [InlineData("dotnet-tool", "stable", true, true, null)]
+    [InlineData("pr", "pr-16817", false, false, "get-aspire-cli-pr.sh 16817    # or: get-aspire-cli-pr.ps1 -PRNumber 16817")]
+    [InlineData("pr", "pr-16817", true, true, null)]
+    [InlineData("localhive", "local", false, false, "localhive.sh")]
+    [InlineData("localhive", "local", true, true, null)]
+    [InlineData(null, "stable", false, false, "Aspire couldn't determine how this CLI was installed")]
+    [InlineData(null, "stable", true, true, null)]
+    public async Task SelfUpdate_RouteGate_RefusesUnlessScriptOrForced(
+        string? sidecarSource,
         string identityChannel,
-        string expectedCommand)
+        bool force,
+        bool expectInProcess,
+        string? expectedOutput)
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
+        using var processPathScope = DotNetToolDetection.UseProcessPathForTesting(
+            Path.Combine(workspace.WorkspaceRoot.FullName, "bin", "aspire"));
 
         var selfInfo = new InstallationInfo
         {
-            Path = "/test/aspire",
-            CanonicalPath = "/test/aspire",
+            Path = Path.Combine(workspace.WorkspaceRoot.FullName, "bin", "aspire"),
+            CanonicalPath = Path.Combine(workspace.WorkspaceRoot.FullName, "bin", "aspire"),
             Route = sidecarSource,
             Channel = identityChannel,
-            Status = InstallationInfoStatus.Ok,
+            Status = sidecarSource is null ? InstallationInfoStatus.NotProbed : InstallationInfoStatus.Ok,
         };
 
+        var downloadAttempted = false;
         TestInteractionService? interactionService = null;
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
         {
@@ -55,8 +62,6 @@ public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
                 return interactionService;
             };
 
-            // Force the running CLI's identity channel so the PR-route
-            // substitution exercises the parsed PR number path.
             options.CliExecutionContextFactory = _ =>
             {
                 var root = workspace.WorkspaceRoot;
@@ -68,33 +73,52 @@ public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
                     root,
                     hivesDirectory,
                     cacheDirectory,
-                    new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")),
+                    new DirectoryInfo(Path.Combine(root.FullName, ".aspire", "sdks")),
                     logsDirectory,
                     logFilePath,
                     identityChannel: identityChannel);
             };
+
+            options.CliDownloaderFactory = sp =>
+            {
+                var executionContext = sp.GetRequiredService<CliExecutionContext>();
+                return new TestCliDownloader(new DirectoryInfo(Path.Combine(executionContext.WorkingDirectory.FullName, "tmp")))
+                {
+                    DownloadLatestCliAsyncCallback = (_, _) =>
+                    {
+                        downloadAttempted = true;
+                        throw new InvalidOperationException("download attempted");
+                    }
+                };
+            };
         });
 
-        // Replace the real InstallationDiscovery with a fake surfacing the
-        // route under test. Last registration wins.
         services.AddSingleton<IInstallationDiscovery>(_ => new FakeInstallationDiscovery(selfInfo));
 
         using var provider = services.BuildServiceProvider();
         var command = provider.GetRequiredService<RootCommand>();
-        var parsed = command.Parse("update --self");
-        var exitCode = await parsed.InvokeAsync().DefaultTimeout();
+        var args = force ? "update --self --force --yes --channel stable" : "update --self --yes --channel stable";
+        var exitCode = await command.Parse(args).InvokeAsync().DefaultTimeout();
 
         Assert.NotNull(interactionService);
-        // Exit 0 by design — the CLI succeeded in telling the user what to
-        // do (matches the existing dotnet-tool refusal contract).
-        Assert.Equal(0, exitCode);
+        Assert.Equal(expectInProcess, downloadAttempted);
 
-        // The expected command must appear verbatim in the displayed plain
-        // text — this is the signal a user / CI script would actually
-        // observe in stdout.
-        Assert.Contains(
-            interactionService!.DisplayedPlainText,
-            line => line.Contains(expectedCommand, StringComparison.Ordinal));
+        var allOutput = string.Join("\n", interactionService!.DisplayedPlainText.Concat(interactionService.DisplayedMessages.Select(m => m.Message)));
+        if (expectedOutput is not null)
+        {
+            Assert.Equal(0, exitCode);
+            Assert.Contains(expectedOutput, allOutput, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.NotEqual(0, exitCode);
+            Assert.DoesNotContain("winget upgrade", allOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("brew upgrade", allOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("dotnet tool update", allOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("get-aspire-cli-pr", allOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("localhive.sh", allOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("couldn't determine how this CLI was installed", allOutput, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
@@ -103,8 +127,7 @@ public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
     /// BUT path-shape inspection identifies the binary as a dotnet tool,
     /// the route is fixed up to <see cref="InstallSource.DotnetTool"/> and
     /// refused with the dotnet-tool command rather than falling through to
-    /// the in-process update flow (which would corrupt the
-    /// package-manager-owned binary).
+    /// the in-process update flow.
     /// </summary>
     [Fact]
     public async Task SelfUpdate_NoSidecar_LegacyDotnetToolPathShape_RefusesWithDotnetToolHint()
@@ -113,13 +136,10 @@ public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
         using var processPathScope = DotNetToolDetection.UseProcessPathForTesting(
             "/home/test/.dotnet/tools/.store/aspire.cli/9.4.0/aspire.cli.linux-x64/9.4.0/tools/net10.0/linux-x64/aspire");
 
-        // Discovery returns no route (no sidecar on disk). The fallback in
-        // ResolveRunningInstall must then consult DotNetToolDetection via
-        // the no-arg overload, which honors UseProcessPathForTesting.
         var selfInfo = new InstallationInfo
         {
-            Path = "/test/aspire",
-            CanonicalPath = "/test/aspire",
+            Path = "/home/test/.dotnet/tools/.store/aspire.cli/9.4.0/aspire.cli.linux-x64/9.4.0/tools/net10.0/linux-x64/aspire",
+            CanonicalPath = "/home/test/.dotnet/tools/.store/aspire.cli/9.4.0/aspire.cli.linux-x64/9.4.0/tools/net10.0/linux-x64/aspire",
             Route = null,
             Status = InstallationInfoStatus.Ok,
         };
@@ -141,76 +161,8 @@ public class UpdateCommandRouteRegressionTests(ITestOutputHelper outputHelper)
 
         Assert.Equal(0, exitCode);
         Assert.NotNull(interactionService);
-        // The refusal must surface the global dotnet-tool update command —
-        // the binary IS under ~/.dotnet/tools/.store/ so DotNetToolDetection
-        // classifies it as a global-tool install.
         Assert.Contains(
             interactionService!.DisplayedPlainText,
             line => line.Contains("dotnet tool update -g Aspire.Cli", StringComparison.Ordinal));
-    }
-
-    /// <summary>
-    /// Pre-sidecar script install compat: when the running binary has no
-    /// sidecar AND the process path doesn't match any dotnet-tool layout,
-    /// the resolver yields <see cref="InstallSource.Unknown"/> and
-    /// <see cref="SelfUpdateRouter.GetAction"/> routes Unknown to
-    /// <see cref="SelfUpdateAction.InProcess"/>. <c>--self</c> must then
-    /// reach the in-process flow rather than printing a refusal. We assert
-    /// the SUT does NOT print any of the refusal-message prefixes
-    /// (verifying it didn't take the gated branch) instead of trying to
-    /// drive a full network download.
-    /// </summary>
-    [Fact]
-    public async Task SelfUpdate_NoSidecar_NotDotnetTool_FallsThroughToInProcessFlow()
-    {
-        using var workspace = TemporaryWorkspace.Create(outputHelper);
-        using var processPathScope = DotNetToolDetection.UseProcessPathForTesting("/tmp/random/aspire");
-
-        var selfInfo = new InstallationInfo
-        {
-            Path = "/tmp/random/aspire",
-            CanonicalPath = "/tmp/random/aspire",
-            Route = null,
-            Status = InstallationInfoStatus.Ok,
-        };
-
-        TestInteractionService? interactionService = null;
-        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
-        {
-            options.InteractionServiceFactory = _ =>
-            {
-                interactionService = new TestInteractionService();
-                return interactionService;
-            };
-        });
-        services.AddSingleton<IInstallationDiscovery>(_ => new FakeInstallationDiscovery(selfInfo));
-
-        using var provider = services.BuildServiceProvider();
-        var command = provider.GetRequiredService<RootCommand>();
-        // Invoke --self; we don't expect this to complete the actual update
-        // (no real network in the test process), but we do expect it to NOT
-        // emit any of the route-refusal messages. Any non-refusal outcome
-        // (timeout / failure / success / cancellation) is acceptable here;
-        // what matters is that the gated branch was not taken.
-        try
-        {
-            await command.Parse("update --self --yes --channel stable").InvokeAsync().DefaultTimeout();
-        }
-        catch
-        {
-            // The in-process flow may throw for any number of network /
-            // download / signature reasons; the test doesn't depend on
-            // those succeeding.
-        }
-
-        Assert.NotNull(interactionService);
-        // None of the route-specific refusal messages must appear: those
-        // are the signal that the gated branch was taken.
-        var allOutput = string.Join("\n", interactionService!.DisplayedPlainText);
-        Assert.DoesNotContain("get-aspire-cli-pr.sh", allOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("winget upgrade", allOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("brew upgrade", allOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("./localhive.sh", allOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("dotnet tool update", allOutput, StringComparison.Ordinal);
     }
 }

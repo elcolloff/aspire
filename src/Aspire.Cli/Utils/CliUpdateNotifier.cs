@@ -136,12 +136,12 @@ internal class CliUpdateNotifier(
 
     /// <summary>
     /// Returns the route-appropriate command to recommend in the
-    /// "version X available" notification. For script-route and Unknown
-    /// installs we suggest <c>aspire update --self</c> (which actually
-    /// performs the in-process update for script). For every other route we
-    /// defer to <see cref="IUpgradeInstructionProvider"/> so users see the
-    /// command that matches how they installed the CLI (winget upgrade,
-    /// brew upgrade --cask, dotnet tool update, get-aspire-cli-pr, etc.).
+    /// "version X available" notification. For script-route installs we
+    /// suggest <c>aspire update --self</c>. For every other route, including
+    /// Unknown, we defer to <see cref="IUpgradeInstructionProvider"/> so
+    /// users see the command or refusal hint that matches how they installed
+    /// the CLI (winget upgrade, brew upgrade --cask, dotnet tool update,
+    /// get-aspire-cli-pr, etc.).
     /// </summary>
     /// <remarks>
     /// When the initial discovery reports no route (i.e., no sidecar on disk

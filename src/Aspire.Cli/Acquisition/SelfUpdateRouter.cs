@@ -42,19 +42,14 @@ internal static class SelfUpdateRouter
     /// </summary>
     /// <remarks>
     /// <see cref="InstallSource.Script"/> stays in-process — it's the route
-    /// the CLI owns end-to-end. <see cref="InstallSource.Unknown"/> also stays
-    /// in-process for legacy compatibility: pre-PR-#16817 installs (script
-    /// route, before the sidecar contract shipped) have no sidecar, and
-    /// preserving in-process update for them avoids breaking working setups.
-    /// The PR-#16817-and-later install paths for the gated routes (PR / winget
-    /// / brew / dotnet-tool / localhive) all write sidecars at install time,
-    /// so a post-PR-#16817 binary appearing as <see cref="InstallSource.Unknown"/>
-    /// is almost certainly a legacy script install rather than one of those
-    /// routes.
+    /// the CLI owns end-to-end. Unknown routes are refused with a hint to
+    /// investigate the install or pass <c>--force</c>. The pre-PR-#16817
+    /// legacy script-install case is now covered by the <c>--force</c>
+    /// escape hatch.
     /// </remarks>
     public static SelfUpdateAction GetAction(InstallSource source) => source switch
     {
-        InstallSource.Script or InstallSource.Unknown => SelfUpdateAction.InProcess,
+        InstallSource.Script => SelfUpdateAction.InProcess,
         _ => SelfUpdateAction.Delegate,
     };
 }

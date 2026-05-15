@@ -15,7 +15,7 @@ public class UpgradeInstructionProviderTests
     [Theory]
     [InlineData("Winget", "winget upgrade Microsoft.Aspire")]
     [InlineData("Brew", "brew upgrade --cask aspire")]
-    [InlineData("LocalHive", "./localhive.sh   # re-run from your Aspire checkout")]
+    [InlineData("LocalHive", "Run ./localhive.sh (Linux/macOS) or .\\localhive.ps1 (Windows) in the local hive directory.")]
     public void GetUpdateCommand_StaticHintRoutes_ReturnExpectedCommand(string sourceName, string expected)
     {
         var source = Enum.Parse<InstallSource>(sourceName);
@@ -24,10 +24,9 @@ public class UpgradeInstructionProviderTests
     }
 
     // Routes where there is intentionally no separate update command — script
-    // gets the in-process flow; Unknown has no actionable hint.
+    // gets the in-process flow.
     [Theory]
     [InlineData("Script")]
-    [InlineData("Unknown")]
     public void GetUpdateCommand_NoHintRoutes_ReturnNull(string sourceName)
     {
         var source = Enum.Parse<InstallSource>(sourceName);
@@ -114,10 +113,44 @@ public class UpgradeInstructionProviderTests
         // store layout (e.g., legacy installs without the canonical store
         // shape, or the test runner itself), the provider falls back to the
         // global form so the message is at least actionable.
-        using var processPathScope = DotNetToolDetection.UseProcessPathForTesting("/tmp/random/path/aspire");
+        using var processPathScope = DotNetToolDetection.UseProcessPathForTesting("/random/path/aspire");
 
         var command = s_provider.GetUpdateCommand(InstallSource.DotnetTool, processPath: null, identityChannel: "stable");
 
         Assert.Equal("dotnet tool update -g Aspire.Cli", command);
+    }
+
+    [Fact]
+    public void GetUpdateCommand_DotnetTool_UsesSuppliedProcessPath()
+    {
+        var s = Path.DirectorySeparatorChar;
+        var toolPath = $"{s}opt{s}path-from-parameter";
+        using var processPathScope = DotNetToolDetection.UseProcessPathForTesting("/random/path/aspire");
+
+        var command = s_provider.GetUpdateCommand(
+            InstallSource.DotnetTool,
+            $"{toolPath}{s}.store{s}aspire.cli{s}9.4.0{s}aspire.cli.linux-x64{s}9.4.0{s}tools{s}net10.0{s}linux-x64{s}aspire",
+            identityChannel: "stable");
+
+        Assert.Equal($"dotnet tool update --tool-path {toolPath} Aspire.Cli", command);
+    }
+
+    [Fact]
+    public void GetUpdateCommand_Unknown_ReturnsForceHint()
+    {
+        var command = s_provider.GetUpdateCommand(InstallSource.Unknown, processPath: null, identityChannel: "stable");
+
+        Assert.NotNull(command);
+        Assert.Contains("--force", command, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetUpdateCommand_LocalHive_ReturnsBothScriptNames()
+    {
+        var command = s_provider.GetUpdateCommand(InstallSource.LocalHive, processPath: null, identityChannel: "local");
+
+        Assert.NotNull(command);
+        Assert.Contains("localhive.sh", command, StringComparison.Ordinal);
+        Assert.Contains("localhive.ps1", command, StringComparison.Ordinal);
     }
 }

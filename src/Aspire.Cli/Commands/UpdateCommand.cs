@@ -43,6 +43,10 @@ internal sealed class UpdateCommand : BaseCommand
     {
         Description = UpdateCommandStrings.SelfOptionDescription
     };
+    private static readonly Option<bool> s_forceOption = new("--force")
+    {
+        Description = UpdateCommandStrings.ForceOptionDescription
+    };
     private static readonly Option<bool> s_yesOption = new("--yes")
     {
         Description = UpdateCommandStrings.YesOptionDescription,
@@ -90,6 +94,7 @@ internal sealed class UpdateCommand : BaseCommand
 
         Options.Add(s_appHostOption);
         Options.Add(s_selfOption);
+        Options.Add(s_forceOption);
         Options.Add(s_yesOption);
         Options.Add(s_nugetConfigDirOption);
 
@@ -317,14 +322,20 @@ internal sealed class UpdateCommand : BaseCommand
     private async Task<CommandResult> HandleSelfUpdateAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var (source, canonicalPath) = ResolveRunningInstall();
-        var action = SelfUpdateRouter.GetAction(source);
+        var force = parseResult.GetValue(s_forceOption);
+        var action = force ? SelfUpdateAction.InProcess : SelfUpdateRouter.GetAction(source);
+
+        if (force)
+        {
+            _logger.LogDebug("Forcing in-process self-update for detected install source '{InstallSource}' at '{CanonicalPath}'.", source, canonicalPath);
+        }
 
         if (action == SelfUpdateAction.Delegate)
         {
             return DisplaySelfUpdateRefusal(source, canonicalPath);
         }
 
-        // Script route: existing in-process flow.
+        // Script route, or explicit --force: existing in-process flow.
         if (_cliDownloader is null)
         {
             return CommandResult.Failure(ExitCodeConstants.InvalidCommand, "CLI self-update is not available in this environment.");
@@ -349,23 +360,14 @@ internal sealed class UpdateCommand : BaseCommand
     /// contract shipped still get classified as <see cref="InstallSource.DotnetTool"/>
     /// rather than <see cref="InstallSource.Unknown"/>.
     /// </summary>
-    /// <summary>
-    /// Resolves the install source and canonical binary path for the running CLI
-    /// via <see cref="IInstallationDiscovery.DescribeSelf"/> (the single source of
-    /// truth for "what is the running binary?"). Falls back to
-    /// <see cref="DotNetToolDetection"/> path-shape detection when no sidecar is
-    /// present, so legacy dotnet-tool installs created before the sidecar
-    /// contract shipped still get classified as <see cref="InstallSource.DotnetTool"/>
-    /// rather than <see cref="InstallSource.Unknown"/>.
-    /// </summary>
     /// <remarks>
     /// When the initial discovery reports no route (i.e., no sidecar on disk
     /// yet), runs <see cref="WingetFirstRunProbe"/> on the binary directory
     /// derived from the discovery's canonical path, then re-describes so the
     /// freshly-stamped sidecar is picked up. Without this, a fresh WinGet
     /// install whose very first invocation is <c>aspire update --self</c>
-    /// would classify as <see cref="InstallSource.Unknown"/>, route to
-    /// in-process update, and silently overwrite the WinGet-owned binary.
+    /// would classify as <see cref="InstallSource.Unknown"/> and be refused
+    /// until the user investigates or explicitly passes <c>--force</c>.
     /// The probe is idempotent and self-gates via
     /// <see cref="IWindowsRegistryReader"/>, so the call is a cheap no-op
     /// on non-Windows / non-WinGet installs.

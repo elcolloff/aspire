@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Aspire.Cli.Resources;
 using Aspire.Cli.Utils;
 
 namespace Aspire.Cli.Acquisition;
@@ -57,25 +58,31 @@ internal sealed class UpgradeInstructionProvider : IUpgradeInstructionProvider
             InstallSource.Winget => "winget upgrade Microsoft.Aspire",
             InstallSource.Brew => "brew upgrade --cask aspire",
 
-            // DotNetToolDetection.GetDotNetToolUpdateCommand (no-arg) honors
-            // the s_processPathOverride AsyncLocal used by tests AND inspects
-            // Environment.ProcessPath in production, returning the right
-            // command for `-g` (global) vs `--tool-path` installs. Falling
-            // back to the global form if path detection fails preserves the
-            // most common case.
-            InstallSource.DotnetTool => DotNetToolDetection.GetDotNetToolUpdateCommand()
-                ?? "dotnet tool update -g Aspire.Cli",
+            // Prefer the supplied process path so tests and callers can
+            // classify synthesized paths without depending on Environment.ProcessPath.
+            // When no path is supplied, the no-arg overload preserves the
+            // existing production behavior and AsyncLocal test override.
+            InstallSource.DotnetTool => GetDotNetToolUpdateCommand(processPath),
 
             // LocalHive installs are produced by re-running the dev script
             // in the user's own checkout. There is no canonical update
             // command — the user must rebuild from source.
-            InstallSource.LocalHive => "./localhive.sh   # re-run from your Aspire checkout",
+            InstallSource.LocalHive => "Run ./localhive.sh (Linux/macOS) or .\\localhive.ps1 (Windows) in the local hive directory.",
+            InstallSource.Unknown => UpdateCommandStrings.UnknownRouteRefusalHint,
 
             _ => null,
         };
     }
 
     private const string PrChannelPrefix = "pr-";
+
+    private static string GetDotNetToolUpdateCommand(string? processPath)
+    {
+        return (processPath is not null
+                ? DotNetToolDetection.GetDotNetToolUpdateCommand(processPath)
+                : DotNetToolDetection.GetDotNetToolUpdateCommand())
+            ?? "dotnet tool update -g Aspire.Cli";
+    }
 
     private static string GetPrUpdateCommand(string identityChannel)
     {

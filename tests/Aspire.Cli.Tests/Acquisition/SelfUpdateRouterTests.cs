@@ -10,9 +10,9 @@ public class SelfUpdateRouterTests
     [Theory]
     // Script-route installs stay in-process — the CLI owns the binary swap.
     [InlineData("Script", "InProcess")]
-    // Unknown sources stay in-process for legacy pre-sidecar script installs
-    // (see SelfUpdateRouter.GetAction docs).
-    [InlineData("Unknown", "InProcess")]
+    // Unknown sources fail closed unless the caller explicitly opts into
+    // the UpdateCommand-layer --force override.
+    [InlineData("Unknown", "Delegate")]
     // Every other route delegates — they're either pinned (PR), package-
     // manager-owned (winget / brew / dotnet-tool), or rebuilt-from-source
     // (localhive). An in-process binary swap would corrupt or demote them.
