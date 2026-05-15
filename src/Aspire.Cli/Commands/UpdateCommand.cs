@@ -359,7 +359,6 @@ internal sealed class UpdateCommand : BaseCommand
             // binary already matches the latest published build for the channel. The
             // marker file lives next to the installed binary and records the SHA-512
             // of the archive that was extracted to produce it. See issue #16730.
-            string? remoteChecksum = null;
             if (!force)
             {
                 var markerPath = TryGetChecksumMarkerPath(currentExePath);
@@ -367,15 +366,15 @@ internal sealed class UpdateCommand : BaseCommand
                 {
                     try
                     {
-                        remoteChecksum = await _cliDownloader!.GetLatestChecksumAsync(channel, cancellationToken);
-                        var localChecksum = NormalizeChecksumValue(await File.ReadAllTextAsync(markerPath, cancellationToken));
+                        var remoteChecksum = await _cliDownloader!.GetLatestChecksumAsync(channel, cancellationToken);
+                        var localChecksum = CliDownloader.NormalizeChecksum(await File.ReadAllTextAsync(markerPath, cancellationToken));
 
                         if (string.Equals(remoteChecksum, localChecksum, StringComparison.Ordinal))
                         {
                             var version = VersionHelper.GetDefaultSdkVersion();
                             var message = string.Format(CultureInfo.CurrentCulture, UpdateCommandStrings.AlreadyUpToDateMessageFormat, version);
                             InteractionService.DisplaySuccess(message);
-                            return ExitCodeConstants.Success;
+                            return CommandResult.Success();
                         }
 
                         _logger.LogDebug(
@@ -393,7 +392,6 @@ internal sealed class UpdateCommand : BaseCommand
                         // marker, etc.) fall through to the normal download path. We
                         // never want a probe failure to block an explicit update.
                         _logger.LogDebug(ex, "Failed to probe published checksum; falling back to full download.");
-                        remoteChecksum = null;
                     }
                 }
             }
@@ -401,9 +399,11 @@ internal sealed class UpdateCommand : BaseCommand
             // Download the latest CLI
             var archivePath = await _cliDownloader!.DownloadLatestCliAsync(channel, cancellationToken);
 
-            // Capture the checksum we already fetched (if any) so we can write the
-            // marker after a successful install without recomputing it.
-            await ExtractAndUpdateAsync(archivePath, remoteChecksum, cancellationToken);
+            // Always compute the marker checksum from the archive on disk rather
+            // than reusing the probe value: the publisher could have rolled out
+            // a new build between our probe and the download, in which case the
+            // probed value no longer corresponds to the bytes we just installed.
+            await ExtractAndUpdateAsync(archivePath, cancellationToken);
 
             return CommandResult.Success();
         }
@@ -427,29 +427,7 @@ internal sealed class UpdateCommand : BaseCommand
         return string.IsNullOrEmpty(installDir) ? null : Path.Combine(installDir, ChecksumMarkerFileName);
     }
 
-    private static string NormalizeChecksumValue(string raw)
-    {
-        // Mirror CliDownloader.NormalizeChecksum: trim, take leading hex token,
-        // lowercase. Kept private to avoid coupling UpdateCommand to the
-        // downloader's internal helper.
-        var trimmed = raw.Trim();
-        var firstWhitespace = -1;
-        for (var i = 0; i < trimmed.Length; i++)
-        {
-            if (char.IsWhiteSpace(trimmed[i]))
-            {
-                firstWhitespace = i;
-                break;
-            }
-        }
-        if (firstWhitespace > 0)
-        {
-            trimmed = trimmed.Substring(0, firstWhitespace);
-        }
-        return trimmed.ToLowerInvariant();
-    }
-
-    private async Task ExtractAndUpdateAsync(string archivePath, string? archiveChecksum, CancellationToken cancellationToken)
+    private async Task ExtractAndUpdateAsync(string archivePath, CancellationToken cancellationToken)
     {
         // Install to the same directory as the current CLI executable
         var currentExePath = DotNetToolDetection.GetEffectiveProcessPath();
@@ -533,13 +511,13 @@ internal sealed class UpdateCommand : BaseCommand
                 // published archive matches what we just installed (issue #16730).
                 // Written only after version verification succeeds, so a failed
                 // install can never leave behind a marker that misrepresents the
-                // installed binary. If we don't have a checksum (e.g. the probe
-                // failed before download), compute one from the archive on disk
-                // so future runs can still benefit from the no-op short-circuit.
+                // installed binary. Computed from the archive on disk so the
+                // value always corresponds to the bytes we actually installed,
+                // even if the publisher rolled out a new build between our
+                // earlier checksum probe and this download.
                 try
                 {
-                    var checksumToPersist = archiveChecksum
-                        ?? await ComputeArchiveChecksumAsync(archivePath, cancellationToken);
+                    var checksumToPersist = await ComputeArchiveChecksumAsync(archivePath, cancellationToken);
                     var markerPath = Path.Combine(installDir, ChecksumMarkerFileName);
                     await WriteMarkerAtomicallyAsync(markerPath, checksumToPersist, cancellationToken);
                 }
