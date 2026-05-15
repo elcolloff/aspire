@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents Azure FrontDoor CDN naming changes from microsoft/aspire#16986",
+  "mergedAt": "2026-05-15T15:36:22Z",
+  "number": 965,
+  "runDate": "2026-05-15T16:40:30Z",
+  "status": "included",
+  "title": "[docs] Update Azure Front Door Bicep naming for .NET Aspire 13.4"
+}

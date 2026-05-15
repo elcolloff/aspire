@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "CLI startup profiling now works for release builds with separate OTLP export",
+  "mergedAt": "2026-05-15T16:30:16Z",
+  "number": 17099,
+  "runDate": "2026-05-15T16:40:30Z",
+  "status": "included",
+  "title": "Separate CLI profiling telemetry export"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Security dependency bumps (simple-git, fast-xml-builder) in docs repo; not related to any product changelog entry",
+  "mergedAt": "2026-05-15T16:04:00Z",
+  "number": 977,
+  "runDate": "2026-05-15T16:40:30Z",
+  "status": "excluded",
+  "title": "chore(security): bump simple-git and fast-xml-builder via pnpm overrides"
+}

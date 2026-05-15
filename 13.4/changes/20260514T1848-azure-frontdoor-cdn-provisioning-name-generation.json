@@ -6,7 +6,9 @@
   "changeType": "Improvements",
   "communityContributors": [],
   "description": "Azure FrontDoor CDN resources now use Azure.Provisioning's built-in name generation algorithm instead of Aspire's custom logic, removing the manual name length cap. Upgrading from 13.3 may produce duplicate endpoint, origin group, or route names — remove and re-add the affected resource, or set the Name explicitly via ConfigureInfrastructure, to avoid conflicts.",
-  "docsPrs": [],
+  "docsPrs": [
+    965
+  ],
   "docsRequired": true,
   "emoji": "🏗️",
   "firstMergedAt": "2026-05-14T18:48:04Z",
