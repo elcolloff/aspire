@@ -41,7 +41,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
             return (-1, errorOutput);
         }
 
-        _logger.LogDebug("Executing: {Command} {Args}", resolvedCommand, string.Join(" ", args));
+        _logger.LogDebug("{ExecutingCommandPrefix}{Command} {Args}", CliLogFormat.MessagePrefixes.Executing, resolvedCommand, string.Join(" ", args));
 
         var startInfo = new ProcessStartInfo
         {
@@ -65,7 +65,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
 
         using var process = new Process { StartInfo = startInfo };
 
-        var outputCollector = new OutputCollector(_fileLoggerProvider, "AppHost");
+        var outputCollector = new OutputCollector(_fileLoggerProvider, CliLogFormat.Categories.AppHost);
         var stdoutCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var stderrCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 

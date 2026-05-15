@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Aspire.Cli.Backchannel;
+using Aspire.Cli.Diagnostics;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Processes;
 using Aspire.Cli.Projects;
@@ -30,9 +31,12 @@ internal sealed class AppHostLauncher(
     ICliHostEnvironment hostEnvironment,
     AspireCliTelemetry telemetry,
     ProfilingTelemetry profilingTelemetry,
+    FileLoggerProvider fileLoggerProvider,
     ILogger<AppHostLauncher> logger,
     TimeProvider timeProvider)
 {
+    private const int MaxDisplayedChildLogLines = 80;
+    private const int MaxParentLogReplayLines = 200;
 
     /// <summary>
     /// Shared option for the AppHost project file path.
@@ -122,6 +126,7 @@ internal sealed class AppHostLauncher(
 
         // Build child process arguments
         var childLogFile = GenerateChildLogFilePath(executionContext.LogsDirectory.FullName, timeProvider);
+        var startupStatusFile = GenerateStartupStatusFilePath(executionContext.LogsDirectory.FullName, timeProvider);
         var (executablePath, childArgs) = BuildChildProcessArgs(effectiveAppHostFile, childLogFile, isolated, globalArgs, additionalArgs);
 
         // Compute the expected socket prefix for backchannel detection
@@ -148,14 +153,22 @@ internal sealed class AppHostLauncher(
         }
 
         // Start the child process and wait for the backchannel
-        var launchResult = await interactionService.ShowStatusAsync(
-            RunCommandStrings.StartingAppHostInBackground,
-            () => LaunchAndWaitForBackchannelAsync(executablePath, childArgs, expectedHash, legacyHash, cancellationToken));
+        LaunchResult launchResult;
+        try
+        {
+            launchResult = await interactionService.ShowStatusAsync(
+                RunCommandStrings.StartingAppHostInBackground,
+                () => LaunchAndWaitForBackchannelAsync(executablePath, childArgs, expectedHash, legacyHash, startupStatusFile, cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+            return CommandResult.Cancelled(ExitCodeConstants.Success);
+        }
 
         // Handle failure cases
         if (launchResult.Backchannel is null || launchResult.ChildProcess is null)
         {
-            return CommandResult.FromExitCode(HandleLaunchFailure(launchResult, childLogFile));
+            return HandleLaunchFailure(launchResult, childLogFile);
         }
 
         // Display results
@@ -246,20 +259,26 @@ internal sealed class AppHostLauncher(
     internal static bool IsExtensionEnvironmentVariable(string name) =>
         name.StartsWith(ExtensionEnvironmentVariablePrefix, StringComparison.OrdinalIgnoreCase);
 
-    internal static Dictionary<string, string> CreateDetachedChildEnvironment(Activity? activity)
+    internal static Dictionary<string, string> CreateDetachedChildEnvironment(Activity? activity, string? startupStatusFile = null)
     {
         var environment = new Dictionary<string, string> { [KnownConfigNames.CliRunDetached] = "true" };
+        if (!string.IsNullOrEmpty(startupStatusFile))
+        {
+            environment[KnownConfigNames.CliStartReadyFile] = startupStatusFile;
+        }
+
         ProfilingTelemetry.AddActivityContextToEnvironment(activity, environment);
         return environment;
     }
 
-    private record LaunchResult(Process? ChildProcess, IAppHostAuxiliaryBackchannel? Backchannel, DashboardUrlsState? DashboardUrls, bool ChildExitedEarly, int ChildExitCode);
+    private record LaunchResult(Process? ChildProcess, IAppHostAuxiliaryBackchannel? Backchannel, DashboardUrlsState? DashboardUrls, bool ChildExitedEarly, int ChildExitCode, DetachedStartupStatus? StartupStatus = null, DateTimeOffset? ChildStartedAt = null);
 
     private async Task<LaunchResult> LaunchAndWaitForBackchannelAsync(
         string executablePath,
         List<string> childArgs,
         string expectedHash,
         string? legacyHash,
+        string startupStatusFile,
         CancellationToken cancellationToken)
     {
         Process childProcess;
@@ -273,7 +292,7 @@ internal sealed class AppHostLauncher(
                     childArgs,
                     executionContext.WorkingDirectory.FullName,
                     IsExtensionEnvironmentVariable,
-                    CreateDetachedChildEnvironment(Activity.Current));
+                    CreateDetachedChildEnvironment(Activity.Current, startupStatusFile));
                 spawnActivity.SetProcessId(childProcess.Id);
             }
             catch (Exception ex)
@@ -284,107 +303,206 @@ internal sealed class AppHostLauncher(
             }
         }
 
+        var childStartedAt = new DateTimeOffset(childProcess.StartTime);
         logger.LogDebug("Child CLI process started with PID: {PID}", childProcess.Id);
 
         var startTime = timeProvider.GetUtcNow();
         var timeout = TimeSpan.FromSeconds(120);
         using var waitForBackchannelActivity = profilingTelemetry.StartDetachedWaitForBackchannel(childProcess.Id, expectedHash, legacyHash is not null);
         var scanCount = 0;
+        var startupReady = false;
+        IAppHostAuxiliaryBackchannel? connection = null;
+        DashboardUrlsState? dashboardUrls = null;
 
-        while (timeProvider.GetUtcNow() - startTime < timeout)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (childProcess.HasExited)
+            while (timeProvider.GetUtcNow() - startTime < timeout)
             {
-                var exitCode = childProcess.ExitCode;
-                waitForBackchannelActivity.SetProcessExitCode(exitCode);
-                waitForBackchannelActivity.SetError($"Child CLI exited with code {exitCode}.");
-                logger.LogWarning("Child CLI process exited with code {ExitCode}", exitCode);
-                return new LaunchResult(childProcess, null, null, true, exitCode);
-            }
-
-            await backchannelMonitor.ScanAsync(cancellationToken).ConfigureAwait(false);
-            scanCount++;
-
-            var connection = backchannelMonitor.GetConnectionsByHash(expectedHash).FirstOrDefault()
-                ?? (legacyHash is not null ? backchannelMonitor.GetConnectionsByHash(legacyHash).FirstOrDefault() : null);
-            if (connection is not null)
-            {
-                waitForBackchannelActivity.SetBackchannelScanCount(scanCount);
-                waitForBackchannelActivity.AddStartAppHostBackchannelConnectedEvent();
-                DashboardUrlsState? dashboardUrls = null;
-                using (var getDashboardUrlsActivity = profilingTelemetry.StartDetachedGetDashboardUrls())
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    try
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
+                DetachedStartupStatus? startupStatus = null;
+                try
+                {
+                    startupStatus = TryReadDetachedStartupStatus(startupStatusFile);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+                {
+                    logger.LogDebug(ex, "Failed to read detached startup status file {StartupStatusFile}", startupStatusFile);
+                }
+
+                if (startupStatus is not null)
+                {
+                    if (!startupStatus.IsReady)
                     {
-                        dashboardUrls = await connection.GetDashboardUrlsAsync(cancellationToken).ConfigureAwait(false);
-                        getDashboardUrlsActivity.SetAppHostDashboardUrls(dashboardUrls);
+                        waitForBackchannelActivity.SetError(startupStatus.ErrorMessage ?? "Child CLI reported AppHost startup failure.");
+                        logger.LogWarning("Child CLI reported AppHost startup failure: {ErrorMessage}", startupStatus.ErrorMessage);
+                        return new LaunchResult(childProcess, null, dashboardUrls, false, startupStatus.ExitCode ?? ExitCodeConstants.FailedToDotnetRunAppHost, startupStatus, childStartedAt);
                     }
-                    catch (Exception ex)
+
+                    startupReady = true;
+                    if (connection is not null)
                     {
-                        getDashboardUrlsActivity.SetError(ex.Message);
-                        logger.LogDebug(ex, "Failed to retrieve dashboard URLs from backchannel connection. Continuing without dashboard URLs.");
+                        return new LaunchResult(childProcess, connection, dashboardUrls, false, 0, startupStatus, childStartedAt);
                     }
                 }
 
-                return new LaunchResult(childProcess, connection, dashboardUrls, false, 0);
-            }
+                if (childProcess.HasExited)
+                {
+                    var exitCode = childProcess.ExitCode;
+                    waitForBackchannelActivity.SetProcessExitCode(exitCode);
+                    waitForBackchannelActivity.SetError($"Child CLI exited with code {exitCode}.");
+                    logger.LogWarning("Child CLI process exited with code {ExitCode}", exitCode);
+                    return new LaunchResult(childProcess, null, null, true, exitCode, ChildStartedAt: childStartedAt);
+                }
 
-            try
-            {
-                await childProcess.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
+                await backchannelMonitor.ScanAsync(cancellationToken).ConfigureAwait(false);
+                scanCount++;
+
+                connection ??= backchannelMonitor.GetConnectionsByHash(expectedHash).FirstOrDefault()
+                    ?? (legacyHash is not null ? backchannelMonitor.GetConnectionsByHash(legacyHash).FirstOrDefault() : null);
+                if (connection is not null)
+                {
+                    waitForBackchannelActivity.SetBackchannelScanCount(scanCount);
+                    waitForBackchannelActivity.AddStartAppHostBackchannelConnectedEvent();
+                    if (dashboardUrls is null)
+                    {
+                        using var getDashboardUrlsActivity = profilingTelemetry.StartDetachedGetDashboardUrls();
+                        try
+                        {
+                            dashboardUrls = await connection.GetDashboardUrlsAsync(cancellationToken).ConfigureAwait(false);
+                            getDashboardUrlsActivity.SetAppHostDashboardUrls(dashboardUrls);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            getDashboardUrlsActivity.SetError(ex.Message);
+                            logger.LogDebug(ex, "Failed to retrieve dashboard URLs from backchannel connection. Continuing without dashboard URLs.");
+                        }
+                    }
+
+                    if (startupReady)
+                    {
+                        return new LaunchResult(childProcess, connection, dashboardUrls, false, 0, ChildStartedAt: childStartedAt);
+                    }
+                }
+
+                try
+                {
+                    await childProcess.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    // Expected - the 500ms delay elapsed without the process exiting
+                }
             }
-            catch (TimeoutException)
-            {
-                // Expected - the 500ms delay elapsed without the process exiting
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            ProcessSignaler.ForceKill(childProcess.Id, childStartedAt, logger);
+            throw;
         }
 
         waitForBackchannelActivity.SetBackchannelScanCount(scanCount);
-        waitForBackchannelActivity.SetError("Timed out waiting for AppHost backchannel.");
-        return new LaunchResult(childProcess, null, null, false, 0);
+        waitForBackchannelActivity.SetError("Timed out waiting for AppHost startup readiness.");
+        return new LaunchResult(childProcess, startupReady ? connection : null, dashboardUrls, false, 0, ChildStartedAt: childStartedAt);
     }
 
-    private int HandleLaunchFailure(LaunchResult result, string childLogFile)
+    private CommandResult HandleLaunchFailure(LaunchResult result, string childLogFile)
     {
         if (result.ChildProcess is null)
         {
             interactionService.DisplayError(RunCommandStrings.FailedToStartAppHost);
-            return ExitCodeConstants.FailedToDotnetRunAppHost;
+            return CommandResult.Failure(ExitCodeConstants.FailedToDotnetRunAppHost);
         }
 
+        string? failureMessage;
         if (result.ChildExitedEarly)
         {
-            interactionService.DisplayError(GetDetachedFailureMessage(result.ChildExitCode));
+            failureMessage = GetDetachedFailureMessage(result.ChildExitCode);
+        }
+        else if (result.StartupStatus is { IsReady: false })
+        {
+            failureMessage = null;
+            if (!result.ChildProcess.HasExited)
+            {
+                ProcessSignaler.ForceKill(result.ChildProcess.Id, result.ChildStartedAt, logger);
+            }
         }
         else
         {
-            interactionService.DisplayError(RunCommandStrings.TimeoutWaitingForAppHost);
+            failureMessage = RunCommandStrings.TimeoutWaitingForAppHost;
 
             if (!result.ChildProcess.HasExited)
             {
-                try
-                {
-                    result.ChildProcess.Kill();
-                }
-                catch
-                {
-                    // Ignore errors when killing
-                }
+                ProcessSignaler.ForceKill(result.ChildProcess.Id, result.ChildStartedAt, logger);
             }
         }
 
-        var checkLogsMessage = string.Format(
-            CultureInfo.CurrentCulture,
-            RunCommandStrings.CheckLogsForDetails,
-            MarkupHelpers.SafeFileLink(interactionService, childLogFile));
-        interactionService.DisplayMessage(
-            KnownEmojis.MagnifyingGlassTiltedLeft,
-            checkLogsMessage,
-            allowMarkup: true);
+        interactionService.DisplayError(RunCommandStrings.FailedToStartAppHost);
+        DisplayChildLogTail(childLogFile, result.ChildProcess.Id);
+        if (failureMessage is not null && !string.Equals(failureMessage, RunCommandStrings.FailedToStartAppHost, StringComparison.Ordinal))
+        {
+            interactionService.DisplayError(failureMessage);
+        }
 
-        return ExitCodeConstants.FailedToDotnetRunAppHost;
+        return CommandResult.Failure(ExitCodeConstants.FailedToDotnetRunAppHost);
+    }
+
+    private void DisplayChildLogTail(string childLogFile, int childProcessId)
+    {
+        IReadOnlyList<CliLogFormat.FileLogEntry> replayEntries;
+        IReadOnlyList<string> displayLines;
+        try
+        {
+            replayEntries = ReadChildLogReplayTail(childLogFile, MaxParentLogReplayLines);
+            displayLines = ReadChildLogTail(childLogFile, MaxDisplayedChildLogLines);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogDebug(ex, "Failed to read child CLI log file {ChildLogFile}", childLogFile);
+            return;
+        }
+
+        if (replayEntries.Count == 0 && displayLines.Count == 0)
+        {
+            return;
+        }
+
+        if (displayLines.Count > 0)
+        {
+            interactionService.DisplayMessage(KnownEmojis.Information, $"{RunCommandStrings.RecentAppHostStartupOutput}:");
+            interactionService.DisplayLines(displayLines.Select(line => (OutputLineStream.StdOut, line)));
+        }
+
+        if (replayEntries.Count > 0)
+        {
+            ReplayChildLogTailToParentLog(childLogFile, childProcessId, replayEntries);
+        }
+    }
+
+    private void ReplayChildLogTailToParentLog(string childLogFile, int childProcessId, IReadOnlyList<CliLogFormat.FileLogEntry> entries)
+    {
+        fileLoggerProvider.WriteLog(
+            timeProvider.GetUtcNow(),
+            LogLevel.Information,
+            nameof(AppHostLauncher),
+            $"Begin detached AppHost startup log excerpt from child process {childProcessId}: {childLogFile}");
+
+        foreach (var entry in entries)
+        {
+            if (CliLogFormat.TryGetLogLevelFromFileToken(entry.Level, out var logLevel))
+            {
+                fileLoggerProvider.WriteLog(timeProvider.GetUtcNow(), logLevel, CliLogFormat.GetDetachedAppHostCategory(entry.Category), entry.Message);
+            }
+        }
+
+        fileLoggerProvider.WriteLog(
+            timeProvider.GetUtcNow(),
+            LogLevel.Information,
+            nameof(AppHostLauncher),
+            "End detached AppHost startup log excerpt.");
     }
 
     private void DisplayLaunchResult(
@@ -448,4 +566,169 @@ internal sealed class AppHostLauncher(
         var fileName = $"cli_{timestamp}_detach-child_{uniqueId}.log";
         return Path.Combine(logsDirectory, fileName);
     }
+
+    internal static string GenerateStartupStatusFilePath(string logsDirectory, TimeProvider timeProvider)
+    {
+        var timestamp = timeProvider.GetUtcNow().ToString("yyyyMMddTHHmmssfff", CultureInfo.InvariantCulture);
+        var uniqueId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var fileName = $"cli_{timestamp}_detach-child-startup_{uniqueId}.json";
+        return Path.Combine(logsDirectory, fileName);
+    }
+
+    internal static void WriteDetachedStartupStatus(string startupStatusFile, DetachedStartupStatus status)
+    {
+        var temporaryFile = $"{startupStatusFile}.{Environment.ProcessId}.tmp";
+        var json = JsonSerializer.Serialize(status, RunCommandJsonContext.RelaxedEscaping.DetachedStartupStatus);
+
+        // The parent polls this file while the child is starting. Write to a sibling
+        // file and atomically move it into place so the parent never observes partial JSON.
+        File.WriteAllText(temporaryFile, json);
+        File.Move(temporaryFile, startupStatusFile, overwrite: true);
+    }
+
+    internal static DetachedStartupStatus? TryReadDetachedStartupStatus(string startupStatusFile)
+    {
+        if (!File.Exists(startupStatusFile))
+        {
+            return null;
+        }
+
+        using var stream = new FileStream(startupStatusFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return JsonSerializer.Deserialize(stream, RunCommandJsonContext.RelaxedEscaping.DetachedStartupStatus);
+    }
+
+    internal static IReadOnlyList<string> ReadChildLogTail(string childLogFile, int maxLines = 80)
+    {
+        if (maxLines <= 0 || !File.Exists(childLogFile))
+        {
+            return [];
+        }
+
+        var lines = new Queue<string>(maxLines);
+        using var stream = new FileStream(childLogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            if (!TryFormatChildLogLineForDisplay(line, out var displayLine))
+            {
+                continue;
+            }
+
+            if (lines.Count == maxLines)
+            {
+                lines.Dequeue();
+            }
+
+            lines.Enqueue(displayLine);
+        }
+
+        return lines.ToArray();
+    }
+
+    internal static IReadOnlyList<CliLogFormat.FileLogEntry> ReadChildLogReplayTail(string childLogFile, int maxLines = 200)
+    {
+        if (maxLines <= 0 || !File.Exists(childLogFile))
+        {
+            return [];
+        }
+
+        var entries = new Queue<CliLogFormat.FileLogEntry>(maxLines);
+        using var stream = new FileStream(childLogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            if (!TryParseChildLogLineForReplay(line, out var entry))
+            {
+                continue;
+            }
+
+            if (entries.Count == maxLines)
+            {
+                entries.Dequeue();
+            }
+
+            entries.Enqueue(entry);
+        }
+
+        return entries.ToArray();
+    }
+
+    private static bool TryParseChildLogLineForReplay(string line, out CliLogFormat.FileLogEntry entry)
+    {
+        if (!CliLogFormat.TryParseFileLogLine(line, out entry))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.Message))
+        {
+            return false;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.Stdout or CliLogFormat.Categories.Stderr)
+        {
+            return false;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.AppHost || entry.Category.StartsWith(CliLogFormat.Categories.AppHostPrefix, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.GuestAppHostProject
+            && entry.Message.StartsWith(CliLogFormat.MessagePrefixes.Executing, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (entry.Level is CliLogFormat.FileLevelTokens.Warning or CliLogFormat.FileLevelTokens.Error or CliLogFormat.FileLevelTokens.Critical
+            && entry.Category is not CliLogFormat.Categories.AspireCliTelemetry)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryFormatChildLogLineForDisplay(string line, out string displayLine)
+    {
+        displayLine = string.Empty;
+
+        if (!TryParseChildLogLineForReplay(line, out var entry))
+        {
+            return false;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.GuestAppHostProject
+            && entry.Level is CliLogFormat.FileLevelTokens.Debug
+            && entry.Message.StartsWith(CliLogFormat.MessagePrefixes.Executing, StringComparison.Ordinal))
+        {
+            displayLine = $"$ {entry.Message[CliLogFormat.MessagePrefixes.Executing.Length..]}";
+            return true;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.AppHost || entry.Category.StartsWith(CliLogFormat.Categories.AppHostPrefix, StringComparison.Ordinal))
+        {
+            displayLine = entry.Message;
+            return true;
+        }
+
+        if (entry.Category is CliLogFormat.Categories.GuestAppHostProject
+            && entry.Message.StartsWith("AppHost server process has exited.", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (entry.Level is CliLogFormat.FileLevelTokens.Warning or CliLogFormat.FileLevelTokens.Error or CliLogFormat.FileLevelTokens.Critical
+            && entry.Category is not CliLogFormat.Categories.AspireCliTelemetry)
+        {
+            displayLine = $"{entry.Category}: {entry.Message}";
+            return true;
+        }
+
+        return false;
+    }
+
 }

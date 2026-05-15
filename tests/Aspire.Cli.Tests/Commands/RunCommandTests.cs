@@ -1944,6 +1944,14 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public void DetachedChildEnvironment_IncludesStartupStatusFileWhenProvided()
+    {
+        var environment = AppHostLauncher.CreateDetachedChildEnvironment(null, "startup-status.json");
+
+        Assert.Equal("startup-status.json", environment[KnownConfigNames.CliStartReadyFile]);
+    }
+
+    [Fact]
     public void DetachedChildEnvironment_AllowsMissingProfilingTelemetryContext()
     {
         var environment = AppHostLauncher.CreateDetachedChildEnvironment(null);
@@ -1953,6 +1961,113 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.SessionId));
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceParent));
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceState));
+    }
+
+    [Fact]
+    public void DetachedStartupStatus_RoundTripsThroughFile()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var startupStatusFile = Path.Combine(workspace.WorkspaceRoot.FullName, "startup-status.json");
+        var status = new DetachedStartupStatus(IsReady: true, ExitCode: null, ErrorMessage: null);
+
+        AppHostLauncher.WriteDetachedStartupStatus(startupStatusFile, status);
+        var roundTripped = AppHostLauncher.TryReadDetachedStartupStatus(startupStatusFile);
+
+        Assert.Equal(status, roundTripped);
+    }
+
+    [Fact]
+    public async Task ReadChildLogTail_ReturnsBoundedRelevantNonEmptyTail()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var childLogFile = Path.Combine(workspace.WorkspaceRoot.FullName, "child.log");
+        await File.WriteAllLinesAsync(childLogFile, [
+            "[2026-05-15 17:07:24.674] [DBUG] [Features] Feature updateNotificationsEnabled = True (default: True)",
+            "[2026-05-15 17:07:25.069] [INFO] [Stdout] :gear: Preparing Aspire server...",
+            "[2026-05-15 17:07:27.381] [INFO] [Stdout] Connecting to AppHost...",
+            "[2026-05-15 17:07:28.618] [DBUG] [GuestAppHostProject] Executing: /opt/homebrew/bin/npm install",
+            "[2026-05-15 17:07:29.512] [INFO] [AppHost] up to date, audited 116 packages in 619ms",
+            "[2026-05-15 17:07:29.520] [DBUG] [GuestAppHostProject] Executing: /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json",
+            "[2026-05-15 17:07:30.501] [INFO] [AppHost] apphost.ts(5,22): error TS1109: Expression expected.",
+            "[2026-05-15 17:07:30.521] [FAIL] [GuestAppHostProject] TypeScript (Node.js) apphost exited with code 2",
+            "[2026-05-15 17:07:30.522] [FAIL] [GuestAppHostProject] AppHost server process has exited. Unable to connect to backchannel at /tmp/cli.sock",
+            "[2026-05-15 17:07:30.528] [FAIL] [AspireCliTelemetry] An unexpected error occurred: The TypeScript (Node.js) apphost failed.",
+            "System.InvalidOperationException: The TypeScript (Node.js) apphost failed.",
+            "[2026-05-15 17:07:30.534] [INFO] [Stdout] An unexpected error occurred: The TypeScript (Node.js) apphost failed.",
+            "[2026-05-15 17:07:30.540] [INFO] [Stdout] See logs at /tmp/child.log"
+        ]);
+
+        var lines = AppHostLauncher.ReadChildLogTail(childLogFile, maxLines: 5);
+
+        Assert.Equal([
+            "$ /opt/homebrew/bin/npm install",
+            "up to date, audited 116 packages in 619ms",
+            "$ /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json",
+            "apphost.ts(5,22): error TS1109: Expression expected.",
+            "GuestAppHostProject: TypeScript (Node.js) apphost exited with code 2"
+        ], lines);
+    }
+
+    [Fact]
+    public async Task ReadChildLogReplayTail_ReturnsRicherBoundedRelevantTail()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var childLogFile = Path.Combine(workspace.WorkspaceRoot.FullName, "child.log");
+        await File.WriteAllLinesAsync(childLogFile, [
+            "[2026-05-15 17:07:24.674] [DBUG] [Features] Feature updateNotificationsEnabled = True (default: True)",
+            "[2026-05-15 17:07:25.069] [INFO] [Stdout] :gear: Preparing Aspire server...",
+            "[2026-05-15 17:07:27.381] [INFO] [Stdout] Connecting to AppHost...",
+            "[2026-05-15 17:07:28.618] [DBUG] [GuestAppHostProject] Executing: /opt/homebrew/bin/npm install",
+            "[2026-05-15 17:07:29.512] [INFO] [AppHost] up to date, audited 116 packages in 619ms",
+            "[2026-05-15 17:07:29.520] [DBUG] [GuestAppHostProject] Executing: /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json",
+            "[2026-05-15 17:07:30.501] [INFO] [AppHost] apphost.ts(5,22): error TS1109: Expression expected.",
+            "[2026-05-15 17:07:30.521] [FAIL] [GuestAppHostProject] TypeScript (Node.js) apphost exited with code 2",
+            "[2026-05-15 17:07:30.522] [FAIL] [GuestAppHostProject] AppHost server process has exited. Unable to connect to backchannel at /tmp/cli.sock",
+            "[2026-05-15 17:07:30.528] [FAIL] [AspireCliTelemetry] An unexpected error occurred: The TypeScript (Node.js) apphost failed.",
+            "System.InvalidOperationException: The TypeScript (Node.js) apphost failed.",
+            "[2026-05-15 17:07:30.534] [INFO] [Stdout] An unexpected error occurred: The TypeScript (Node.js) apphost failed.",
+            "[2026-05-15 17:07:30.540] [INFO] [Stdout] See logs at /tmp/child.log"
+        ]);
+
+        var entries = AppHostLauncher.ReadChildLogReplayTail(childLogFile, maxLines: 6);
+
+        Assert.Collection(entries,
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Debug, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.GuestAppHostProject, entry.Category);
+                Assert.Equal("Executing: /opt/homebrew/bin/npm install", entry.Message);
+            },
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Information, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.AppHost, entry.Category);
+                Assert.Equal("up to date, audited 116 packages in 619ms", entry.Message);
+            },
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Debug, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.GuestAppHostProject, entry.Category);
+                Assert.Equal("Executing: /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json", entry.Message);
+            },
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Information, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.AppHost, entry.Category);
+                Assert.Equal("apphost.ts(5,22): error TS1109: Expression expected.", entry.Message);
+            },
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Error, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.GuestAppHostProject, entry.Category);
+                Assert.Equal("TypeScript (Node.js) apphost exited with code 2", entry.Message);
+            },
+            entry =>
+            {
+                Assert.Equal(CliLogFormat.FileLevelTokens.Error, entry.Level);
+                Assert.Equal(CliLogFormat.Categories.GuestAppHostProject, entry.Category);
+                Assert.Equal("AppHost server process has exited. Unable to connect to backchannel at /tmp/cli.sock", entry.Message);
+            });
     }
 
     [Theory]

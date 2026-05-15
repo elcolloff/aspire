@@ -147,6 +147,12 @@ namespace Aspire.Cli.Resources {
             }
         }
         
+        public static string RecentAppHostStartupOutput {
+            get {
+                return ResourceManager.GetString("RecentAppHostStartupOutput", resourceCulture);
+            }
+        }
+
         public static string ConnectingToAppHost {
             get {
                 return ResourceManager.GetString("ConnectingToAppHost", resourceCulture);
@@ -266,7 +272,7 @@ namespace Aspire.Cli.Resources {
                 return ResourceManager.GetString("CheckLogsForDetails", resourceCulture);
             }
         }
-        
+
         public static string ProcessId {
             get {
                 return ResourceManager.GetString("ProcessId", resourceCulture);

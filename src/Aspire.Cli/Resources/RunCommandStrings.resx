@@ -178,6 +178,9 @@
   <data name="Logs" xml:space="preserve">
     <value>Logs</value>
   </data>
+  <data name="RecentAppHostStartupOutput" xml:space="preserve">
+    <value>Recent AppHost startup output</value>
+  </data>
   <data name="ConnectingToAppHost" xml:space="preserve">
     <value>Connecting to AppHost...</value>
   </data>
