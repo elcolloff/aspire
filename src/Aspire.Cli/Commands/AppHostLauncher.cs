@@ -495,7 +495,7 @@ internal sealed class AppHostLauncher(
             timeProvider.GetUtcNow(),
             LogLevel.Information,
             nameof(AppHostLauncher),
-            $"Begin detached AppHost startup log excerpt from child process {childProcessId}: {childLogFile}");
+            $"Begin detached AppHost startup log excerpt from child process {childProcessId}.");
 
         foreach (var entry in entries)
         {
@@ -509,7 +509,7 @@ internal sealed class AppHostLauncher(
             timeProvider.GetUtcNow(),
             LogLevel.Information,
             nameof(AppHostLauncher),
-            $"End detached AppHost startup log excerpt from child process {childProcessId}: {childLogFile}");
+            $"End detached AppHost startup log excerpt. Child log: {childLogFile}");
     }
 
     private void DisplayLaunchResult(
