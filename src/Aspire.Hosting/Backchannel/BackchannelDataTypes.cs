@@ -50,6 +50,10 @@ internal static class AuxiliaryBackchannelCapabilities
     /// </summary>
     public const string V3 = "aux.v3";
 
+    /// <summary>
+    /// Version 4 capabilities: AppHost startup readiness wait.
+    /// </summary>
+    public const string V4 = "aux.v4";
 }
 
 /// <summary>
@@ -194,6 +198,26 @@ internal sealed class GetDashboardInfoResponse
     /// Gets whether the Dashboard is healthy.
     /// </summary>
     public bool IsHealthy { get; init; }
+}
+
+/// <summary>
+/// Request for waiting until the AppHost reaches its startup readiness point.
+/// </summary>
+internal sealed class WaitForAppHostReadyRequest : BackchannelRequest
+{
+    /// <inheritdoc />
+    public override WaitForAppHostReadyRequest WithTraceContext(BackchannelTraceContext traceContext) => new() { TraceContext = traceContext };
+}
+
+/// <summary>
+/// Response returned once the AppHost reaches its startup readiness point.
+/// </summary>
+internal sealed class WaitForAppHostReadyResponse
+{
+    /// <summary>
+    /// Gets whether the AppHost has reached its startup readiness point.
+    /// </summary>
+    public bool IsReady { get; init; }
 }
 
 /// <summary>

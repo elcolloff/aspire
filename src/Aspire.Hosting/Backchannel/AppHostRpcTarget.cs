@@ -19,7 +19,8 @@ internal class AppHostRpcTarget(
     ProfilingTelemetry profilingTelemetry,
     PipelineActivityReporter activityReporter,
     IHostApplicationLifetime lifetime,
-    DistributedApplicationOptions options)
+    DistributedApplicationOptions options,
+    AppHostStartupState startupState)
 {
     private readonly CancellationTokenSource _shutdownCts = new();
 
@@ -162,6 +163,13 @@ internal class AppHostRpcTarget(
         }
 
         return await DashboardUrlsHelper.GetDashboardUrlsAsync(serviceProvider, logger, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task NotifyAppHostReadyAsync(CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        startupState.MarkReady();
+        return Task.CompletedTask;
     }
 
 #pragma warning disable CA1822

@@ -67,6 +67,8 @@ namespace Aspire.Cli.Backchannel;
 [JsonSerializable(typeof(GetAppHostInfoResponse))]
 [JsonSerializable(typeof(GetDashboardInfoRequest))]
 [JsonSerializable(typeof(GetDashboardInfoResponse))]
+[JsonSerializable(typeof(WaitForAppHostReadyRequest))]
+[JsonSerializable(typeof(WaitForAppHostReadyResponse))]
 [JsonSerializable(typeof(GetResourcesRequest))]
 [JsonSerializable(typeof(GetResourcesResponse))]
 [JsonSerializable(typeof(WatchResourcesRequest))]

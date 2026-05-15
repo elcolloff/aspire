@@ -3,7 +3,6 @@
 
 using System.CommandLine;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -36,13 +35,7 @@ internal sealed record DetachOutputInfo(
     string? DashboardUrl,
     string LogFile);
 
-internal sealed record DetachedStartupStatus(
-    bool IsReady,
-    int? ExitCode,
-    string? ErrorMessage);
-
 [JsonSerializable(typeof(DetachOutputInfo))]
-[JsonSerializable(typeof(DetachedStartupStatus))]
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class RunCommandJsonContext : JsonSerializerContext
 {
@@ -336,27 +329,19 @@ internal sealed class RunCommand : BaseCommand
                 InteractionService.DisplayMessage(KnownEmojis.Warning, RunCommandStrings.DashboardFailedToStart);
             }
 
-            if (IsDetachedStartChild(out var startupStatusFile))
+            if (IsDetachedStartChild())
             {
                 var observedExitCode = await ObserveEarlyDetachedStartupExitAsync(pendingRun, cancellationToken).ConfigureAwait(false);
                 if (observedExitCode is { } exitCode)
                 {
-                    AppHostLauncher.WriteDetachedStartupStatus(
-                        startupStatusFile,
-                        new DetachedStartupStatus(
-                            IsReady: false,
-                            ExitCode: exitCode,
-                            ErrorMessage: GetDetachedStartupFailureMessage(exitCode)));
-
                     return exitCode == ExitCodeConstants.Cancelled
                         ? CommandResult.Cancelled(ExitCodeConstants.Success)
                         : CommandResult.FromExitCode(exitCode);
                 }
 
-                AppHostLauncher.WriteDetachedStartupStatus(
-                    startupStatusFile,
-                    new DetachedStartupStatus(IsReady: true, ExitCode: null, ErrorMessage: null));
             }
+
+            await backchannel.NotifyAppHostReadyAsync(cancellationToken).ConfigureAwait(false);
 
             // Display the UX
             var appHostRelativePath = Path.GetRelativePath(ExecutionContext.WorkingDirectory.FullName, effectiveAppHostFile.FullName);
@@ -496,7 +481,6 @@ internal sealed class RunCommand : BaseCommand
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "backchannel_connection_failed");
             var errorMessage = string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ErrorConnectingToAppHost, ex.Message);
-            TryWriteDetachedStartupFailureStatus(ExitCodeConstants.FailedToDotnetRunAppHost, errorMessage);
             Telemetry.RecordError(errorMessage, ex);
             return CommandResult.Failure(ExitCodeConstants.FailedToDotnetRunAppHost, errorMessage);
         }
@@ -510,7 +494,6 @@ internal sealed class RunCommand : BaseCommand
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, ex.GetType().FullName);
             var errorMessage = string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.UnexpectedErrorOccurred, ex.Message);
-            TryWriteDetachedStartupFailureStatus(ExitCodeConstants.FailedToDotnetRunAppHost, errorMessage);
             Telemetry.RecordError(errorMessage, ex);
             return CommandResult.Failure(ExitCodeConstants.FailedToDotnetRunAppHost, errorMessage);
         }
@@ -520,32 +503,7 @@ internal sealed class RunCommand : BaseCommand
         }
     }
 
-    private bool IsDetachedStartChild([NotNullWhen(true)] out string? startupStatusFile)
-    {
-        startupStatusFile = _configuration[KnownConfigNames.CliStartReadyFile];
-
-        return _configuration.GetBool(KnownConfigNames.CliRunDetached) is true
-            && !string.IsNullOrEmpty(startupStatusFile);
-    }
-
-    private void TryWriteDetachedStartupFailureStatus(int exitCode, string errorMessage)
-    {
-        if (!IsDetachedStartChild(out var startupStatusFile))
-        {
-            return;
-        }
-
-        try
-        {
-            AppHostLauncher.WriteDetachedStartupStatus(
-                startupStatusFile,
-                new DetachedStartupStatus(IsReady: false, ExitCode: exitCode, ErrorMessage: errorMessage));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            _logger.LogDebug(ex, "Failed to write detached startup failure status file {StartupStatusFile}", startupStatusFile);
-        }
-    }
+    private bool IsDetachedStartChild() => _configuration.GetBool(KnownConfigNames.CliRunDetached) is true;
 
     private static async Task<int?> ObserveEarlyDetachedStartupExitAsync(Task<int> pendingRun, CancellationToken cancellationToken)
     {
@@ -561,11 +519,6 @@ internal sealed class RunCommand : BaseCommand
         }
 
         return null;
-    }
-
-    private static string GetDetachedStartupFailureMessage(int exitCode)
-    {
-        return AppHostLauncher.GetDetachedFailureMessage(exitCode);
     }
 
     private static IRenderable BuildCtrlCRenderable(int longestLocalizedLengthWithColon)

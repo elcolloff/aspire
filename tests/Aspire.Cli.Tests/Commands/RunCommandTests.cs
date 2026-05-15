@@ -185,6 +185,16 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         Assert.Contains("123", message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(ExitCodeConstants.Success, true)]
+    [InlineData(ExitCodeConstants.FailedToDotnetRunAppHost, false)]
+    public void IsSuccessfulDetachedEarlyExit_OnlyTreatsZeroAsSuccess(int exitCode, bool expected)
+    {
+        var result = AppHostLauncher.IsSuccessfulDetachedEarlyExit(exitCode);
+
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public void GenerateChildLogFilePath_UsesDetachChildNamingWithoutProcessId()
     {
@@ -1944,11 +1954,11 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public void DetachedChildEnvironment_IncludesStartupStatusFileWhenProvided()
+    public void DetachedChildEnvironment_DoesNotIncludeStartupStatusFile()
     {
-        var environment = AppHostLauncher.CreateDetachedChildEnvironment(null, "startup-status.json");
+        var environment = AppHostLauncher.CreateDetachedChildEnvironment(null);
 
-        Assert.Equal("startup-status.json", environment[KnownConfigNames.CliStartReadyFile]);
+        Assert.False(environment.ContainsKey("ASPIRE_CLI_START_READY_FILE"));
     }
 
     [Fact]
@@ -1998,19 +2008,6 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.SessionId));
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceParent));
         Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceState));
-    }
-
-    [Fact]
-    public void DetachedStartupStatus_RoundTripsThroughFile()
-    {
-        using var workspace = TemporaryWorkspace.Create(outputHelper);
-        var startupStatusFile = Path.Combine(workspace.WorkspaceRoot.FullName, "startup-status.json");
-        var status = new DetachedStartupStatus(IsReady: true, ExitCode: null, ErrorMessage: null);
-
-        AppHostLauncher.WriteDetachedStartupStatus(startupStatusFile, status);
-        var roundTripped = AppHostLauncher.TryReadDetachedStartupStatus(startupStatusFile);
-
-        Assert.Equal(status, roundTripped);
     }
 
     [Fact]

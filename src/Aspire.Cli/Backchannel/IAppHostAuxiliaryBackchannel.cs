@@ -47,6 +47,11 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     bool SupportsV3 { get; }
 
     /// <summary>
+    /// Gets a value indicating whether the AppHost supports v4 API.
+    /// </summary>
+    bool SupportsV4 { get; }
+
+    /// <summary>
     /// Gets AppHost information using the v2 API.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -59,6 +64,13 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The dashboard URL state including health and resolved dashboard URLs.</returns>
     Task<DashboardUrlsState?> GetDashboardUrlsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Waits until the AppHost reaches its startup readiness point.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The AppHost startup readiness response, or null if unavailable.</returns>
+    Task<WaitForAppHostReadyResponse?> WaitForAppHostReadyAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the current resource snapshots from the AppHost.

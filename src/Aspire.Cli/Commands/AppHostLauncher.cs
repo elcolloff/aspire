@@ -37,7 +37,6 @@ internal sealed class AppHostLauncher(
 {
     private const int MaxDisplayedChildLogLines = 80;
     private const int MaxParentLogReplayLines = 200;
-    private static readonly TimeSpan s_detachedFailureExitTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Shared option for the AppHost project file path.
@@ -127,7 +126,6 @@ internal sealed class AppHostLauncher(
 
         // Build child process arguments
         var childLogFile = GenerateChildLogFilePath(executionContext.LogsDirectory.FullName, timeProvider);
-        var startupStatusFile = GenerateStartupStatusFilePath(executionContext.LogsDirectory.FullName, timeProvider);
         var (executablePath, childArgs) = BuildChildProcessArgs(effectiveAppHostFile, childLogFile, isolated, globalArgs, additionalArgs);
 
         // Compute the expected socket prefix for backchannel detection
@@ -159,7 +157,7 @@ internal sealed class AppHostLauncher(
         {
             launchResult = await interactionService.ShowStatusAsync(
                 RunCommandStrings.StartingAppHostInBackground,
-                () => LaunchAndWaitForBackchannelAsync(executablePath, childArgs, expectedHash, legacyHash, startupStatusFile, cancellationToken));
+                () => LaunchAndWaitForBackchannelAsync(executablePath, childArgs, expectedHash, legacyHash, cancellationToken));
         }
         catch (OperationCanceledException)
         {
@@ -260,26 +258,21 @@ internal sealed class AppHostLauncher(
     internal static bool IsExtensionEnvironmentVariable(string name) =>
         name.StartsWith(ExtensionEnvironmentVariablePrefix, StringComparison.OrdinalIgnoreCase);
 
-    internal static Dictionary<string, string> CreateDetachedChildEnvironment(Activity? activity, string? startupStatusFile = null)
+    internal static Dictionary<string, string> CreateDetachedChildEnvironment(Activity? activity)
     {
         var environment = new Dictionary<string, string> { [KnownConfigNames.CliRunDetached] = "true" };
-        if (!string.IsNullOrEmpty(startupStatusFile))
-        {
-            environment[KnownConfigNames.CliStartReadyFile] = startupStatusFile;
-        }
 
         ProfilingTelemetry.AddActivityContextToEnvironment(activity, environment);
         return environment;
     }
 
-    private record LaunchResult(Process? ChildProcess, IAppHostAuxiliaryBackchannel? Backchannel, DashboardUrlsState? DashboardUrls, bool ChildExitedEarly, int ChildExitCode, DetachedStartupStatus? StartupStatus = null, DateTimeOffset? ChildStartedAt = null);
+    private record LaunchResult(Process? ChildProcess, IAppHostAuxiliaryBackchannel? Backchannel, DashboardUrlsState? DashboardUrls, bool ChildExitedEarly, int ChildExitCode, DateTimeOffset? ChildStartedAt = null);
 
     private async Task<LaunchResult> LaunchAndWaitForBackchannelAsync(
         string executablePath,
         List<string> childArgs,
         string expectedHash,
         string? legacyHash,
-        string startupStatusFile,
         CancellationToken cancellationToken)
     {
         Process childProcess;
@@ -293,7 +286,7 @@ internal sealed class AppHostLauncher(
                     childArgs,
                     executionContext.WorkingDirectory.FullName,
                     IsExtensionEnvironmentVariable,
-                    CreateDetachedChildEnvironment(Activity.Current, startupStatusFile));
+                    CreateDetachedChildEnvironment(Activity.Current));
                 spawnActivity.SetProcessId(childProcess.Id);
             }
             catch (Exception ex)
@@ -311,7 +304,6 @@ internal sealed class AppHostLauncher(
         var timeout = TimeSpan.FromSeconds(120);
         using var waitForBackchannelActivity = profilingTelemetry.StartDetachedWaitForBackchannel(childProcess.Id, expectedHash, legacyHash is not null);
         var scanCount = 0;
-        var startupReady = false;
         IAppHostAuxiliaryBackchannel? connection = null;
         DashboardUrlsState? dashboardUrls = null;
 
@@ -324,40 +316,9 @@ internal sealed class AppHostLauncher(
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
-                DetachedStartupStatus? startupStatus = null;
-                try
-                {
-                    startupStatus = TryReadDetachedStartupStatus(startupStatusFile);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-                {
-                    logger.LogDebug(ex, "Failed to read detached startup status file {StartupStatusFile}", startupStatusFile);
-                }
-
-                if (startupStatus is not null)
-                {
-                    if (!startupStatus.IsReady)
-                    {
-                        waitForBackchannelActivity.SetError(startupStatus.ErrorMessage ?? "Child CLI reported AppHost startup failure.");
-                        logger.LogWarning("Child CLI reported AppHost startup failure: {ErrorMessage}", startupStatus.ErrorMessage);
-                        await WaitForChildExitAfterFailureStatusAsync(childProcess, cancellationToken).ConfigureAwait(false);
-                        return new LaunchResult(childProcess, null, dashboardUrls, false, startupStatus.ExitCode ?? ExitCodeConstants.FailedToDotnetRunAppHost, startupStatus, childStartedAt);
-                    }
-
-                    startupReady = true;
-                    if (connection is not null)
-                    {
-                        return new LaunchResult(childProcess, connection, dashboardUrls, false, 0, startupStatus, childStartedAt);
-                    }
-                }
-
                 if (childProcess.HasExited)
                 {
-                    var exitCode = childProcess.ExitCode;
-                    waitForBackchannelActivity.SetProcessExitCode(exitCode);
-                    waitForBackchannelActivity.SetError($"Child CLI exited with code {exitCode}.");
-                    logger.LogWarning("Child CLI process exited with code {ExitCode}", exitCode);
-                    return new LaunchResult(childProcess, null, null, true, exitCode, ChildStartedAt: childStartedAt);
+                    return CreateChildExitedLaunchResult(childProcess, waitForBackchannelActivity, childStartedAt);
                 }
 
                 await backchannelMonitor.ScanAsync(cancellationToken).ConfigureAwait(false);
@@ -384,9 +345,38 @@ internal sealed class AppHostLauncher(
                         }
                     }
 
-                    if (startupReady)
+                    var remainingTimeout = timeout - (timeProvider.GetUtcNow() - startTime);
+                    if (remainingTimeout <= TimeSpan.Zero)
                     {
-                        return new LaunchResult(childProcess, connection, dashboardUrls, false, 0, ChildStartedAt: childStartedAt);
+                        break;
+                    }
+
+                    using var readinessCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var readinessTask = WaitForAppHostReadyAsync(connection, readinessCts.Token);
+                    var childExitTask = childProcess.WaitForExitAsync(cancellationToken);
+                    var timeoutTask = Task.Delay(remainingTimeout, timeProvider, cancellationToken);
+
+                    var completedTask = await Task.WhenAny(readinessTask, childExitTask, timeoutTask).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (completedTask == readinessTask)
+                    {
+                        if (await readinessTask.ConfigureAwait(false))
+                        {
+                            return new LaunchResult(childProcess, connection, dashboardUrls, false, 0, childStartedAt);
+                        }
+                    }
+                    else
+                    {
+                        readinessCts.Cancel();
+                        ObserveFaults(readinessTask);
+
+                        if (completedTask == childExitTask)
+                        {
+                            await childExitTask.ConfigureAwait(false);
+                            return CreateChildExitedLaunchResult(childProcess, waitForBackchannelActivity, childStartedAt);
+                        }
+
+                        break;
                     }
                 }
 
@@ -409,20 +399,47 @@ internal sealed class AppHostLauncher(
         waitForBackchannelActivity.SetBackchannelScanCount(scanCount);
         waitForBackchannelActivity.SetError("Timed out waiting for AppHost startup readiness.");
         await ProcessSignaler.RequestGracefulShutdownThenForceKillAsync(childProcess.Id, childStartedAt, logger, CancellationToken.None).ConfigureAwait(false);
-        return new LaunchResult(childProcess, startupReady ? connection : null, dashboardUrls, false, 0, ChildStartedAt: childStartedAt);
+        return new LaunchResult(childProcess, null, dashboardUrls, false, 0, childStartedAt);
     }
 
-    private static async Task WaitForChildExitAfterFailureStatusAsync(Process childProcess, CancellationToken cancellationToken)
+    private LaunchResult CreateChildExitedLaunchResult(Process childProcess, ProfilingTelemetry.ActivityScope waitForBackchannelActivity, DateTimeOffset childStartedAt)
+    {
+        var exitCode = childProcess.ExitCode;
+        waitForBackchannelActivity.SetProcessExitCode(exitCode);
+        if (IsSuccessfulDetachedEarlyExit(exitCode))
+        {
+            logger.LogInformation("Child CLI process exited successfully before AppHost readiness was observed.");
+        }
+        else
+        {
+            waitForBackchannelActivity.SetError($"Child CLI exited with code {exitCode}.");
+            logger.LogWarning("Child CLI process exited with code {ExitCode}", exitCode);
+        }
+
+        return new LaunchResult(childProcess, null, null, true, exitCode, ChildStartedAt: childStartedAt);
+    }
+
+    private async Task<bool> WaitForAppHostReadyAsync(IAppHostAuxiliaryBackchannel connection, CancellationToken cancellationToken)
     {
         try
         {
-            await childProcess.WaitForExitAsync(cancellationToken).WaitAsync(s_detachedFailureExitTimeout, cancellationToken).ConfigureAwait(false);
+            var startupState = await connection.WaitForAppHostReadyAsync(cancellationToken).ConfigureAwait(false);
+            return startupState?.IsReady ?? true;
         }
-        catch (TimeoutException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The child reported startup failure but did not exit promptly. Do not kill it
-            // here; timeout and Ctrl+C are the only detached-start paths that terminate it.
+            logger.LogDebug(ex, "Failed to wait for AppHost startup readiness from auxiliary backchannel. Treating the AppHost as ready for compatibility.");
+            return true;
         }
+    }
+
+    private static void ObserveFaults(Task task)
+    {
+        _ = task.ContinueWith(
+            static completedTask => _ = completedTask.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private CommandResult HandleLaunchFailure(LaunchResult result, string childLogFile)
@@ -433,14 +450,15 @@ internal sealed class AppHostLauncher(
             return CommandResult.Failure(ExitCodeConstants.FailedToDotnetRunAppHost);
         }
 
+        if (result.ChildExitedEarly && IsSuccessfulDetachedEarlyExit(result.ChildExitCode))
+        {
+            return CommandResult.Success();
+        }
+
         string? failureMessage;
         if (result.ChildExitedEarly)
         {
             failureMessage = GetDetachedFailureMessage(result.ChildExitCode);
-        }
-        else if (result.StartupStatus is { IsReady: false })
-        {
-            failureMessage = null;
         }
         else
         {
@@ -563,6 +581,9 @@ internal sealed class AppHostLauncher(
         };
     }
 
+    internal static bool IsSuccessfulDetachedEarlyExit(int childExitCode)
+        => childExitCode == ExitCodeConstants.Success;
+
     /// <summary>
     /// Generates a unique log file path for a detached child CLI process.
     /// </summary>
@@ -572,36 +593,6 @@ internal sealed class AppHostLauncher(
         var uniqueId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var fileName = $"cli_{timestamp}_detach-child_{uniqueId}.log";
         return Path.Combine(logsDirectory, fileName);
-    }
-
-    internal static string GenerateStartupStatusFilePath(string logsDirectory, TimeProvider timeProvider)
-    {
-        var timestamp = timeProvider.GetUtcNow().ToString("yyyyMMddTHHmmssfff", CultureInfo.InvariantCulture);
-        var uniqueId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
-        var fileName = $"cli_{timestamp}_detach-child-startup_{uniqueId}.json";
-        return Path.Combine(logsDirectory, fileName);
-    }
-
-    internal static void WriteDetachedStartupStatus(string startupStatusFile, DetachedStartupStatus status)
-    {
-        var temporaryFile = $"{startupStatusFile}.{Environment.ProcessId}.tmp";
-        var json = JsonSerializer.Serialize(status, RunCommandJsonContext.RelaxedEscaping.DetachedStartupStatus);
-
-        // The parent polls this file while the child is starting. Write to a sibling
-        // file and atomically move it into place so the parent never observes partial JSON.
-        File.WriteAllText(temporaryFile, json);
-        File.Move(temporaryFile, startupStatusFile, overwrite: true);
-    }
-
-    internal static DetachedStartupStatus? TryReadDetachedStartupStatus(string startupStatusFile)
-    {
-        if (!File.Exists(startupStatusFile))
-        {
-            return null;
-        }
-
-        using var stream = new FileStream(startupStatusFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return JsonSerializer.Deserialize(stream, RunCommandJsonContext.RelaxedEscaping.DetachedStartupStatus);
     }
 
     internal static IReadOnlyList<string> ReadChildLogTail(string childLogFile, int maxLines = 80)

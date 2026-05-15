@@ -21,6 +21,7 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
     public DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.UtcNow;
     public bool SupportsV2 { get; set; } = true;
     public bool SupportsV3 { get; set; }
+    public bool SupportsV4 { get; set; }
 
     /// <summary>
     /// Gets or sets the resource snapshots to return from GetResourceSnapshotsAsync and WatchResourceSnapshotsAsync.
@@ -36,6 +37,8 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
     /// Gets or sets the AppHost info response to return from GetAppHostInfoV2Async.
     /// </summary>
     public GetAppHostInfoResponse? AppHostInfoResponse { get; set; }
+
+    public WaitForAppHostReadyResponse? WaitForAppHostReadyResponse { get; set; }
 
     /// <summary>
     /// Gets or sets the log lines to return from GetResourceLogsAsync.
@@ -109,6 +112,11 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
             CliProcessId = AppHostInfo.CliProcessId,
             StartedAt = AppHostInfo.StartedAt
         });
+    }
+
+    public Task<WaitForAppHostReadyResponse?> WaitForAppHostReadyAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(WaitForAppHostReadyResponse);
     }
 
     public Task<List<ResourceSnapshot>> GetResourceSnapshotsAsync(bool includeHidden, CancellationToken cancellationToken = default)

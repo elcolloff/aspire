@@ -84,6 +84,9 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
     /// <inheritdoc />
     public bool SupportsV3 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V3);
 
+    /// <inheritdoc />
+    public bool SupportsV4 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V4);
+
     /// <summary>
     /// Gets the JSON-RPC proxy for communicating with the AppHost.
     /// </summary>
@@ -297,6 +300,34 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
             // The RPC method may not be available on older AppHost versions.
             _logger.LogDebug(ex, "GetDashboardUrlsAsync RPC method not available on the remote AppHost. The AppHost may be running an older version.");
             activity.AddAuxBackchannelGetDashboardUrlsNotFoundEvent();
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<WaitForAppHostReadyResponse?> WaitForAppHostReadyAsync(CancellationToken cancellationToken = default)
+    {
+        if (!SupportsV4)
+        {
+            return null;
+        }
+
+        var rpc = EnsureConnected();
+
+        _logger.LogDebug("Waiting for AppHost startup readiness");
+
+        try
+        {
+            return await rpc.InvokeWithProfilingAsync<WaitForAppHostReadyResponse>(
+                _profilingTelemetry,
+                "auxiliary",
+                "WaitForAppHostReadyAsync",
+                [new WaitForAppHostReadyRequest()],
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (RemoteMethodNotFoundException ex)
+        {
+            _logger.LogDebug(ex, "WaitForAppHostReadyAsync RPC method not available on the remote AppHost. The AppHost may be running an older version.");
             return null;
         }
     }
