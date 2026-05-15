@@ -2199,6 +2199,85 @@ public class DcpExecutorTests
     }
 
     [Fact]
+    public async Task PersistentDcpResourcesIncludeMonitorProcess()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        builder.AddContainer("database", "image")
+            .WithLifetime(Lifetime.Persistent);
+        builder.AddExecutable("worker", "worker", Environment.CurrentDirectory)
+            .WithLifetime(Lifetime.Persistent);
+        builder.AddProject<TestProject>("project", launchProfileName: null)
+            .WithLifetime(Lifetime.Persistent);
+
+        var configDict = new Dictionary<string, string?>
+        {
+            ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(configDict).Build();
+        var monitorProcess = new DcpProcessIdentity(1234, new DateTime(2026, 5, 14, 1, 2, 3, DateTimeKind.Utc));
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(
+            distributedAppModel,
+            kubernetesService: kubernetesService,
+            configuration: configuration,
+            processMonitor: new TestDcpProcessMonitor(monitorProcess));
+
+        await appExecutor.RunApplicationAsync();
+
+        var container = Assert.Single(kubernetesService.CreatedResources.OfType<Container>());
+        Assert.True(container.Spec.Persistent.GetValueOrDefault());
+        Assert.Equal(monitorProcess.ProcessId, container.Spec.MonitorPid);
+        Assert.Equal(monitorProcess.Timestamp, container.Spec.MonitorTimestamp);
+
+        var executables = kubernetesService.CreatedResources.OfType<Executable>()
+            .Where(e => e.AppModelResourceName is "worker" or "project")
+            .ToArray();
+        Assert.Equal(2, executables.Length);
+        Assert.All(executables, exe =>
+        {
+            Assert.True(exe.Spec.Persistent.GetValueOrDefault());
+            Assert.Equal(monitorProcess.ProcessId, exe.Spec.MonitorPid);
+            Assert.Equal(monitorProcess.Timestamp, exe.Spec.MonitorTimestamp);
+            Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
+        });
+    }
+
+    [Fact]
+    public async Task NonPersistentDcpResourcesDoNotIncludeMonitorProcess()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        builder.AddContainer("database", "image");
+        builder.AddExecutable("worker", "worker", Environment.CurrentDirectory);
+
+        var monitorProcess = new DcpProcessIdentity(1234, new DateTime(2026, 5, 14, 1, 2, 3, DateTimeKind.Utc));
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(
+            distributedAppModel,
+            kubernetesService: kubernetesService,
+            processMonitor: new TestDcpProcessMonitor(monitorProcess));
+
+        await appExecutor.RunApplicationAsync();
+
+        var container = Assert.Single(kubernetesService.CreatedResources.OfType<Container>());
+        Assert.Null(container.Spec.Persistent);
+        Assert.Null(container.Spec.MonitorPid);
+        Assert.Null(container.Spec.MonitorTimestamp);
+
+        var executable = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>());
+        Assert.Null(executable.Spec.Persistent);
+        Assert.Null(executable.Spec.MonitorPid);
+        Assert.Null(executable.Spec.MonitorTimestamp);
+    }
+
+    [Fact]
     public async Task PersistentPlainExecutable_UsesStableCertificateOutputPath()
     {
         var builder = DistributedApplication.CreateBuilder();
@@ -3993,7 +4072,8 @@ public class DcpExecutorTests
         DcpOptions? dcpOptions = null,
         ResourceLoggerService? resourceLoggerService = null,
         DcpExecutorEvents? events = null,
-        Hosting.Eventing.IDistributedApplicationEventing? distributedApplicationEventing = null)
+        Hosting.Eventing.IDistributedApplicationEventing? distributedApplicationEventing = null,
+        IDcpProcessMonitor? processMonitor = null)
     {
         if (configuration == null)
         {
@@ -4030,6 +4110,7 @@ public class DcpExecutorTests
         var aspireStore = new AspireStore(Path.Join(aspireStoreDirectory.Path, ".aspire"), fileSystemService);
         var hostEnv = hostEnvironment ?? new TestHostEnvironment();
         var dcpDependencyCheckService = new TestDcpDependencyCheckService();
+        processMonitor ??= new TestDcpProcessMonitor(null);
 
         var appResources = new DcpAppResourceStore();
 
@@ -4041,6 +4122,7 @@ public class DcpExecutorTests
             executionContext,
             locations,
             aspireStore,
+            processMonitor,
             NullLogger<ExecutableCreator>.Instance,
             appResources);
 
@@ -4052,6 +4134,7 @@ public class DcpExecutorTests
             executionContext,
             resourceLoggerService,
             dcpDependencyCheckService,
+            processMonitor,
             hostEnv,
             NullLogger<ContainerCreator>.Instance,
             appResources);
@@ -4103,6 +4186,11 @@ public class DcpExecutorTests
             Assert.InRange(index, 0, specArgs.Count - 1);
             Assert.Equal(annotation.Argument, specArgs[index]);
         }
+    }
+
+    private sealed class TestDcpProcessMonitor(DcpProcessIdentity? monitorProcess) : IDcpProcessMonitor
+    {
+        public DcpProcessIdentity? GetMonitorProcess() => monitorProcess;
     }
 
     private static Aspire.Hosting.Dcp.ResourceSnapshotBuilder CreateSnapshotBuilder(DistributedApplicationModel model)

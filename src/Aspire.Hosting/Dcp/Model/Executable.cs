@@ -65,6 +65,19 @@ internal sealed class ExecutableSpec
     public bool? Persistent { get; set; }
 
     /// <summary>
+    /// Optional parent process PID used to scope persistent Executable cleanup to a process lifecycle.
+    /// When set, <see cref="MonitorTimestamp"/> must also be set and <see cref="Persistent"/> must be true.
+    /// </summary>
+    [JsonPropertyName("monitorPid")]
+    public int? MonitorPid { get; set; }
+
+    /// <summary>
+    /// Optional parent process identity timestamp used with <see cref="MonitorPid"/> to guard against PID reuse.
+    /// </summary>
+    [JsonPropertyName("monitorTimestamp")]
+    public DateTime? MonitorTimestamp { get; set; }
+
+    /// <summary>
     /// Should this resource be started? If set to false, we will not attempt
     /// to start the resource until Start is set to true (or null).
     /// </summary>

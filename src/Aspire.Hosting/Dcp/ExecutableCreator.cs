@@ -30,6 +30,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
     private readonly DistributedApplicationExecutionContext _executionContext;
     private readonly Locations _locations;
     private readonly IAspireStore _aspireStore;
+    private readonly IDcpProcessMonitor _processMonitor;
     private readonly ILogger<ExecutableCreator> _logger;
     private readonly DcpAppResourceStore _appResources;
 
@@ -41,6 +42,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         DistributedApplicationExecutionContext executionContext,
         Locations locations,
         IAspireStore aspireStore,
+        IDcpProcessMonitor processMonitor,
         ILogger<ExecutableCreator> logger,
         DcpAppResourceStore appResources)
     {
@@ -51,6 +53,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         _executionContext = executionContext;
         _locations = locations;
         _aspireStore = aspireStore;
+        _processMonitor = processMonitor;
         _logger = logger;
         _appResources = appResources;
     }
@@ -172,6 +175,10 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                 var isInDebugSession = !string.IsNullOrEmpty(_configuration[DcpExecutor.DebugSessionPortVar]);
                 var persistent = project.GetExecutableLifetimeType() == Lifetime.Persistent;
                 exe.Spec.Persistent = persistent;
+                if (persistent)
+                {
+                    ApplyMonitorProcess(exe.Spec);
+                }
 
                 SupportsDebuggingAnnotation? supportsDebuggingAnnotation = null;
                 if (!persistent && project.SupportsDebugging(_configuration, out supportsDebuggingAnnotation))
@@ -287,6 +294,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             if (persistent)
             {
                 exe.Spec.Persistent = true;
+                ApplyMonitorProcess(exe.Spec);
             }
 
             if (!persistent && executable.SupportsDebugging(_configuration, out _))
@@ -311,6 +319,15 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             var exeAppResource = new RenderedModelResource<Executable>(executable, exe);
             DcpModelUtilities.AddServicesProducedInfo(exeAppResource, _appResources.Get());
             _appResources.Add(exeAppResource);
+        }
+    }
+
+    private void ApplyMonitorProcess(ExecutableSpec spec)
+    {
+        if (_processMonitor.GetMonitorProcess() is { } monitorProcess)
+        {
+            spec.MonitorPid = monitorProcess.ProcessId;
+            spec.MonitorTimestamp = monitorProcess.Timestamp;
         }
     }
 

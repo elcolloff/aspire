@@ -54,6 +54,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
     private readonly DistributedApplicationExecutionContext _executionContext;
     private readonly ResourceLoggerService _loggerService;
     private readonly IDcpDependencyCheckService _dcpDependencyCheckService;
+    private readonly IDcpProcessMonitor _processMonitor;
     private readonly ILogger<ContainerCreator> _logger;
     private readonly string _normalizedApplicationName;
     private readonly DcpAppResourceStore _appResources;
@@ -69,6 +70,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
         DistributedApplicationExecutionContext executionContext,
         ResourceLoggerService loggerService,
         IDcpDependencyCheckService dcpDependencyCheckService,
+        IDcpProcessMonitor processMonitor,
         IHostEnvironment hostEnvironment,
         ILogger<ContainerCreator> logger,
         DcpAppResourceStore appResources)
@@ -80,6 +82,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
         _executionContext = executionContext;
         _loggerService = loggerService;
         _dcpDependencyCheckService = dcpDependencyCheckService;
+        _processMonitor = processMonitor;
         _logger = logger;
         _normalizedApplicationName = DcpExecutor.NormalizeApplicationName(hostEnvironment.ApplicationName);
         _appResources = appResources;
@@ -155,6 +158,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
             if (container.GetContainerLifetimeType() == ContainerLifetime.Persistent)
             {
                 ctr.Spec.Persistent = true;
+                ApplyMonitorProcess(ctr.Spec);
             }
 
             if (container.TryGetContainerImagePullPolicy(out var pullPolicy))
@@ -204,6 +208,15 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
         }
 
         return result;
+    }
+
+    private void ApplyMonitorProcess(ContainerSpec spec)
+    {
+        if (_processMonitor.GetMonitorProcess() is { } monitorProcess)
+        {
+            spec.MonitorPid = monitorProcess.ProcessId;
+            spec.MonitorTimestamp = monitorProcess.Timestamp;
+        }
     }
 
     private void ValidateContainerTunnelContainerNameConflicts(IEnumerable<IResource> modelContainerResources)
