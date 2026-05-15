@@ -12,11 +12,6 @@ trigger: none  # Manual trigger only
 pr: none       # Not triggered by PRs
 
 parameters:
-  - name: GaChannelName
-    displayName: 'GA Channel Name'
-    type: string
-    default: 'Aspire 9.x GA'
-
   - name: DryRun
     displayName: 'Dry Run (skip actual publish - for testing)'
     type: boolean
@@ -44,6 +39,9 @@ parameters:
     default: false
 
 variables:
+  # The GA channel name is tied to the .NET runtime version (9.x), not the Aspire package version.
+  - name: GaChannelName
+    value: 'Aspire 9.x GA'
   - template: /eng/pipelines/common-variables.yml@self
   - template: /eng/common/templates-official/variables/pool-providers.yml@self
   # Variable group containing secrets (VscePublishToken for future use)
@@ -253,7 +251,7 @@ extends:
                   Write-Host "Source Build ID: $(resources.pipeline.aspire-build.runID)"
                   Write-Host "Source Build Name: $(resources.pipeline.aspire-build.runName)"
                   Write-Host "Source Build URI: $(resources.pipeline.aspire-build.runURI)"
-                  Write-Host "GA Channel: ${{ parameters.GaChannelName }}"
+                  Write-Host "GA Channel: $(GaChannelName)"
                   Write-Host "Dry Run: ${{ parameters.DryRun }}"
                   Write-Host "Skip NuGet Publish: ${{ parameters.SkipNuGetPublish }}"
                   Write-Host "Skip Channel Promotion: ${{ parameters.SkipChannelPromotion }}"
@@ -443,7 +441,7 @@ extends:
                     scriptLocation: 'inlineScript'
                     inlineScript: |
                       $barBuildId = "$(BarBuildId)"
-                      $channelName = "${{ parameters.GaChannelName }}"
+                      $channelName = "$(GaChannelName)"
                       $dryRun = [System.Convert]::ToBoolean("${{ parameters.DryRun }}")
                       $azdoToken = $env:SYSTEM_ACCESSTOKEN
 
@@ -490,7 +488,7 @@ extends:
                   } else {
                     Write-Host "║ BAR Build ID:   $(BarBuildId)"
                   }
-                  Write-Host "║ GA Channel:     ${{ parameters.GaChannelName }}"
+                  Write-Host "║ GA Channel:     $(GaChannelName)"
                   Write-Host "║ Dry Run:        ${{ parameters.DryRun }}"
                   Write-Host "╠═══════════════════════════════════════════════════════════════╣"
                   Write-Host "║ NuGet Publish:  ${{ parameters.SkipNuGetPublish }}" -NoNewline

@@ -6,7 +6,7 @@ This document describes the release process for microsoft/aspire, including both
 
 The Aspire release process involves two main automation components:
 
-1. **Azure DevOps Pipeline** (`eng/pipelines/release-publish-nuget.yml`)
+1. **Azure DevOps Pipeline** (`microsoft-aspire-Release-To-NuGet`, defined in `eng/pipelines/release-publish-nuget.yml`)
    - Publishes NuGet packages to NuGet.org
    - Promotes the build to the GA channel via darc
 
@@ -22,7 +22,6 @@ Before starting a release:
 
 1. **Signed Build**: Have a successful signed build from the official `dotnet-aspire` pipeline
    - The build will be selected from a dropdown when running the release pipeline
-   - The build should have a `BAR ID - NNNNNN` tag (auto-extracted by the pipeline)
 
 2. **Release Branch**: Ensure the release branch exists (e.g., `release/9.2`)
 
@@ -34,7 +33,7 @@ Before starting a release:
 
 ### Step 1: Publish NuGet Packages (Azure DevOps)
 
-1. Navigate to the Azure DevOps pipeline: `release-publish-nuget`
+1. Navigate to the Azure DevOps pipeline: `microsoft-aspire-Release-To-NuGet`
 2. Click "Run pipeline"
 3. Under **Resources**, select the source build from the `aspire-build` dropdown
    - This shows recent builds from the `dotnet-aspire` pipeline
@@ -43,7 +42,6 @@ Before starting a release:
 
    | Parameter | Description | Example |
    |-----------|-------------|---------|
-   | `GaChannelName` | Target GA channel | `Aspire 9.x GA` |
    | `DryRun` | Set `true` to test without publishing | `false` |
    | `SkipNuGetPublish` | Set `true` if re-running after NuGet success | `false` |
    | `SkipChannelPromotion` | Set `true` if re-running after darc success | `false` |
@@ -195,11 +193,11 @@ The workflow checks for existing PRs before creating. If a PR exists with a diff
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │                    Azure DevOps Pipeline                         │   │
-│  │                release-publish-nuget.yml                         │   │
+│  │                microsoft-aspire-Release-To-NuGet                  │   │
+│  │                (release-publish-nuget.yml)                       │   │
 │  │          (1ES.Official.PipelineTemplate.yml)                     │   │
 │  │                                                                  │   │
 │  │  Resource: aspire-build (select from dropdown)                   │   │
-│  │  Input: GaChannelName                                            │   │
 │  │                                                                  │   │
 │  │  ┌─────────────┐   ┌──────────────┐   ┌──────────────────────┐   │   │
 │  │  │  Validate   │──▶│ Extract BAR  │──▶│  Download & Verify   │   │   │
