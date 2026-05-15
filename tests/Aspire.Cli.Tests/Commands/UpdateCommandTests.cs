@@ -1981,6 +1981,87 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
         Assert.Contains(ExpectedReason, errorMessage);
         Assert.Equal(ExitCodeConstants.FailedToUpgradeProject, exitCode);
     }
+
+    [Fact]
+    public async Task UpdateCommand_SelfUpdate_StagingChannelUnavailable_ShortCircuitsBeforeDownload()
+    {
+        // Self-update path goes through CliDownloader.DownloadLatestCliAsync, not
+        // ChannelNotFoundException. Without a dedicated check the user would just see
+        // a generic "Unsupported channel" error from CliDownloader. Verify that
+        // the staging-unavailable reason is surfaced and that no download is attempted.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        const string ExpectedReason = "Staging is unavailable on a daily CLI; set 'overrideStagingFeed' to recover.";
+        var downloadInvoked = false;
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.PackagingServiceFactory = _ => new TestPackagingService()
+            {
+                GetStagingChannelUnavailableReasonCallback = () => ExpectedReason,
+            };
+
+            options.CliDownloaderFactory = _ => new TestCliDownloader(workspace.WorkspaceRoot)
+            {
+                DownloadLatestCliAsyncCallback = (channel, ct) =>
+                {
+                    downloadInvoked = true;
+                    var archivePath = Path.Combine(workspace.WorkspaceRoot.FullName, "test-cli.tar.gz");
+                    File.WriteAllText(archivePath, "fake archive");
+                    return Task.FromResult(archivePath);
+                }
+            };
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("update --self --channel staging");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.False(downloadInvoked, "Self-update should refuse to download when staging is unavailable.");
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+    }
+
+    [Fact]
+    public async Task UpdateCommand_SelfUpdate_StagingChannelAvailable_ProceedsWithDownload()
+    {
+        // Inverse: when staging IS available (e.g. on a stable CLI or with a valid
+        // overrideStagingFeed) the self-update should still kick off the download.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var capturedChannel = string.Empty;
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.PackagingServiceFactory = _ => new TestPackagingService()
+            {
+                GetStagingChannelUnavailableReasonCallback = () => null,
+            };
+
+            options.CliDownloaderFactory = _ => new TestCliDownloader(workspace.WorkspaceRoot)
+            {
+                DownloadLatestCliAsyncCallback = (channel, ct) =>
+                {
+                    capturedChannel = channel;
+                    var archivePath = Path.Combine(workspace.WorkspaceRoot.FullName, "test-cli.tar.gz");
+                    File.WriteAllText(archivePath, "fake archive");
+                    return Task.FromResult(archivePath);
+                }
+            };
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("update --self --channel staging");
+
+        // Extraction will fail on the fake archive but that's fine — we only care
+        // that the download was reached for the 'staging' channel.
+        await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal("staging", capturedChannel);
+    }
 }
 
 // Helper class to track DisplayCancellationMessage calls

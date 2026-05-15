@@ -116,8 +116,13 @@ internal class PackagingService(CliExecutionContext executionContext, INuGetPack
 
         // If the user has supplied an explicit staging feed override they are taking
         // ownership of where staging packages come from, so any CLI build is allowed.
-        var hasExplicitFeedOverride = !string.IsNullOrEmpty(configuration["overrideStagingFeed"]);
-        if (hasExplicitFeedOverride)
+        // Match the validation performed by GetStagingFeedUrl: only treat the override
+        // as effective when it is a well-formed HTTP(S) URL. Otherwise the override is
+        // silently dropped at feed-resolution time and we'd fall back to synthesizing a
+        // SHA-specific or shared-daily feed — reintroducing #16652. Keep the daily-CLI
+        // guard active in that case so the user gets an actionable error instead.
+        var overrideFeed = configuration["overrideStagingFeed"];
+        if (!string.IsNullOrEmpty(overrideFeed) && UrlHelper.IsHttpUrl(overrideFeed))
         {
             return null;
         }

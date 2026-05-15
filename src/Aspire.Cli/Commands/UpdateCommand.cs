@@ -355,6 +355,19 @@ internal sealed class UpdateCommand : BaseCommand
 
         try
         {
+            // For an explicit '--self --channel staging' request, surface the staging
+            // unavailability reason (#16652) before kicking off any download work — the
+            // CliDownloader path doesn't go through ChannelNotFoundException so without
+            // this check users would just get a generic "Unsupported channel" error.
+            if (string.Equals(channel, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase))
+            {
+                var stagingReason = _packagingService.GetStagingChannelUnavailableReason();
+                if (!string.IsNullOrEmpty(stagingReason))
+                {
+                    return CommandResult.Failure(ExitCodeConstants.InvalidCommand, stagingReason);
+                }
+            }
+
             // Get current executable path for display purposes only
             var currentExePath = Environment.ProcessPath;
             if (string.IsNullOrEmpty(currentExePath))

@@ -137,6 +137,11 @@
         <target state="new">Global settings file '{0}' contains '{1}', which is not supported. AppHost paths must be configured locally.</target>
         <note>{0} is the global settings file path, {1} is the configured key such as appHost.path or appHostPath.</note>
       </trans-unit>
+      <trans-unit id="InternalConfigurationKeyCannotBeModifiedFormat">
+        <source>Configuration key '{0}' is reserved for internal use and cannot be modified with 'aspire config'.</source>
+        <target state="new">Configuration key '{0}' is reserved for internal use and cannot be modified with 'aspire config'.</target>
+        <note>{0} is the configuration key the user attempted to set or unset.</note>
+      </trans-unit>
       <trans-unit id="InvalidJsonInConfigFile">
         <source>The configuration file '{0}' contains invalid JSON: {1}</source>
         <target state="new">The configuration file '{0}' contains invalid JSON: {1}</target>

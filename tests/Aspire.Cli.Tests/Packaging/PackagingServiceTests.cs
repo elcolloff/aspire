@@ -1470,6 +1470,72 @@ public class PackagingServiceTests(ITestOutputHelper outputHelper)
         Assert.Null(packagingService.GetStagingChannelUnavailableReason());
     }
 
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("foo")]
+    [InlineData("ftp://example.com/feed")]
+    [InlineData("file:///tmp/feed.json")]
+    public void GetStagingChannelUnavailableReason_DailyCli_NonHttpOverrideStagingFeed_StillReportsUnavailable(string invalidOverride)
+    {
+        // Asymmetry guard for issue #16652 follow-up: GetStagingFeedUrl only honors
+        // overrideStagingFeed when it parses as an HTTP(S) URL. If GetStagingChannelUnavailableReason
+        // shorted out on any non-empty override, a value like "foo" would bypass the daily-CLI guard
+        // here, then GetStagingFeedUrl would silently fall back to the shared dotnet9 feed —
+        // reintroducing the original bug. Validate that the override must be a real URL.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log");
+
+        var features = new TestFeatures();
+        features.SetFeature(KnownFeatures.StagingChannelEnabled, true);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["internal:packaging:cliVersionForTesting"] = "13.4.0-preview.1.26210.1+abc1234",
+                ["overrideStagingFeed"] = invalidOverride
+            })
+            .Build();
+
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), features, configuration, NullLogger<PackagingService>.Instance);
+
+        var reason = packagingService.GetStagingChannelUnavailableReason();
+        Assert.NotNull(reason);
+        Assert.Contains("daily", reason!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetChannelsAsync_DailyCli_NonHttpOverrideStagingFeed_OmitsStagingChannel()
+    {
+        // End-to-end version of the asymmetry guard: confirm that a non-HTTP override does
+        // not cause CreateStagingChannel to silently emit a channel pointing at the shared
+        // daily feed.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log");
+
+        var features = new TestFeatures();
+        features.SetFeature(KnownFeatures.StagingChannelEnabled, true);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["internal:packaging:cliVersionForTesting"] = "13.4.0-preview.1.26210.1+abc1234",
+                ["overrideStagingFeed"] = "not-a-real-url"
+            })
+            .Build();
+
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), features, configuration, NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+
+        Assert.DoesNotContain(channels, c => c.Name == "staging");
+    }
+
     private sealed class CapturingLoggerProvider : ILoggerProvider
     {
         public List<CapturedLogEntry> LogEntries { get; } = new();

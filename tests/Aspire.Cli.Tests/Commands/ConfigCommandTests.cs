@@ -893,6 +893,61 @@ public class ConfigCommandTests(ITestOutputHelper outputHelper)
         var json = await File.ReadAllTextAsync(settingsPath);
         Assert.Contains("typescript/nodejs", json);
     }
+
+    [Theory]
+    [InlineData("internal:packaging:cliVersionForTesting", "13.4.0")]
+    [InlineData("internal:something:else", "value")]
+    [InlineData("INTERNAL:packaging:cliVersionForTesting", "13.4.0")]
+    [InlineData("internal.packaging.cliVersionForTesting", "13.4.0")]
+    public async Task ConfigSetCommand_InternalKey_IsRejected(string key, string value)
+    {
+        // Test seam keys under the 'internal:' namespace must not be persistable via
+        // 'aspire config set'; otherwise users could spoof CLI version to bypass the
+        // staging-channel daily-CLI guard for #16652. Tests still set the seam directly
+        // through IConfiguration, so this only blocks the user-facing CLI path.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var testInteractionService = new TestInteractionService();
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => testInteractionService;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<Aspire.Cli.Commands.RootCommand>();
+        var result = command.Parse($"config set {key} {value}");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        var error = Assert.Single(testInteractionService.DisplayedErrors);
+        Assert.Contains(key, error);
+
+        var configPath = Path.Combine(workspace.WorkspaceRoot.FullName, AspireConfigFile.FileName);
+        Assert.False(File.Exists(configPath), "Config file should not have been written.");
+    }
+
+    [Theory]
+    [InlineData("internal:packaging:cliVersionForTesting")]
+    [InlineData("internal.something")]
+    public async Task ConfigDeleteCommand_InternalKey_IsRejected(string key)
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var testInteractionService = new TestInteractionService();
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.InteractionServiceFactory = _ => testInteractionService;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<Aspire.Cli.Commands.RootCommand>();
+        var result = command.Parse($"config delete {key}");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        var error = Assert.Single(testInteractionService.DisplayedErrors);
+        Assert.Contains(key, error);
+    }
 }
 
 public class TestConfigurationService : IConfigurationService
