@@ -509,7 +509,7 @@ internal sealed class AppHostLauncher(
             timeProvider.GetUtcNow(),
             LogLevel.Information,
             nameof(AppHostLauncher),
-            "End detached AppHost startup log excerpt.");
+            $"End detached AppHost startup log excerpt from child process {childProcessId}: {childLogFile}");
     }
 
     private void DisplayLaunchResult(
