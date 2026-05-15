@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Follow-up fix to #17073: makes release workflow dispatch from main so bot-bypass changes are picked up immediately without backporting to release branches",
+  "mergedAt": "2026-05-15T17:23:14Z",
+  "number": 17131,
+  "runDate": "2026-05-15T18:36:28Z",
+  "status": "included",
+  "title": "Make release workflow dispatch ref configurable (default: main)"
+}
