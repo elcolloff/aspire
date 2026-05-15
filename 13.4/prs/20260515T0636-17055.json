@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Dependency version bumps for 3rd-party NuGet packages — excluded per filtering rules",
+  "mergedAt": "2026-05-15T06:36:21Z",
+  "number": 17055,
+  "runDate": "2026-05-15T07:09:10Z",
+  "status": "excluded",
+  "title": "Bump 3rd-party NuGet dependencies to latest versions"
+}
