@@ -712,7 +712,7 @@ internal sealed class AppHostLauncher(
             && entry.Level is CliLogFormat.FileLevelTokens.Debug
             && entry.Message.StartsWith(CliLogFormat.MessagePrefixes.Executing, StringComparison.Ordinal))
         {
-            displayLine = $"$ {entry.Message[CliLogFormat.MessagePrefixes.Executing.Length..]}";
+            displayLine = entry.Message;
             return true;
         }
 

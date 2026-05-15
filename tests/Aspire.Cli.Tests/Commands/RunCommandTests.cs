@@ -2037,9 +2037,9 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var lines = AppHostLauncher.ReadChildLogTail(childLogFile, maxLines: 5);
 
         Assert.Equal([
-            "$ /opt/homebrew/bin/npm install",
+            "Executing: /opt/homebrew/bin/npm install",
             "up to date, audited 116 packages in 619ms",
-            "$ /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json",
+            "Executing: /opt/homebrew/bin/npx --no-install tsc --noEmit -p tsconfig.apphost.json",
             "apphost.ts(5,22): error TS1109: Expression expected.",
             "GuestAppHostProject: TypeScript (Node.js) apphost exited with code 2"
         ], lines);
