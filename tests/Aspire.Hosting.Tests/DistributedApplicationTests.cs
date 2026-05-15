@@ -670,9 +670,9 @@ public class DistributedApplicationTests
     }
 
     [Fact]
-    public async Task AllocatedPortsAssignedAfterHookRuns()
+    public async Task AfterEndpointsAllocatedLifecycleHookIsNotCalled()
     {
-        using var testProgram = CreateTestProgram("ports-assigned-after-hook-runs");
+        using var testProgram = CreateTestProgram("after-endpoints-allocated-hook-not-called");
         var tcs = new TaskCompletionSource<DistributedApplicationModel>(TaskCreationOptions.RunContinuationsAsynchronously);
 #pragma warning disable CS0618 // Lifecycle hooks are obsolete, but still need to be tested until removed.
         testProgram.AppBuilder.Services.AddLifecycleHook(sp => new CheckAllocatedEndpointsLifecycleHook(tcs));
@@ -682,15 +682,7 @@ public class DistributedApplicationTests
 
         await app.StartAsync().DefaultTimeout(TestConstants.DefaultOrchestratorTestLongTimeout);
 
-        var appModel = await tcs.Task.DefaultTimeout(TestConstants.DefaultOrchestratorTestTimeout);
-
-        foreach (var item in appModel.Resources)
-        {
-            if (item is IResourceWithEndpoints resourceWithEndpoints)
-            {
-                Assert.True(resourceWithEndpoints.GetEndpoints().All(e => e.IsAllocated));
-            }
-        }
+        Assert.False(tcs.Task.IsCompleted);
     }
 
 #pragma warning disable CS0618 // Lifecycle hooks are obsolete, but still need to be tested until removed.
@@ -1914,6 +1906,7 @@ public class DistributedApplicationTests
         await app.StartAsync().DefaultTimeout(TestConstants.DefaultOrchestratorTestLongTimeout);
 
         await kubernetesLifecycle.HooksCompleted.DefaultTimeout(TestConstants.DefaultOrchestratorTestTimeout);
+        Assert.False(kubernetesLifecycle.AfterEndpointsAllocatedCalled);
     }
 
     [Fact]
@@ -2048,26 +2041,22 @@ public class DistributedApplicationTests
 #pragma warning restore CS0618 // Lifecycle hooks are obsolete, but still need to be tested until removed.
     {
         private readonly TaskCompletionSource _tcs = new();
-        private readonly CountdownEvent _cevent = new(2); // AfterResourcesCreated and AfterEndpointsAllocated
 
         public IKubernetesService? KubernetesService { get; set; }
+        public bool AfterEndpointsAllocatedCalled { get; private set; }
 
         public Task HooksCompleted => _tcs.Task;
 
-        public async Task AfterEndpointsAllocatedAsync(DistributedApplicationModel appModel, CancellationToken cancellationToken)
+        public Task AfterEndpointsAllocatedAsync(DistributedApplicationModel appModel, CancellationToken cancellationToken)
         {
-            if (_cevent.Signal())
-            {
-                _tcs.TrySetResult();
-            }
+            AfterEndpointsAllocatedCalled = true;
+            return Task.CompletedTask;
         }
 
-        public async Task AfterResourcesCreatedAsync(DistributedApplicationModel appModel, CancellationToken cancellationToken)
+        public Task AfterResourcesCreatedAsync(DistributedApplicationModel appModel, CancellationToken cancellationToken)
         {
-            if (_cevent.Signal())
-            {
-                _tcs.TrySetResult();
-            }
+            _tcs.TrySetResult();
+            return Task.CompletedTask;
         }
     }
 

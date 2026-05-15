@@ -486,7 +486,7 @@ public class DcpExecutorTests
 
         const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1000;
         var exe = builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
-            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT", isProxied: true);
+            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT");
 
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
@@ -599,6 +599,70 @@ public class DcpExecutorTests
     }
 
     [Fact]
+    public async Task EndpointPortsExecutableWithEndpointProxySupportUsesProxylessEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1001;
+        builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
+            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT")
+            .WithEndpointProxySupport(false);
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
+        await appExecutor.RunApplicationAsync();
+
+        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>());
+        Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
+
+        var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "CoolProgram");
+        Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
+        Assert.Equal(desiredPort, svc.Status?.EffectivePort);
+        Assert.Equal(desiredPort, spAnnList.Single(ann => ann.ServiceName == "CoolProgram").Port);
+
+        var envVarVal = dcpExe.Spec.Env?.Single(v => v.Name == "PORT_SET_NO_TARGET_PORT").Value;
+        Assert.False(string.IsNullOrWhiteSpace(envVarVal));
+        Assert.Equal(desiredPort, int.Parse(envVarVal, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task EndpointPortsPersistentExecutableDefaultsToProxylessEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1002;
+        builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
+            .WithLifetime(ExecutableLifetime.Persistent)
+            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT");
+
+        var configDict = new Dictionary<string, string?>
+        {
+            ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(configDict).Build();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, configuration: configuration);
+        await appExecutor.RunApplicationAsync();
+
+        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>());
+        Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
+
+        var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "CoolProgram");
+        Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
+        Assert.Equal(desiredPort, svc.Status?.EffectivePort);
+        Assert.Equal(desiredPort, spAnnList.Single(ann => ann.ServiceName == "CoolProgram").Port);
+
+        var envVarVal = dcpExe.Spec.Env?.Single(v => v.Name == "PORT_SET_NO_TARGET_PORT").Value;
+        Assert.False(string.IsNullOrWhiteSpace(envVarVal));
+        Assert.Equal(desiredPort, int.Parse(envVarVal, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task EndpointPortsExecutableNotReplicatedProxylessPortSetNoTargetPort()
     {
         var builder = DistributedApplication.CreateBuilder();
@@ -606,9 +670,6 @@ public class DcpExecutorTests
         const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1000;
         builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
             .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT", isProxied: false);
-
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
 
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
@@ -641,9 +702,6 @@ public class DcpExecutorTests
         builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
             .WithEndpoint(name: "NoPortTargetPortSet", targetPort: desiredPort, env: "NO_PORT_TARGET_PORT_SET", isProxied: false);
 
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
-
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
         var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -674,9 +732,6 @@ public class DcpExecutorTests
         const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 998;
         builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
             .WithEndpoint(name: "PortAndTargetPortSet", port: desiredPort, targetPort: desiredPort, env: "PORT_AND_TARGET_PORT_SET", isProxied: false);
-
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
 
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
@@ -1209,7 +1264,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var exes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var exes = kubernetesService.CreatedResources.OfType<Executable>().Where(e => e.AppModelResourceName == "ServiceA").ToList();
         Assert.Equal(3, exes.Count);
 
         foreach (var dcpExe in exes)
@@ -1245,7 +1300,7 @@ public class DcpExecutorTests
 
         const int desiredPortOne = TestKubernetesService.StartOfAutoPortRange - 1000;
         builder.AddProject<Projects.ServiceA>("ServiceA")
-            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPortOne, env: "PORT_SET_NO_TARGET_PORT", isProxied: true)
+            .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPortOne, env: "PORT_SET_NO_TARGET_PORT")
             .WithReplicas(3);
 
         var kubernetesService = new TestKubernetesService();
@@ -1254,7 +1309,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var exes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var exes = kubernetesService.CreatedResources.OfType<Executable>().Where(e => e.AppModelResourceName == "ServiceA").ToList();
         Assert.Equal(3, exes.Count);
 
         foreach (var dcpExe in exes)
@@ -1274,6 +1329,74 @@ public class DcpExecutorTests
             Assert.False(string.IsNullOrWhiteSpace(envVarVal));
             Assert.Contains("""portForServing "ServiceA-PortSetNoTargetPort" """, envVarVal);
         }
+    }
+
+    [Fact]
+    public async Task EndpointPortsProjectWithEndpointProxySupportUsesProxylessEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            AssemblyName = typeof(DistributedApplicationTests).Assembly.FullName
+        });
+
+        const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1001;
+        builder.AddProject<Projects.ServiceA>("ServiceA", launchProfileName: null)
+            .WithHttpEndpoint(name: "stable", port: desiredPort)
+            .WithEndpointProxySupport(false);
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
+        await appExecutor.RunApplicationAsync();
+
+        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
+
+        var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "ServiceA");
+        Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
+        Assert.Equal(desiredPort, svc.Status?.EffectivePort);
+        Assert.Equal(desiredPort, spAnnList.Single(ann => ann.ServiceName == "ServiceA").Port);
+
+        var aspnetCoreUrls = dcpExe.Spec.Env?.Single(v => v.Name == "ASPNETCORE_URLS").Value;
+        Assert.Equal($"http://localhost:{desiredPort}", aspnetCoreUrls);
+    }
+
+    [Fact]
+    public async Task EndpointPortsPersistentProjectDefaultsToProxylessEndpoint()
+    {
+        var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+        {
+            AssemblyName = typeof(DistributedApplicationTests).Assembly.FullName
+        });
+
+        const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1002;
+        builder.AddProject<Projects.ServiceA>("ServiceA", launchProfileName: null)
+            .WithLifetime(ExecutableLifetime.Persistent)
+            .WithHttpEndpoint(name: "stable", port: desiredPort);
+
+        var configDict = new Dictionary<string, string?>
+        {
+            ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(configDict).Build();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, configuration: configuration);
+        await appExecutor.RunApplicationAsync();
+
+        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
+
+        var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "ServiceA");
+        Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
+        Assert.Equal(desiredPort, svc.Status?.EffectivePort);
+        Assert.Equal(desiredPort, spAnnList.Single(ann => ann.ServiceName == "ServiceA").Port);
+
+        var aspnetCoreUrls = dcpExe.Spec.Env?.Single(v => v.Name == "ASPNETCORE_URLS").Value;
+        Assert.Equal($"http://localhost:{desiredPort}", aspnetCoreUrls);
     }
 
     [Fact]
@@ -1398,9 +1521,6 @@ public class DcpExecutorTests
         builder.AddContainer("database", "image")
             .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT", isProxied: false);
 
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
-
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
         var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -1434,9 +1554,6 @@ public class DcpExecutorTests
         builder.AddContainer("database", "image")
             .WithEndpoint(name: "NoPortTargetPortSet", targetPort: desiredTargetPort, env: "NO_PORT_TARGET_PORT_SET", isProxied: false);
 
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
-
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
         var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -1446,19 +1563,56 @@ public class DcpExecutorTests
         var dcpCtr = Assert.Single(kubernetesService.CreatedResources.OfType<Container>());
         Assert.True(dcpCtr.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
 
-        // Port is empty, TargetPort is set
+        // Port is empty, TargetPort is set.
         // Clients connect directly to the container host port, MAY have the container host port injected.
-        // Container is using TargetPort for BOTH listening inside the container and as a host port.
+        // DCP allocates the container host port after the container is created.
         var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "database");
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
-        Assert.Equal(desiredTargetPort, svc.Status?.EffectivePort);
+        Assert.Null(svc.Spec.Port);
+        Assert.True(svc.Status?.EffectivePort >= TestKubernetesService.StartOfAutoPortRange);
         Assert.NotNull(dcpCtr.Spec.Ports);
-        Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == desiredTargetPort && p.ContainerPort == desiredTargetPort);
+        Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort is null && p.ContainerPort == desiredTargetPort);
         // Desired port should be part of the service producer annotation.
         Assert.Equal(desiredTargetPort, spAnnList.Single(ann => ann.ServiceName == "database").Port);
         var envVarVal = dcpCtr.Spec.Env?.Single(v => v.Name == "NO_PORT_TARGET_PORT_SET").Value;
         Assert.False(string.IsNullOrWhiteSpace(envVarVal));
         Assert.Equal(desiredTargetPort, int.Parse(envVarVal, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task EndpointPortsContainerProxylessNoPortTargetPortSetPublishesAllocatedEndpointAfterServiceUpdate()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        const int desiredTargetPort = TestKubernetesService.StartOfAutoPortRange - 999;
+        builder.AddContainer("database", "image")
+            .WithEndpoint(name: "NoPortTargetPortSet", targetPort: desiredTargetPort, isProxied: false);
+
+        var allocatedPortChannel = Channel.CreateUnbounded<int>();
+        var eventing = new Hosting.Eventing.DistributedApplicationEventing();
+        eventing.Subscribe<ResourceEndpointsAllocatedEvent>((@event, ct) =>
+        {
+            if (@event.Resource.Name == "database")
+            {
+                var endpoint = ((IResourceWithEndpoints)@event.Resource).GetEndpoint("NoPortTargetPortSet");
+                if (endpoint.AllocatedEndpoint is { } allocatedEndpoint)
+                {
+                    allocatedPortChannel.Writer.TryWrite(allocatedEndpoint.Port);
+                }
+            }
+
+            return Task.CompletedTask;
+        });
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, distributedApplicationEventing: eventing);
+        await appExecutor.RunApplicationAsync();
+
+        var allocatedPort = await allocatedPortChannel.Reader.ReadAsync().AsTask().DefaultTimeout();
+
+        Assert.True(allocatedPort >= TestKubernetesService.StartOfAutoPortRange);
     }
 
     [Fact]
@@ -1470,9 +1624,6 @@ public class DcpExecutorTests
         const int desiredTargetPort = TestKubernetesService.StartOfAutoPortRange - 997;
         builder.AddContainer("database", "image")
             .WithEndpoint(name: "PortAndTargetPortSet", port: desiredPort, targetPort: desiredTargetPort, env: "PORT_AND_TARGET_PORT_SET", isProxied: false);
-
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
 
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
@@ -1507,9 +1658,6 @@ public class DcpExecutorTests
         const int desiredTargetPort = TestKubernetesService.StartOfAutoPortRange - 997;
         builder.AddContainer("database", "image")
             .WithEndpoint(name: "PortAndProtocolSet", port: desiredPort, targetPort: desiredTargetPort, env: "PORT_AND_PROTOCOL_SET", isProxied: false, protocol: System.Net.Sockets.ProtocolType.Udp);
-
-        // All these configurations are effectively the same because EndpointAnnotation constructor for proxy-less endpoints
-        // will make sure Port and TargetPort have the same value if one is specified but the other is not.
 
         var kubernetesService = new TestKubernetesService();
         using var app = builder.Build();
@@ -3844,7 +3992,8 @@ public class DcpExecutorTests
         IKubernetesService? kubernetesService = null,
         DcpOptions? dcpOptions = null,
         ResourceLoggerService? resourceLoggerService = null,
-        DcpExecutorEvents? events = null)
+        DcpExecutorEvents? events = null,
+        Hosting.Eventing.IDistributedApplicationEventing? distributedApplicationEventing = null)
     {
         if (configuration == null)
         {
@@ -3913,7 +4062,7 @@ public class DcpExecutorTests
             distributedAppModel,
             ks,
             configuration,
-            new Hosting.Eventing.DistributedApplicationEventing(),
+            distributedApplicationEventing ?? new Hosting.Eventing.DistributedApplicationEventing(),
             Options.Create(dcpOptions),
             executionContext,
             resourceLoggerService,

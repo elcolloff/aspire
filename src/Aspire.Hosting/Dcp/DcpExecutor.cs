@@ -112,7 +112,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
         _executionContext = executionContext;
         _appResources = appResources;
 
-        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, _shutdownCancellation.Token);
+        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, PublishEndpointsAllocatedEventAsync, _shutdownCancellation.Token);
 
         DeleteResourceRetryPipeline = DcpPipelineBuilder.BuildDeleteRetryPipeline(logger);
 
@@ -206,11 +206,17 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
             {
                 await getProxyAddresses.ConfigureAwait(false);
 
-                DcpModelUtilities.AddWorkloadAllocatedEndpoints(
-                    executables,
-                    _options.Value.EnableAspireContainerTunnel,
-                    ContainerHostName);
-                await PublishEndpointsAllocatedEventAsync(executables, ct).ConfigureAwait(false);
+                foreach (var executable in executables)
+                {
+                    if (DcpModelUtilities.TryAddWorkloadAllocatedEndpoints(
+                        executable,
+                        _options.Value.EnableAspireContainerTunnel,
+                        ContainerHostName,
+                        allowPendingDynamicProxylessContainerEndpoints: false))
+                    {
+                        await PublishEndpointsAllocatedEventAsync(executable.ModelResource, ct).ConfigureAwait(false);
+                    }
+                }
             }, ct);
 
             var createExecutables = Task.Run(async () =>
@@ -228,20 +234,24 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
             {
                 await Task.WhenAll([getProxyAddresses, createContainerNetworks]).WaitAsync(ct).ConfigureAwait(false);
 
-                // Allocate container workload endpoints, then publish endpoint-allocated events.
-                DcpModelUtilities.AddWorkloadAllocatedEndpoints(
-                    containers,
-                    _options.Value.EnableAspireContainerTunnel,
-                    ContainerHostName);
-                await PublishEndpointsAllocatedEventAsync(containers, ct).ConfigureAwait(false);
+                // Allocate container workload endpoints that are already known, then publish endpoint-allocated events.
+                foreach (var container in containers)
+                {
+                    if (DcpModelUtilities.TryAddWorkloadAllocatedEndpoints(
+                        container,
+                        _options.Value.EnableAspireContainerTunnel,
+                        ContainerHostName,
+                        allowPendingDynamicProxylessContainerEndpoints: true))
+                    {
+                        await PublishEndpointsAllocatedEventAsync(container.ModelResource, ct).ConfigureAwait(false);
+                    }
+                }
 
                 await CreateRenderedResourcesAsync(_containerCreator, containers, cctx, ct).ConfigureAwait(false);
             }, ct);
 
             // Now wait for all "leaf" creations to complete.
             await Task.WhenAll(createExecutables, createContainers).WaitAsync(ct).ConfigureAwait(false);
-
-            await _executorEvents.PublishAsync(new OnEndpointsAllocatedContext(ct)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -691,21 +701,19 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
 
                 var svc = Service.Create(serviceName);
 
-                if (!sp.ModelResource.SupportsProxy())
-                {
-                    // If the resource shouldn't be proxied, we need to enforce that on the annotation
-                    endpoint.IsProxied = false;
-                }
+                endpoint.IsProxied = GetEffectiveIsProxied(sp.ModelResource, endpoint);
 
                 int? port;
-                if (_options.Value.RandomizePorts && endpoint.IsProxied && endpoint.Port != null)
+                if (_options.Value.RandomizePorts && endpoint.IsProxied.Value && endpoint.Port != null)
                 {
                     port = null;
                     _logger.LogDebug("Randomizing port for {ServiceName}. Original port: {OriginalPort}", serviceName, endpoint.Port);
                 }
                 else
                 {
-                    port = endpoint.Port;
+                    port = sp.ModelResource.IsContainer() && !endpoint.IsProxied.Value
+                        ? endpoint.SpecifiedPort
+                        : endpoint.Port;
                 }
                 svc.Spec.Port = port;
                 svc.Spec.Protocol = PortProtocol.FromProtocolType(endpoint.Protocol);
@@ -718,7 +726,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                     svc.Spec.Address = endpoint.TargetHost;
                 }
 
-                if (!endpoint.IsProxied)
+                if (!endpoint.IsProxied.Value)
                 {
                     svc.Spec.AddressAllocationMode = AddressAllocationModes.Proxyless;
                 }
@@ -730,6 +738,21 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                 var smr = new ServiceWithModelResource(sp.ModelResource, svc, endpoint);
                 _appResources.Add(smr);
             }
+        }
+
+        static bool GetEffectiveIsProxied(IResource resource, EndpointAnnotation endpoint)
+        {
+            if (!resource.SupportsProxy())
+            {
+                return false;
+            }
+
+            if (endpoint.IsProxied is bool isProxied)
+            {
+                return isProxied;
+            }
+
+            return !resource.HasPersistentLifetime();
         }
 
         var containers = _model.Resources.Where(r => r.IsContainer());
@@ -1207,21 +1230,17 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
         }
     }
 
-    private async Task PublishEndpointsAllocatedEventAsync<TDcpResource>(IEnumerable<RenderedModelResource<TDcpResource>> resource, CancellationToken ct)
-        where TDcpResource : CustomResource, IKubernetesStaticMetadata
+    private async Task PublishEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)
     {
-        foreach (var r in resource)
+        lock (_endpointsAdvertised)
         {
-            lock (_endpointsAdvertised)
+            if (!_endpointsAdvertised.Add(resource.Name))
             {
-                if (!_endpointsAdvertised.Add(r.ModelResource.Name))
-                {
-                    continue; // Already published for this resource
-                }
+                return; // Already published for this resource.
             }
-
-            var ev = new ResourceEndpointsAllocatedEvent(r.ModelResource, _executionContext.ServiceProvider);
-            await _distributedApplicationEventing.PublishAsync(ev, EventDispatchBehavior.NonBlockingConcurrent, ct).ConfigureAwait(false);
         }
+
+        var ev = new ResourceEndpointsAllocatedEvent(resource, _executionContext.ServiceProvider);
+        await _distributedApplicationEventing.PublishAsync(ev, EventDispatchBehavior.NonBlockingConcurrent, ct).ConfigureAwait(false);
     }
 }

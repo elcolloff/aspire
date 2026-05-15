@@ -941,9 +941,9 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
                 ContainerPort = ea.TargetPort,
             };
 
-            if (!ea.IsProxied && ea.Port is int)
+            if (!ea.IsProxied.GetValueOrDefault() && ea.SpecifiedPort is int hostPort)
             {
-                portSpec.HostPort = ea.Port;
+                portSpec.HostPort = hostPort;
             }
 
             switch (sp.EndpointAnnotation.Protocol)

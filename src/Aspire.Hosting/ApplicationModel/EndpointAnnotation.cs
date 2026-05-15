@@ -35,7 +35,7 @@ public sealed class EndpointAnnotation : IResourceAnnotation
     /// <param name="port">Desired port for the service.</param>
     /// <param name="targetPort">This is the port the resource is listening on. If the endpoint is used for the container, it is the container port.</param>
     /// <param name="isExternal">Indicates that this endpoint should be exposed externally at publish time.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     public EndpointAnnotation(
         ProtocolType protocol,
         string? uriScheme = null,
@@ -44,7 +44,7 @@ public sealed class EndpointAnnotation : IResourceAnnotation
         int? port = null,
         int? targetPort = null,
         bool? isExternal = null,
-        bool isProxied = true
+        bool? isProxied = null
     ) : this(
         protocol,
         null,
@@ -69,7 +69,7 @@ public sealed class EndpointAnnotation : IResourceAnnotation
     /// <param name="port">Desired port for the service.</param>
     /// <param name="targetPort">This is the port the resource is listening on. If the endpoint is used for the container, it is the container port.</param>
     /// <param name="isExternal">Indicates that this endpoint should be exposed externally at publish time.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     /// Clients connected to the same network can reach the endpoint without any routing or network address translation.</param>
     public EndpointAnnotation(
         ProtocolType protocol,
@@ -80,7 +80,7 @@ public sealed class EndpointAnnotation : IResourceAnnotation
         int? port = null,
         int? targetPort = null,
         bool? isExternal = null,
-        bool isProxied = true
+        bool? isProxied = null
     )
     {
         // If the URI scheme is null, we'll adopt either udp:// or tcp:// based on the
@@ -129,13 +129,15 @@ public sealed class EndpointAnnotation : IResourceAnnotation
         // It also depends on what the EndpointAnnotation is applied to.
         // In the Container case the TargetPort is the port that the process listens on inside the container,
         //  and the Port is the host interface port, so it is fine for them to be different.
-        get => _port ?? (IsProxied || _portSetToNull ? null : _targetPort);
+        get => _port ?? (IsProxied.GetValueOrDefault(true) || _portSetToNull ? null : _targetPort);
         set
         {
             _port = value;
             _portSetToNull = value == null;
         }
     }
+
+    internal int? SpecifiedPort => _port;
 
     /// <summary>
     /// This is the port the resource is listening on. If the endpoint is used for the container, it is the container port.
@@ -146,7 +148,7 @@ public sealed class EndpointAnnotation : IResourceAnnotation
     public int? TargetPort
     {
         // See comment on the Port setter, as this is the reciprocal logic
-        get => _targetPort ?? (IsProxied || _targetPortSetToNull ? null : _port);
+        get => _targetPort ?? (IsProxied.GetValueOrDefault(true) || _targetPortSetToNull ? null : _port);
         set
         {
             _targetPort = value;
@@ -182,8 +184,8 @@ public sealed class EndpointAnnotation : IResourceAnnotation
     /// Indicates that this endpoint should be managed by DCP. This means it can be replicated and use a different port internally than the one publicly exposed.
     /// Setting to false means the endpoint will be handled and exposed by the resource.
     /// </summary>
-    /// <remarks>Defaults to <c>true</c>.</remarks>
-    public bool IsProxied { get; set; } = true;
+    /// <remarks>Defaults to <see langword="null"/>. The effective default is computed from the resource that owns the endpoint.</remarks>
+    public bool? IsProxied { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether this endpoint is excluded from the default set when referencing the resource's endpoints

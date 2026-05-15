@@ -323,6 +323,35 @@ public static class ProjectResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Sets the lifetime behavior of the project executable resource.
+    /// </summary>
+    /// <typeparam name="TProjectResource">The project resource type.</typeparam>
+    /// <param name="builder">Builder for the project resource.</param>
+    /// <param name="lifetime">The lifetime behavior of the project executable resource. The default behavior is <see cref="ExecutableLifetime.Session"/>.</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <remarks>
+    /// <example>
+    /// Marking a project resource to have a <see cref="ExecutableLifetime.Persistent"/> lifetime.
+    /// <code language="csharp">
+    /// var builder = DistributedApplication.CreateBuilder(args);
+    ///
+    /// builder.AddProject&lt;Projects.ApiService&gt;("api")
+    ///        .WithLifetime(ExecutableLifetime.Persistent);
+    ///
+    /// builder.Build().Run();
+    /// </code>
+    /// </example>
+    /// </remarks>
+    [AspireExport("withProjectExecutableLifetime", Description = "Sets the lifetime behavior of the project executable resource")]
+    public static IResourceBuilder<TProjectResource> WithLifetime<TProjectResource>(this IResourceBuilder<TProjectResource> builder, ExecutableLifetime lifetime)
+        where TProjectResource : ProjectResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder.WithAnnotation(new ExecutableLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+    }
+
+    /// <summary>
     /// Adds a C# project or file-based app to the application model.
     /// </summary>
     /// <param name="builder">The <see cref="IDistributedApplicationBuilder"/>.</param>

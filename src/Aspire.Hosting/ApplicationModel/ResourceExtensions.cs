@@ -1077,6 +1077,17 @@ public static class ResourceExtensions
     }
 
     /// <summary>
+    /// Determines whether the specified resource has a persistent lifetime.
+    /// </summary>
+    /// <param name="resource">The resource to get persistent lifetime behavior for.</param>
+    /// <returns><see langword="true"/> if the resource has a persistent container or executable lifetime, otherwise <see langword="false"/>.</returns>
+    internal static bool HasPersistentLifetime(this IResource resource)
+    {
+        return resource.GetContainerLifetimeType() == ContainerLifetime.Persistent ||
+               resource.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+    }
+
+    /// <summary>
     /// Determines whether the specified resource has a pull policy annotation and retrieves the value if it does.
     /// </summary>
     /// <param name="resource">The resource to check for a ContainerPullPolicy annotation</param>

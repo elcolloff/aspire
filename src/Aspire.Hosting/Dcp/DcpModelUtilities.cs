@@ -38,7 +38,7 @@ internal static class DcpModelUtilities
                     throw new InvalidOperationException($"The endpoint '{ea.Name}' for container resource '{modelResourceName}' must specify the {nameof(EndpointAnnotation.TargetPort)} value");
                 }
             }
-            else if (!ea.IsProxied)
+            else if (!ea.IsProxied.GetValueOrDefault())
             {
                 if (HasMultipleReplicas(appResource.DcpResource))
                 {
@@ -52,7 +52,7 @@ internal static class DcpModelUtilities
             }
             else
             {
-                Debug.Assert(ea.IsProxied);
+                Debug.Assert(ea.IsProxied.GetValueOrDefault());
 
                 if (ea.TargetPort is int && ea.Port is int && ea.TargetPort == ea.Port)
                 {
@@ -92,70 +92,169 @@ internal static class DcpModelUtilities
     {
         foreach (var res in resources)
         {
-            foreach (var sp in res.ServicesProduced)
+            TryAddWorkloadAllocatedEndpoints(res, enableAspireContainerTunnel, containerHostName, allowPendingDynamicProxylessContainerEndpoints: false);
+        }
+    }
+
+    internal static bool TryAddWorkloadAllocatedEndpoints<TDcpResource>(
+        RenderedModelResource<TDcpResource> resource,
+        bool enableAspireContainerTunnel,
+        string containerHostName,
+        bool allowPendingDynamicProxylessContainerEndpoints)
+        where TDcpResource : CustomResource, IKubernetesStaticMetadata
+    {
+        foreach (var sp in resource.ServicesProduced)
+        {
+            if (TryAddLocalhostAllocatedEndpoint(
+                sp,
+                allowPending: allowPendingDynamicProxylessContainerEndpoints && IsDynamicProxylessContainerEndpoint(resource, sp)))
             {
-                var svc = sp.DcpResource;
-
-                if (!svc.HasCompleteAddress && sp.EndpointAnnotation.IsProxied)
-                {
-                    // This should never happen; if it does, we have a bug without a workaround for the user.
-                    // We should have waited for the service to have a complete address before getting here.
-                    throw new InvalidDataException($"Service {svc.Metadata.Name} should have valid address at this point");
-                }
-
-                if (!sp.EndpointAnnotation.IsProxied && svc.AllocatedPort is null)
-                {
-                    throw new InvalidOperationException($"Service '{svc.Metadata.Name}' needs to specify a port for endpoint '{sp.EndpointAnnotation.Name}' since it isn't using a proxy.");
-                }
-
-                var (targetHost, bindingMode) = NormalizeTargetHost(sp.EndpointAnnotation.TargetHost);
-
-                sp.EndpointAnnotation.AllocatedEndpoint = new AllocatedEndpoint(
-                    sp.EndpointAnnotation,
-                    targetHost,
-                    (int)svc.AllocatedPort!,
-                    bindingMode,
-                    targetPortExpression: $$$"""{{- portForServing "{{{svc.Metadata.Name}}}" -}}""",
-                    KnownNetworkIdentifiers.LocalhostNetwork);
-
-                if (res.DcpResource is Container ctr && ctr.Spec.Networks is not null)
-                {
-                    // Once container networks are fully supported, this should allocate endpoints on those networks
-                    var containerNetwork = ctr.Spec.Networks.FirstOrDefault(n => n.Name == KnownNetworkIdentifiers.DefaultAspireContainerNetwork.Value);
-
-                    if (containerNetwork is not null)
-                    {
-                        var port = sp.EndpointAnnotation.TargetPort!;
-
-                        var allocatedEndpoint = new AllocatedEndpoint(
-                            sp.EndpointAnnotation,
-                            $"{sp.ModelResource.Name}.dev.internal",
-                            (int)port,
-                            EndpointBindingMode.SingleAddress,
-                            targetPortExpression: $$$"""{{- portForServing "{{{svc.Metadata.Name}}}" -}}""",
-                            KnownNetworkIdentifiers.DefaultAspireContainerNetwork
-                        );
-                        sp.EndpointAnnotation.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(allocatedEndpoint.NetworkID, allocatedEndpoint);
-                    }
-                }
-
-                // If we are not using the tunnel, we can project Executable endpoints into container networks via ContainerHostName.
-                // This really only works for Docker Desktop, but it is useful for testing too.
-                if (res.DcpResource is Executable && !enableAspireContainerTunnel)
-                {
-                    var port = sp.EndpointAnnotation.TargetPort!;
-                    var allocatedEndpoint = new AllocatedEndpoint(
-                        sp.EndpointAnnotation,
-                        containerHostName,
-                        (int)svc.AllocatedPort!,
-                        EndpointBindingMode.SingleAddress,
-                        targetPortExpression: $$$"""{{- portForServing "{{{svc.Metadata.Name}}}" -}}""",
-                        KnownNetworkIdentifiers.DefaultAspireContainerNetwork
-                    );
-                    sp.EndpointAnnotation.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(KnownNetworkIdentifiers.DefaultAspireContainerNetwork, allocatedEndpoint);
-                }
+                AddContainerNetworkAllocatedEndpoint(resource, sp);
+                AddExecutableContainerNetworkAllocatedEndpoint(resource, sp, enableAspireContainerTunnel, containerHostName);
             }
         }
+
+        return AreResourceEndpointsAllocated(resource.ModelResource);
+    }
+
+    internal static bool TryApplyServiceAddressToEndpoint(Service observedService, IEnumerable<IAppResource> appResources, [NotNullWhen(true)] out IResource? modelResource)
+    {
+        var serviceResource = appResources.OfType<ServiceWithModelResource>()
+            .FirstOrDefault(swr => string.Equals(swr.DcpResource.Metadata.Name, observedService.Metadata.Name, StringComparison.Ordinal));
+
+        if (serviceResource is null)
+        {
+            modelResource = null;
+            return false;
+        }
+
+        serviceResource.Service.ApplyAddressInfoFrom(observedService);
+        if (!TryAddLocalhostAllocatedEndpoint(serviceResource, allowPending: true))
+        {
+            modelResource = null;
+            return false;
+        }
+
+        foreach (var containerResource in appResources.OfType<RenderedModelResource<Container>>()
+            .Where(resource => ReferenceEquals(resource.ModelResource, serviceResource.ModelResource)))
+        {
+            AddContainerNetworkAllocatedEndpoint(containerResource, serviceResource);
+        }
+
+        modelResource = serviceResource.ModelResource;
+        return AreResourceEndpointsAllocated(modelResource);
+    }
+
+    private static bool TryAddLocalhostAllocatedEndpoint(ServiceWithModelResource sp, bool allowPending)
+    {
+        var svc = sp.DcpResource;
+
+        if (sp.EndpointAnnotation.AllocatedEndpoint is not null)
+        {
+            return true;
+        }
+
+        if (!svc.HasCompleteAddress && sp.EndpointAnnotation.IsProxied.GetValueOrDefault())
+        {
+            // This should never happen; if it does, we have a bug without a workaround for the user.
+            // We should have waited for the service to have a complete address before getting here.
+            throw new InvalidDataException($"Service {svc.Metadata.Name} should have valid address at this point");
+        }
+
+        if (!sp.EndpointAnnotation.IsProxied.GetValueOrDefault() && svc.AllocatedPort is null)
+        {
+            if (allowPending)
+            {
+                return false;
+            }
+
+            throw new InvalidOperationException($"Service '{svc.Metadata.Name}' needs to specify a port for endpoint '{sp.EndpointAnnotation.Name}' since it isn't using a proxy.");
+        }
+
+        if (!svc.HasCompleteAddress)
+        {
+            if (allowPending)
+            {
+                return false;
+            }
+
+            throw new InvalidDataException($"Service {svc.Metadata.Name} should have valid address at this point");
+        }
+
+        var (targetHost, bindingMode) = NormalizeTargetHost(sp.EndpointAnnotation.TargetHost);
+
+        sp.EndpointAnnotation.AllocatedEndpoint = new AllocatedEndpoint(
+            sp.EndpointAnnotation,
+            targetHost,
+            (int)svc.AllocatedPort!,
+            bindingMode,
+            targetPortExpression: $$$"""{{- portForServing "{{{svc.Metadata.Name}}}" -}}""",
+            KnownNetworkIdentifiers.LocalhostNetwork);
+
+        return true;
+    }
+
+    private static void AddContainerNetworkAllocatedEndpoint<TDcpResource>(RenderedModelResource<TDcpResource> resource, ServiceWithModelResource sp)
+        where TDcpResource : CustomResource, IKubernetesStaticMetadata
+    {
+        if (resource.DcpResource is not Container ctr || ctr.Spec.Networks is null)
+        {
+            return;
+        }
+
+        // Once container networks are fully supported, this should allocate endpoints on those networks.
+        var containerNetwork = ctr.Spec.Networks.FirstOrDefault(n => n.Name == KnownNetworkIdentifiers.DefaultAspireContainerNetwork.Value);
+
+        if (containerNetwork is null)
+        {
+            return;
+        }
+
+        var port = sp.EndpointAnnotation.TargetPort!;
+
+        var allocatedEndpoint = new AllocatedEndpoint(
+            sp.EndpointAnnotation,
+            $"{sp.ModelResource.Name}.dev.internal",
+            (int)port,
+            EndpointBindingMode.SingleAddress,
+            targetPortExpression: $$$"""{{- portForServing "{{{sp.DcpResource.Metadata.Name}}}" -}}""",
+            KnownNetworkIdentifiers.DefaultAspireContainerNetwork
+        );
+        sp.EndpointAnnotation.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(allocatedEndpoint.NetworkID, allocatedEndpoint);
+    }
+
+    private static void AddExecutableContainerNetworkAllocatedEndpoint<TDcpResource>(RenderedModelResource<TDcpResource> resource, ServiceWithModelResource sp, bool enableAspireContainerTunnel, string containerHostName)
+        where TDcpResource : CustomResource, IKubernetesStaticMetadata
+    {
+        if (resource.DcpResource is not Executable || enableAspireContainerTunnel)
+        {
+            return;
+        }
+
+        // If we are not using the tunnel, we can project Executable endpoints into container networks via ContainerHostName.
+        // This really only works for Docker Desktop, but it is useful for testing too.
+        var allocatedEndpoint = new AllocatedEndpoint(
+            sp.EndpointAnnotation,
+            containerHostName,
+            (int)sp.DcpResource.AllocatedPort!,
+            EndpointBindingMode.SingleAddress,
+            targetPortExpression: $$$"""{{- portForServing "{{{sp.DcpResource.Metadata.Name}}}" -}}""",
+            KnownNetworkIdentifiers.DefaultAspireContainerNetwork
+        );
+        sp.EndpointAnnotation.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(KnownNetworkIdentifiers.DefaultAspireContainerNetwork, allocatedEndpoint);
+    }
+
+    private static bool AreResourceEndpointsAllocated(IResource resource)
+    {
+        return !resource.TryGetEndpoints(out var endpoints) || endpoints.All(e => e.AllocatedEndpoint is not null);
+    }
+
+    private static bool IsDynamicProxylessContainerEndpoint<TDcpResource>(RenderedModelResource<TDcpResource> resource, ServiceWithModelResource sp)
+        where TDcpResource : CustomResource, IKubernetesStaticMetadata
+    {
+        return resource.DcpResource is Container &&
+            !sp.EndpointAnnotation.IsProxied.GetValueOrDefault() &&
+            sp.EndpointAnnotation.SpecifiedPort is null;
     }
 
     internal static void AddContainerTunnelAllocatedEndpoints(

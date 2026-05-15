@@ -170,8 +170,11 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                 var projectArgs = new List<string>();
 
                 var isInDebugSession = !string.IsNullOrEmpty(_configuration[DcpExecutor.DebugSessionPortVar]);
+                var persistent = project.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+                exe.Spec.Persistent = persistent;
 
-                if (project.SupportsDebugging(_configuration, out var supportsDebuggingAnnotation))
+                SupportsDebuggingAnnotation? supportsDebuggingAnnotation = null;
+                if (!persistent && project.SupportsDebugging(_configuration, out supportsDebuggingAnnotation))
                 {
                     exe.Spec.ExecutionType = ExecutionType.IDE;
                     exe.Spec.FallbackExecutionTypes = [ExecutionType.Process];
@@ -185,7 +188,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                     // applied later in CreateExecutableAsync() after endpoints are allocated,
                     // unless the IDE didn't send DEBUG_SESSION_INFO (handled by the fallback branch below).
                 }
-                else if (ShouldFallBackToIdeExecution(isInDebugSession, supportsDebuggingAnnotation))
+                else if (!persistent && ShouldFallBackToIdeExecution(isInDebugSession, supportsDebuggingAnnotation))
                 {
                     // Fall back to IDE execution with a standard ProjectLaunchConfiguration when:
                     // 1. No SupportsDebuggingAnnotation exists (e.g. AddResource-based ProjectResource

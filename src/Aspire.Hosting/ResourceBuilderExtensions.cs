@@ -1347,12 +1347,12 @@ public static class ResourceBuilderExtensions
     /// <param name="env">An optional name of the environment variable that will be used to inject the <paramref name="targetPort"/>. If the target port is null one will be dynamically generated and assigned to the environment variable.</param>
     /// <param name="isExternal">Indicates that this endpoint should be exposed externally at publish time.</param>
     /// <param name="protocol">Network protocol: TCP or UDP are supported today, others possibly in future.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
     /// <exception cref="DistributedApplicationException">Throws an exception if an endpoint with the same name already exists on the specified resource.</exception>
     [AspireExport(Description = "Adds a network endpoint")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0026:Do not add multiple public overloads with optional parameters", Justification = "<Pending>")]
-    public static IResourceBuilder<T> WithEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? scheme = null, [EndpointName] string? name = null, string? env = null, bool isProxied = true, bool? isExternal = null, ProtocolType? protocol = null) where T : IResourceWithEndpoints
+    public static IResourceBuilder<T> WithEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? scheme = null, [EndpointName] string? name = null, string? env = null, bool? isProxied = null, bool? isExternal = null, ProtocolType? protocol = null) where T : IResourceWithEndpoints
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -1380,11 +1380,9 @@ public static class ResourceBuilderExtensions
                 existing.IsExternal = isExternal.Value;
             }
 
-            // Only apply isProxied when explicitly set to false — the default is true,
-            // so false is always intentional and safe to apply.
-            if (!isProxied)
+            if (isProxied is not null)
             {
-                existing.IsProxied = false;
+                existing.IsProxied = isProxied;
             }
 
             ConfigureEndpointEnvironmentVariable(builder, existing, env);
@@ -1444,6 +1442,30 @@ public static class ResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+    /// If set to <c>false</c>, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="proxyEnabled">Should endpoints for the resource support using a proxy?</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <remarks>
+    /// This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
+    /// port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
+    /// The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
+    /// endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
+    /// </remarks>
+    [AspireExport(Description = "Configures endpoint proxy support")]
+    public static IResourceBuilder<T> WithEndpointProxySupport<T>(this IResourceBuilder<T> builder, bool proxyEnabled) where T : IResourceWithEndpoints
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.WithAnnotation(new ProxySupportAnnotation { ProxyEnabled = proxyEnabled }, ResourceAnnotationMutationBehavior.Replace);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Exposes an endpoint on a resource. This endpoint reference can be retrieved using <see cref="ResourceBuilderExtensions.GetEndpoint{T}(IResourceBuilder{T}, string, NetworkIdentifier)"/>.
     /// The endpoint name will be the scheme name if not specified.
     /// </summary>
@@ -1455,7 +1477,7 @@ public static class ResourceBuilderExtensions
     /// <param name="name">An optional name of the endpoint. Defaults to the scheme name if not specified.</param>
     /// <param name="env">An optional name of the environment variable that will be used to inject the <paramref name="targetPort"/>. If the target port is null one will be dynamically generated and assigned to the environment variable.</param>
     /// <param name="isExternal">Indicates that this endpoint should be exposed externally at publish time.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
     /// <exception cref="DistributedApplicationException">Throws an exception if an endpoint with the same name already exists on the specified resource.</exception>
     /// <remarks>
@@ -1463,7 +1485,7 @@ public static class ResourceBuilderExtensions
     /// <para>If an endpoint with the same name already exists, the existing endpoint is updated with any non-null parameter values.</para>
     /// </remarks>
     [AspireExportIgnore(Reason = "Subset of the full WithEndpoint overload which is already exported.")]
-    public static IResourceBuilder<T> WithEndpoint<T>(this IResourceBuilder<T> builder, int? port, int? targetPort, string? scheme, [EndpointName] string? name, string? env, bool isProxied, bool? isExternal) where T : IResourceWithEndpoints
+    public static IResourceBuilder<T> WithEndpoint<T>(this IResourceBuilder<T> builder, int? port, int? targetPort, string? scheme, [EndpointName] string? name, string? env, bool? isProxied, bool? isExternal) where T : IResourceWithEndpoints
     {
         return WithEndpoint(builder, port, targetPort, scheme, name, env, isProxied, isExternal, protocol: null);
     }
@@ -1479,14 +1501,14 @@ public static class ResourceBuilderExtensions
     /// <param name="port">An optional port. This is the port that will be given to other resource to communicate with this resource.</param>
     /// <param name="name">An optional name of the endpoint. Defaults to "http" if not specified.</param>
     /// <param name="env">An optional name of the environment variable to inject.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
     /// <remarks>
     /// If an endpoint with the same name already exists on the resource, the existing endpoint is updated
     /// with any non-null parameter values. Parameters left as <see langword="null"/> will not modify the existing endpoint's values.
     /// </remarks>
     [AspireExport(Description = "Adds an HTTP endpoint")]
-    public static IResourceBuilder<T> WithHttpEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, [EndpointName] string? name = null, string? env = null, bool isProxied = true) where T : IResourceWithEndpoints
+    public static IResourceBuilder<T> WithHttpEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, [EndpointName] string? name = null, string? env = null, bool? isProxied = null) where T : IResourceWithEndpoints
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -1504,14 +1526,14 @@ public static class ResourceBuilderExtensions
     /// <param name="port">An optional host port.</param>
     /// <param name="name">An optional name of the endpoint. Defaults to "https" if not specified.</param>
     /// <param name="env">An optional name of the environment variable to inject.</param>
-    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to true.</param>
+    /// <param name="isProxied">Specifies if the endpoint will be proxied by DCP. Defaults to <see langword="null"/>.</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
     /// <remarks>
     /// If an endpoint with the same name already exists on the resource, the existing endpoint is updated
     /// with any non-null parameter values. Parameters left as <see langword="null"/> will not modify the existing endpoint's values.
     /// </remarks>
     [AspireExport(Description = "Adds an HTTPS endpoint")]
-    public static IResourceBuilder<T> WithHttpsEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, [EndpointName] string? name = null, string? env = null, bool isProxied = true) where T : IResourceWithEndpoints
+    public static IResourceBuilder<T> WithHttpsEndpoint<T>(this IResourceBuilder<T> builder, int? port = null, int? targetPort = null, [EndpointName] string? name = null, string? env = null, bool? isProxied = null) where T : IResourceWithEndpoints
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -1546,7 +1568,7 @@ public static class ResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Gets an <see cref="EndpointReference"/> by name from the resource. These endpoints are declared either using <see cref="WithEndpoint{T}(IResourceBuilder{T}, int?, int?, string?, string?, string?, bool, bool?, ProtocolType?)"/> or by launch settings (for project resources).
+    /// Gets an <see cref="EndpointReference"/> by name from the resource. These endpoints are declared either using <see cref="WithEndpoint{T}(IResourceBuilder{T}, int?, int?, string?, string?, string?, bool?, bool?, ProtocolType?)"/> or by launch settings (for project resources).
     /// The <see cref="EndpointReference"/> can be used to resolve the address of the endpoint in <see cref="WithEnvironment{T}(IResourceBuilder{T}, Action{EnvironmentCallbackContext})"/>.
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
@@ -1564,7 +1586,7 @@ public static class ResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Gets an <see cref="EndpointReference"/> by name from the resource. These endpoints are declared either using <see cref="WithEndpoint{T}(IResourceBuilder{T}, int?, int?, string?, string?, string?, bool, bool?, ProtocolType?)"/> or by launch settings (for project resources).
+    /// Gets an <see cref="EndpointReference"/> by name from the resource. These endpoints are declared either using <see cref="WithEndpoint{T}(IResourceBuilder{T}, int?, int?, string?, string?, string?, bool?, bool?, ProtocolType?)"/> or by launch settings (for project resources).
     /// The <see cref="EndpointReference"/> can be used to resolve the address of the endpoint in <see cref="WithEnvironment{T}(IResourceBuilder{T}, Action{EnvironmentCallbackContext})"/>.
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>

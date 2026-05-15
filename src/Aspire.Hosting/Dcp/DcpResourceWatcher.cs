@@ -30,6 +30,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
     private readonly DcpExecutorEvents _executorEvents;
     private readonly ILogger _logger;
     private readonly IConfiguration _configuration;
+    private readonly Func<IResource, CancellationToken, Task> _publishEndpointsAllocatedEventAsync;
     private readonly CancellationToken _shutdownToken;
 
     private readonly DcpResourceState _resourceState;
@@ -55,6 +56,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
         DistributedApplicationModel model,
         DcpAppResourceStore appResources,
         IConfiguration configuration,
+        Func<IResource, CancellationToken, Task> publishEndpointsAllocatedEventAsync,
         CancellationToken shutdownToken)
     {
         _kubernetesService = kubernetesService;
@@ -62,6 +64,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
         _executorEvents = executorEvents;
         _logger = logger;
         _configuration = configuration;
+        _publishEndpointsAllocatedEventAsync = publishEndpointsAllocatedEventAsync;
         _shutdownToken = shutdownToken;
 
         _resourceState = new(model.Resources.ToDictionary(r => r.Name), appResources.Get());
@@ -490,6 +493,12 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
         if (!ProcessResourceChange(_resourceState.ServicesMap, watchEventType, service))
         {
             return;
+        }
+
+        if (watchEventType is WatchEventType.Added or WatchEventType.Modified &&
+            DcpModelUtilities.TryApplyServiceAddressToEndpoint(service, _resourceState.AppResources, out var allocatedResource))
+        {
+            await _publishEndpointsAllocatedEventAsync(allocatedResource, _shutdownToken).ConfigureAwait(false);
         }
 
         foreach (var ((resourceKind, resourceName), _) in _resourceState.ResourceAssociatedServicesMap.Where(e => e.Value.Contains(service.Metadata.Name)))

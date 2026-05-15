@@ -202,10 +202,6 @@ namespace Aspire.Hosting
         public static ApplicationModel.IResourceBuilder<T> WithDockerfileFactory<T>(this ApplicationModel.IResourceBuilder<T> builder, string contextPath, System.Func<ApplicationModel.DockerfileFactoryContext, System.Threading.Tasks.Task<string>> dockerfileFactory, string? stage = null)
             where T : ApplicationModel.ContainerResource { throw null; }
 
-        [AspireExport("withEndpointProxySupport", Description = "Configures endpoint proxy support")]
-        public static ApplicationModel.IResourceBuilder<T> WithEndpointProxySupport<T>(this ApplicationModel.IResourceBuilder<T> builder, bool proxyEnabled)
-            where T : ApplicationModel.ContainerResource { throw null; }
-
         [AspireExport("withEntrypoint", Description = "Sets the container entrypoint")]
         public static ApplicationModel.IResourceBuilder<T> WithEntrypoint<T>(this ApplicationModel.IResourceBuilder<T> builder, string entrypoint)
             where T : ApplicationModel.ContainerResource { throw null; }
@@ -983,6 +979,10 @@ namespace Aspire.Hosting
         [AspireExport("disableForwardedHeaders", Description = "Disables forwarded headers for the project")]
         public static ApplicationModel.IResourceBuilder<ApplicationModel.ProjectResource> DisableForwardedHeaders(this ApplicationModel.IResourceBuilder<ApplicationModel.ProjectResource> builder) { throw null; }
 
+        [AspireExport("withProjectExecutableLifetime", Description = "Sets the lifetime behavior of the project executable resource")]
+        public static ApplicationModel.IResourceBuilder<TProjectResource> WithLifetime<TProjectResource>(this ApplicationModel.IResourceBuilder<TProjectResource> builder, ApplicationModel.ExecutableLifetime lifetime)
+            where TProjectResource : ApplicationModel.ProjectResource { throw null; }
+
         [AspireExport("publishProjectAsDockerFileWithConfigure", MethodName = "publishAsDockerFile", Description = "Publishes a project as a Docker file with optional container configuration", RunSyncOnBackgroundThread = true)]
         public static ApplicationModel.IResourceBuilder<T> PublishAsDockerFile<T>(this ApplicationModel.IResourceBuilder<T> builder, System.Action<ApplicationModel.IResourceBuilder<ApplicationModel.ContainerResource>>? configure = null)
             where T : ApplicationModel.ProjectResource { throw null; }
@@ -1147,12 +1147,16 @@ namespace Aspire.Hosting
         public static ApplicationModel.IResourceBuilder<TResource> WithDeveloperCertificateTrust<TResource>(this ApplicationModel.IResourceBuilder<TResource> builder, bool trust)
             where TResource : ApplicationModel.IResourceWithEnvironment, ApplicationModel.IResourceWithArgs { throw null; }
 
+        [AspireExport("withEndpointProxySupport", Description = "Configures endpoint proxy support")]
+        public static ApplicationModel.IResourceBuilder<T> WithEndpointProxySupport<T>(this ApplicationModel.IResourceBuilder<T> builder, bool proxyEnabled)
+            where T : ApplicationModel.IResourceWithEndpoints { throw null; }
+
         [AspireExport("withEndpoint", Description = "Adds a network endpoint")]
-        public static ApplicationModel.IResourceBuilder<T> WithEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? scheme = null, string? name = null, string? env = null, bool isProxied = true, bool? isExternal = null, System.Net.Sockets.ProtocolType? protocol = null)
+        public static ApplicationModel.IResourceBuilder<T> WithEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? scheme = null, string? name = null, string? env = null, bool? isProxied = null, bool? isExternal = null, System.Net.Sockets.ProtocolType? protocol = null)
             where T : ApplicationModel.IResourceWithEndpoints { throw null; }
 
         [AspireExportIgnore(Reason = "Subset of the full WithEndpoint overload which is already exported.")]
-        public static ApplicationModel.IResourceBuilder<T> WithEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port, int? targetPort, string? scheme, string? name, string? env, bool isProxied, bool? isExternal)
+        public static ApplicationModel.IResourceBuilder<T> WithEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port, int? targetPort, string? scheme, string? name, string? env, bool? isProxied, bool? isExternal)
             where T : ApplicationModel.IResourceWithEndpoints { throw null; }
 
         [AspireExportIgnore(Reason = "EndpointAnnotation has read-only properties AllocatedEndpointSnapshot and AllAllocatedEndpoints that are not ATS-compatible. Callback-free variant is exported.")]
@@ -1224,7 +1228,7 @@ namespace Aspire.Hosting
             where TResource : ApplicationModel.IResourceWithEndpoints { throw null; }
 
         [AspireExport("withHttpEndpoint", Description = "Adds an HTTP endpoint")]
-        public static ApplicationModel.IResourceBuilder<T> WithHttpEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? name = null, string? env = null, bool isProxied = true)
+        public static ApplicationModel.IResourceBuilder<T> WithHttpEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? name = null, string? env = null, bool? isProxied = null)
             where T : ApplicationModel.IResourceWithEndpoints { throw null; }
 
         [AspireExportIgnore(Reason = "Func<EndpointReference> delegate — not ATS-compatible.")]
@@ -1261,7 +1265,7 @@ namespace Aspire.Hosting
             where TResource : ApplicationModel.IResourceWithEnvironment, ApplicationModel.IResourceWithArgs { throw null; }
 
         [AspireExport("withHttpsEndpoint", Description = "Adds an HTTPS endpoint")]
-        public static ApplicationModel.IResourceBuilder<T> WithHttpsEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? name = null, string? env = null, bool isProxied = true)
+        public static ApplicationModel.IResourceBuilder<T> WithHttpsEndpoint<T>(this ApplicationModel.IResourceBuilder<T> builder, int? port = null, int? targetPort = null, string? name = null, string? env = null, bool? isProxied = null)
             where T : ApplicationModel.IResourceWithEndpoints { throw null; }
 
         [System.Obsolete("This method is obsolete and will be removed in a future version. Use the WithHttpHealthCheck method instead.")]
@@ -2197,9 +2201,9 @@ namespace Aspire.Hosting.ApplicationModel
     [System.Diagnostics.DebuggerDisplay("Type = {GetType().Name,nq}, Name = {Name}")]
     public sealed partial class EndpointAnnotation : IResourceAnnotation
     {
-        public EndpointAnnotation(System.Net.Sockets.ProtocolType protocol, NetworkIdentifier? networkID, string? uriScheme = null, string? transport = null, string? name = null, int? port = null, int? targetPort = null, bool? isExternal = null, bool isProxied = true) { }
+        public EndpointAnnotation(System.Net.Sockets.ProtocolType protocol, NetworkIdentifier? networkID, string? uriScheme = null, string? transport = null, string? name = null, int? port = null, int? targetPort = null, bool? isExternal = null, bool? isProxied = null) { }
 
-        public EndpointAnnotation(System.Net.Sockets.ProtocolType protocol, string? uriScheme = null, string? transport = null, string? name = null, int? port = null, int? targetPort = null, bool? isExternal = null, bool isProxied = true) { }
+        public EndpointAnnotation(System.Net.Sockets.ProtocolType protocol, string? uriScheme = null, string? transport = null, string? name = null, int? port = null, int? targetPort = null, bool? isExternal = null, bool? isProxied = null) { }
 
         public NetworkEndpointSnapshotList AllAllocatedEndpoints { get { throw null; } }
 
@@ -2214,7 +2218,7 @@ namespace Aspire.Hosting.ApplicationModel
 
         public bool IsExternal { get { throw null; } set { } }
 
-        public bool IsProxied { get { throw null; } set { } }
+        public bool? IsProxied { get { throw null; } set { } }
 
         public string Name { get { throw null; } set { } }
 

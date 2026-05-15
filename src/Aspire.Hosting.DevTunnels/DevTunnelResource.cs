@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Globalization;
 using Aspire.Hosting.ApplicationModel;
 
 namespace Aspire.Hosting.DevTunnels;
@@ -85,4 +86,29 @@ public sealed class DevTunnelPortResource : Resource, IResourceWithServiceDiscov
     internal EndpointReference TargetEndpoint { get; init; }
     internal DevTunnelPort? LastKnownStatus { get; set; }
     internal DevTunnelAccessStatus? LastKnownAccessStatus { get; set; }
+
+    internal async ValueTask<int> GetTunnelPortAsync(CancellationToken cancellationToken = default)
+    {
+        if (TargetEndpoint.TargetPort is int targetPort)
+        {
+            return targetPort;
+        }
+
+        string? resolvedTargetPort = null;
+        try
+        {
+            resolvedTargetPort = await TargetEndpoint.Property(EndpointProperty.TargetPort).GetValueAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) when (TargetEndpoint.IsAllocated)
+        {
+            // Endpoint references can only resolve targetPort dynamically when DCP reports a target-port expression.
+        }
+
+        if (int.TryParse(resolvedTargetPort, NumberStyles.None, CultureInfo.InvariantCulture, out var port))
+        {
+            return port;
+        }
+
+        return TargetEndpoint.Port;
+    }
 }
