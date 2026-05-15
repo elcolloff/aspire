@@ -77,10 +77,10 @@ public class ExecutableResourceBuilderExtensionTests
     {
         using var builder = TestDistributedApplicationBuilder.Create();
         var executable = builder.AddExecutable("myexe", "command", "workingdirectory")
-            .WithLifetime(ExecutableLifetime.Persistent);
+            .WithLifetime(Lifetime.Persistent);
 
         var annotation = executable.Resource.Annotations.OfType<ExecutableLifetimeAnnotation>().Single();
-        Assert.Equal(ExecutableLifetime.Persistent, annotation.Lifetime);
+        Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
     }
 
     [Fact]

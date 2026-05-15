@@ -634,7 +634,7 @@ public class DcpExecutorTests
 
         const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1002;
         builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
-            .WithLifetime(ExecutableLifetime.Persistent)
+            .WithLifetime(Lifetime.Persistent)
             .WithEndpoint(name: "PortSetNoTargetPort", port: desiredPort, env: "PORT_SET_NO_TARGET_PORT");
 
         var configDict = new Dictionary<string, string?>
@@ -1372,7 +1372,7 @@ public class DcpExecutorTests
 
         const int desiredPort = TestKubernetesService.StartOfAutoPortRange - 1002;
         builder.AddProject<Projects.ServiceA>("ServiceA", launchProfileName: null)
-            .WithLifetime(ExecutableLifetime.Persistent)
+            .WithLifetime(Lifetime.Persistent)
             .WithHttpEndpoint(name: "stable", port: desiredPort);
 
         var configDict = new Dictionary<string, string?>
@@ -2171,7 +2171,7 @@ public class DcpExecutorTests
         var executable = new TestExecutableResource("test-working-directory");
         builder.AddResource(executable)
             .WithDebugSupport(mode => new ExecutableLaunchConfiguration("test") { Mode = mode }, "test")
-            .WithLifetime(ExecutableLifetime.Persistent);
+            .WithLifetime(Lifetime.Persistent);
 
         var configDict = new Dictionary<string, string?>
         {
@@ -2211,7 +2211,7 @@ public class DcpExecutorTests
         builder.AddResource(executable)
             .WithCertificateAuthorityCollection(certificateAuthorities)
             .WithCertificateTrustScope(CertificateTrustScope.Override)
-            .WithLifetime(ExecutableLifetime.Persistent);
+            .WithLifetime(Lifetime.Persistent);
 
         var configDict = new Dictionary<string, string?>
         {

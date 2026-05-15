@@ -14,10 +14,10 @@ public class ProjectResourceBuilderExtensionTests
         using var builder = TestDistributedApplicationBuilder.Create();
 
         var project = builder.AddProject<TestProject>("project", options => options.ExcludeLaunchProfile = true)
-            .WithLifetime(ExecutableLifetime.Persistent);
+            .WithLifetime(Lifetime.Persistent);
 
         var annotation = project.Resource.Annotations.OfType<ExecutableLifetimeAnnotation>().Single();
-        Assert.Equal(ExecutableLifetime.Persistent, annotation.Lifetime);
+        Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
     }
 
     private sealed class TestProject : IProjectMetadata

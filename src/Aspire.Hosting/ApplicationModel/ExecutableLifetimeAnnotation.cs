@@ -30,5 +30,5 @@ public sealed class ExecutableLifetimeAnnotation : IResourceAnnotation
     /// <summary>
     /// Gets or sets the lifetime type for the executable resource.
     /// </summary>
-    public required ExecutableLifetime Lifetime { get; set; }
+    public required Lifetime Lifetime { get; set; }
 }

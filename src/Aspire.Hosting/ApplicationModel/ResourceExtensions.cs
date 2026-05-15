@@ -1059,21 +1059,21 @@ public static class ResourceExtensions
 
     /// <summary>
     /// Gets the lifetime type of the executable for the specified resource.
-    /// Defaults to <see cref="ExecutableLifetime.Session"/> if no <see cref="ExecutableLifetimeAnnotation"/> is found.
+    /// Defaults to <see cref="Lifetime.Session"/> if no <see cref="ExecutableLifetimeAnnotation"/> is found.
     /// </summary>
     /// <param name="resource">The resource to get the ExecutableLifetimeType for.</param>
     /// <returns>
-    /// The <see cref="ExecutableLifetime"/> from the <see cref="ExecutableLifetimeAnnotation"/> for the resource (if the annotation exists).
-    /// Defaults to <see cref="ExecutableLifetime.Session"/> if the annotation is not set.
+    /// The <see cref="Lifetime"/> from the <see cref="ExecutableLifetimeAnnotation"/> for the resource (if the annotation exists).
+    /// Defaults to <see cref="Lifetime.Session"/> if the annotation is not set.
     /// </returns>
-    internal static ExecutableLifetime GetExecutableLifetimeType(this IResource resource)
+    internal static Lifetime GetExecutableLifetimeType(this IResource resource)
     {
         if (resource.TryGetLastAnnotation<ExecutableLifetimeAnnotation>(out var lifetimeAnnotation))
         {
             return lifetimeAnnotation.Lifetime;
         }
 
-        return ExecutableLifetime.Session;
+        return Lifetime.Session;
     }
 
     /// <summary>
@@ -1084,7 +1084,7 @@ public static class ResourceExtensions
     internal static bool HasPersistentLifetime(this IResource resource)
     {
         return resource.GetContainerLifetimeType() == ContainerLifetime.Persistent ||
-               resource.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+               resource.GetExecutableLifetimeType() == Lifetime.Persistent;
     }
 
     /// <summary>

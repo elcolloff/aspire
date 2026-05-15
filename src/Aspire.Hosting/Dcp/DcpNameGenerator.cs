@@ -82,7 +82,7 @@ internal sealed class DcpNameGenerator
     {
         var nameSuffix = project.GetExecutableLifetimeType() switch
         {
-            ExecutableLifetime.Session => GetRandomNameSuffix(),
+            Lifetime.Session => GetRandomNameSuffix(),
             _ => GetProjectHashSuffix(),
         };
 

@@ -28,6 +28,45 @@ public static class ResourceBuilderExtensions
     private static readonly MethodInfo s_dispatchCustomWithReferenceMethod = typeof(ResourceBuilderExtensions).GetMethod(nameof(DispatchCustomWithReference), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     /// <summary>
+    /// Sets the lifetime behavior for a resource that supports lifetime configuration.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="lifetime">The lifetime behavior for the resource. The default behavior is <see cref="Lifetime.Session"/>.</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <remarks>
+    /// <example>
+    /// Marking a resource to have a <see cref="Lifetime.Persistent"/> lifetime.
+    /// <code language="csharp">
+    /// var builder = DistributedApplication.CreateBuilder(args);
+    ///
+    /// builder.AddProject&lt;Projects.ApiService&gt;("api")
+    ///        .WithLifetime(Lifetime.Persistent);
+    ///
+    /// builder.Build().Run();
+    /// </code>
+    /// </example>
+    /// </remarks>
+    [AspireExport(Description = "Sets the lifetime behavior of the resource")]
+    public static IResourceBuilder<T> WithLifetime<T>(this IResourceBuilder<T> builder, Lifetime lifetime)
+        where T : IResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (builder.Resource is ContainerResource)
+        {
+            return builder.WithAnnotation(new ContainerLifetimeAnnotation { Lifetime = ToContainerLifetime(lifetime) }, ResourceAnnotationMutationBehavior.Replace);
+        }
+
+        if (builder.Resource is ExecutableResource or ProjectResource)
+        {
+            return builder.WithAnnotation(new ExecutableLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+        }
+
+        throw new InvalidOperationException($"Resource '{builder.Resource.Name}' does not support lifetime configuration.");
+    }
+
+    /// <summary>
     /// Adds an environment variable to the resource.
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
@@ -1464,6 +1503,14 @@ public static class ResourceBuilderExtensions
 
         return builder;
     }
+
+    private static ContainerLifetime ToContainerLifetime(Lifetime lifetime)
+        => lifetime switch
+        {
+            Lifetime.Session => ContainerLifetime.Session,
+            Lifetime.Persistent => ContainerLifetime.Persistent,
+            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+        };
 
     /// <summary>
     /// Exposes an endpoint on a resource. This endpoint reference can be retrieved using <see cref="ResourceBuilderExtensions.GetEndpoint{T}(IResourceBuilder{T}, string, NetworkIdentifier)"/>.

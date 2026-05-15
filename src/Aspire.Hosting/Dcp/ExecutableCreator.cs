@@ -170,7 +170,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                 var projectArgs = new List<string>();
 
                 var isInDebugSession = !string.IsNullOrEmpty(_configuration[DcpExecutor.DebugSessionPortVar]);
-                var persistent = project.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+                var persistent = project.GetExecutableLifetimeType() == Lifetime.Persistent;
                 exe.Spec.Persistent = persistent;
 
                 SupportsDebuggingAnnotation? supportsDebuggingAnnotation = null;
@@ -283,7 +283,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
             exe.Annotate(CustomResource.ResourceNameAnnotation, executable.Name);
 
-            var persistent = executable.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+            var persistent = executable.GetExecutableLifetimeType() == Lifetime.Persistent;
             if (persistent)
             {
                 exe.Spec.Persistent = true;
@@ -428,7 +428,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
     private string GetCertificatesRootDirectory(RenderedModelResource<Executable> er, Executable exe)
     {
-        if (er.ModelResource.GetExecutableLifetimeType() == ExecutableLifetime.Persistent)
+        if (er.ModelResource.GetExecutableLifetimeType() == Lifetime.Persistent)
         {
             return Path.Join(_aspireStore.BasePath, "dcp", "executables", exe.Metadata.Name, "certificates");
         }

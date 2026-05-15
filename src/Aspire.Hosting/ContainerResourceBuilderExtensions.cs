@@ -532,7 +532,7 @@ public static class ContainerResourceBuilderExtensions
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
     /// <param name="builder">Builder for the container resource.</param>
-    /// <param name="lifetime">The lifetime behavior of the container resource. The defaults behavior is <see cref="ContainerLifetime.Session"/>.</param>
+    /// <param name="lifetime">The lifetime behavior of the container resource. The default behavior is <see cref="ContainerLifetime.Session"/>.</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
     /// <remarks>
     /// <example>
@@ -547,7 +547,7 @@ public static class ContainerResourceBuilderExtensions
     /// </code>
     /// </example>
     /// </remarks>
-    [AspireExport(Description = "Sets the lifetime behavior of the container resource")]
+    [AspireExportIgnore(Reason = "Polyglot app hosts use the resource-level overload that accepts Lifetime.")]
     public static IResourceBuilder<T> WithLifetime<T>(this IResourceBuilder<T> builder, ContainerLifetime lifetime) where T : ContainerResource
     {
         ArgumentNullException.ThrowIfNull(builder);
