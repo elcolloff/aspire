@@ -242,15 +242,16 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
             return;
         }
 
+        var sessionId = GetProfilingSessionId(activity);
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
         environment[EnvironmentVariables.Enabled] = "true";
         environment[KnownConfigNames.Legacy.StartupProfilingEnabled] = "true";
-
-        var sessionId = GetProfilingSessionId(activity);
-        if (!string.IsNullOrWhiteSpace(sessionId))
-        {
-            environment[EnvironmentVariables.SessionId] = sessionId;
-            environment[KnownConfigNames.Legacy.StartupOperationId] = sessionId;
-        }
+        environment[EnvironmentVariables.SessionId] = sessionId;
+        environment[KnownConfigNames.Legacy.StartupOperationId] = sessionId;
 
         if (!string.IsNullOrWhiteSpace(activity.Id))
         {

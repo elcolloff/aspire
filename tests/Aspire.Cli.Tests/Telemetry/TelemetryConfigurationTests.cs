@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using Aspire.Cli.Commands;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.TestServices;
 using Microsoft.Extensions.Configuration;
@@ -76,6 +78,25 @@ public class TelemetryConfigurationTests
         Assert.False(telemetryManager.HasProfilingProvider, "Expected profiling export to require explicit profiling opt-in");
         Assert.True(telemetryManager.HasAzureMonitor, "Expected Azure Monitor to be enabled (connection string is hardcoded)");
 #endif
+    }
+
+    [Fact]
+    public void OtlpExporter_WithDetachedNonProfilingContext_DoesNotEnableProfilingProvider()
+    {
+        using var listener = CreateActivityListener("test-detached-non-profiling-context");
+        using var source = new ActivitySource("test-detached-non-profiling-context");
+        using var activity = source.StartActivity("parent");
+        Assert.NotNull(activity);
+
+        var config = AppHostLauncher.CreateDetachedChildEnvironment(activity);
+        config[AspireCliTelemetry.OtlpExporterEndpointConfigKey] = "http://localhost:4317";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(config.Select(pair => new KeyValuePair<string, string?>(pair.Key, pair.Value)))
+            .Build();
+
+        using var manager = new TelemetryManager(configuration);
+
+        Assert.False(manager.HasProfilingProvider, "Expected detached child profiling export to require an actual profiling session");
     }
 
     [Fact]
@@ -162,5 +183,16 @@ public class TelemetryConfigurationTests
         var manager = new TelemetryManager(configuration, [flag]);
 
         Assert.False(manager.HasAzureMonitor);
+    }
+
+    private static ActivityListener CreateActivityListener(string sourceName)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == sourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded
+        };
+        ActivitySource.AddActivityListener(listener);
+        return listener;
     }
 }

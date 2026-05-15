@@ -45,6 +45,20 @@ public class ProfilingTelemetryContextTests
     }
 
     [Fact]
+    public void AddActivityContextToEnvironment_IgnoresNonProfilingActivity()
+    {
+        using var listener = CreateActivityListener("test-profiling-context");
+        using var source = new ActivitySource("test-profiling-context");
+        using var activity = source.StartActivity("parent");
+        Assert.NotNull(activity);
+
+        var environment = new Dictionary<string, string>();
+        ProfilingTelemetry.AddActivityContextToEnvironment(activity, environment);
+
+        Assert.Empty(environment);
+    }
+
+    [Fact]
     public void StartRunCommand_ContinuesConfiguredRemoteParentAndSession()
     {
         var startedActivities = new List<Activity>();
