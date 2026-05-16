@@ -178,12 +178,6 @@ internal sealed class ConfigCommand : BaseCommand
                 return ExitCodeConstants.InvalidCommand;
             }
 
-            if (AppHostPathConfigurationPolicy.IsInternalConfigurationKey(key))
-            {
-                InteractionService.DisplayError(string.Format(CultureInfo.CurrentCulture, ErrorStrings.InternalConfigurationKeyCannotBeModifiedFormat, key));
-                return ExitCodeConstants.InvalidCommand;
-            }
-
             if (isGlobal && !AppHostPathConfigurationPolicy.IsGloballySettableKey(key))
             {
                 InteractionService.DisplayError(ErrorStrings.GlobalAppHostPathCannotBeSetWithConfigCommand);
@@ -419,12 +413,6 @@ internal sealed class ConfigCommand : BaseCommand
 
         private async Task<int> ExecuteAsync(string key, bool isGlobal, CancellationToken cancellationToken)
         {
-            if (AppHostPathConfigurationPolicy.IsInternalConfigurationKey(key))
-            {
-                InteractionService.DisplayError(string.Format(CultureInfo.CurrentCulture, ErrorStrings.InternalConfigurationKeyCannotBeModifiedFormat, key));
-                return ExitCodeConstants.InvalidCommand;
-            }
-
             try
             {
                 var deleted = await ConfigurationService.DeleteConfigurationAsync(key, isGlobal, cancellationToken);

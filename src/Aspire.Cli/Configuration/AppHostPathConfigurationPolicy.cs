@@ -29,20 +29,6 @@ internal static class AppHostPathConfigurationPolicy
             && !IsLegacyAppHostPathKey(key);
     }
 
-    /// <summary>
-    /// Configuration keys under the <c>internal:</c> namespace are reserved for test seams
-    /// and other product-internal values. They must never be settable through
-    /// <c>aspire config set</c>, otherwise users could persist values intended only for
-    /// in-memory test injection (e.g. <c>internal:packaging:cliVersionForTesting</c>) and
-    /// alter production behavior such as the staging-channel daily-CLI guard (#16652).
-    /// </summary>
-    public static bool IsInternalConfigurationKey(string key)
-    {
-        return key is not null
-            && (key.StartsWith("internal:", StringComparison.OrdinalIgnoreCase)
-                || key.StartsWith("internal.", StringComparison.OrdinalIgnoreCase));
-    }
-
     public static bool TryFindAppHostPathKey(IConfiguration configuration, out string? key)
     {
         key = null;

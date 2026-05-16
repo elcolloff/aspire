@@ -301,14 +301,6 @@ namespace Aspire.Cli.Resources {
             }
         }
 
-        public static string InternalConfigurationKeyCannotBeModifiedFormat
-        {
-            get
-            {
-                return ResourceManager.GetString("InternalConfigurationKeyCannotBeModifiedFormat", resourceCulture);
-            }
-        }
-
         public static string GlobalAppHostPathIgnored
         {
             get
