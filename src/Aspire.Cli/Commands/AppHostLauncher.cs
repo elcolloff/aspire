@@ -33,12 +33,14 @@ internal sealed class AppHostLauncher(
     ProfilingTelemetry profilingTelemetry,
     FileLoggerProvider fileLoggerProvider,
     ProcessShutdownService processShutdownService,
+    IDetachedProcessLauncher detachedProcessLauncher,
     ILogger<AppHostLauncher> logger,
     TimeProvider timeProvider)
 {
     private const int MaxDisplayedChildLogLines = 80;
     private const int MaxParentLogReplayLines = 200;
     private static readonly TimeSpan s_legacyDetachedStartupStabilityWindow = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan s_legacyDetachedStartupProbeInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
     /// Shared option for the AppHost project file path.
@@ -283,7 +285,7 @@ internal sealed class AppHostLauncher(
         {
             try
             {
-                childProcess = DetachedProcessLauncher.Start(
+                childProcess = detachedProcessLauncher.Start(
                     executablePath,
                     childArgs,
                     executionContext.WorkingDirectory.FullName,
@@ -383,10 +385,10 @@ internal sealed class AppHostLauncher(
                         if (appHostReady is null)
                         {
                             logger.LogDebug(
-                                "AppHost does not support startup readiness RPC. Waiting {StabilityWindow} before detaching.",
+                                "AppHost does not support startup readiness RPC. Probing legacy startup state for {StabilityWindow} before detaching.",
                                 s_legacyDetachedStartupStabilityWindow);
 
-                            if (!await WaitForLegacyDetachedStartupStabilityAsync(childExitTask, remainingTimeout, timeProvider, cancellationToken).ConfigureAwait(false))
+                            if (!await WaitForLegacyDetachedStartupStabilityAsync(connection, childExitTask, remainingTimeout, timeProvider, cancellationToken).ConfigureAwait(false))
                             {
                                 await childExitTask.ConfigureAwait(false);
                                 return CreateChildExitedLaunchResult(childProcess, waitForBackchannelActivity, childStartedAt);
@@ -470,6 +472,7 @@ internal sealed class AppHostLauncher(
     }
 
     internal static async Task<bool> WaitForLegacyDetachedStartupStabilityAsync(
+        IAppHostAuxiliaryBackchannel connection,
         Task childExitTask,
         TimeSpan remainingTimeout,
         TimeProvider timeProvider,
@@ -479,12 +482,93 @@ internal sealed class AppHostLauncher(
             ? remainingTimeout
             : s_legacyDetachedStartupStabilityWindow;
 
+        if (connection.SupportsV2)
+        {
+            return await WaitForLegacyDetachedStartupResourceSnapshotProbeAsync(
+                connection,
+                childExitTask,
+                stabilityWindow,
+                timeProvider,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var completedTask = await Task.WhenAny(
             childExitTask,
             Task.Delay(stabilityWindow, timeProvider, cancellationToken)).ConfigureAwait(false);
 
         cancellationToken.ThrowIfCancellationRequested();
         return completedTask != childExitTask;
+    }
+
+    private static async Task<bool> WaitForLegacyDetachedStartupResourceSnapshotProbeAsync(
+        IAppHostAuxiliaryBackchannel connection,
+        Task childExitTask,
+        TimeSpan stabilityWindow,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        // Older AppHosts do not expose the explicit readiness RPC. Resource snapshots are the
+        // best available V2 probe because this call depends on the AppHost model/notification
+        // services being available, unlike dashboard URL or process-info calls that can succeed
+        // as soon as the auxiliary server socket is listening.
+        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var timeoutTask = Task.Delay(stabilityWindow, timeProvider, cancellationToken);
+
+        while (true)
+        {
+            Task<List<ResourceSnapshot>> probeTask;
+            try
+            {
+                probeTask = connection.GetResourceSnapshotsAsync(includeHidden: false, probeCts.Token);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                probeTask = Task.FromException<List<ResourceSnapshot>>(ex);
+            }
+
+            var completedTask = await Task.WhenAny(probeTask, childExitTask, timeoutTask).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (completedTask == childExitTask)
+            {
+                probeCts.Cancel();
+                ObserveFaults(probeTask);
+                return false;
+            }
+
+            if (completedTask == timeoutTask)
+            {
+                probeCts.Cancel();
+                ObserveFaults(probeTask);
+                return true;
+            }
+
+            try
+            {
+                await probeTask.ConfigureAwait(false);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                var delayTask = Task.Delay(s_legacyDetachedStartupProbeInterval, timeProvider, cancellationToken);
+                completedTask = await Task.WhenAny(delayTask, childExitTask, timeoutTask).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (completedTask == childExitTask)
+                {
+                    return false;
+                }
+
+                if (completedTask == timeoutTask)
+                {
+                    return true;
+                }
+            }
+        }
     }
 
     private static void ObserveFaults(Task task)

@@ -373,6 +373,7 @@ public class Program
         builder.Services.AddSingleton<IFeatures, Features>();
         builder.Services.AddTelemetryServices();
         builder.Services.AddTransient<IProcessExecutionFactory, ProcessExecutionFactory>();
+        builder.Services.AddSingleton<IDetachedProcessLauncher, DefaultDetachedProcessLauncher>();
         builder.Services.AddTransient<LayoutProcessRunner>();
         builder.Services.AddTransient<ProcessShutdownService>();
 
