@@ -845,6 +845,13 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
 
         gatewayResource.GeneratedGateway = gateway;
 
+        // Compute TLS posture for filter emission below. A single gateway can have multiple
+        // TLS configs (one per hostname listener) — for redirect and HSTS we honor "any wants
+        // it" semantics so the user only has to opt out once via WithTls(o => o.RedirectHttp = false).
+        var redirectHttpToHttps = gatewayResource.TlsConfigs.Any(t => t.RedirectHttp);
+        var hstsConfig = gatewayResource.TlsConfigs.FirstOrDefault(t => t.HstsEnabled);
+        var hstsHeader = hstsConfig is not null ? BuildHstsHeaderValue(hstsConfig) : null;
+
         var routesByHost = gatewayResource.Routes.GroupBy(r => r.Host ?? string.Empty);
 
         foreach (var hostGroup in routesByHost)
@@ -890,6 +897,31 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                         Value = route.Path
                     }
                 });
+
+                // Apply HSTS via a ResponseHeaderModifier filter on each user rule when any
+                // TLS config on this gateway enables HSTS. The header lands on responses for
+                // both HTTP and HTTPS, but browsers only honor Strict-Transport-Security on
+                // valid HTTPS connections — so emitting it unconditionally is safe and avoids
+                // a second per-listener route split.
+                if (hstsHeader is not null)
+                {
+                    rule.Filters.Add(new HttpRouteFilterV1
+                    {
+                        Type = "ResponseHeaderModifier",
+                        ResponseHeaderModifier = new HttpRouteResponseHeaderModifierV1
+                        {
+                            Set =
+                            {
+                                new HttpRouteHeaderV1
+                                {
+                                    Name = "Strict-Transport-Security",
+                                    Value = hstsHeader,
+                                }
+                            }
+                        }
+                    });
+                }
+
                 rule.BackendRefs.Add(backendRef);
                 httpRoute.Spec.Rules.Add(rule);
             }
@@ -899,6 +931,69 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                 gatewayResource.GeneratedHttpRoutes.Add(httpRoute);
             }
         }
+
+        // Emit a synthetic HTTPRoute that 301-redirects everything on the HTTP listener to
+        // HTTPS. Bound to sectionName: http only so it does not also attach to the HTTPS
+        // listener (which would cause an infinite redirect loop). The catch-all PathPrefix: /
+        // is the fallback for everything not matched by a more specific route — notably
+        // cert-manager's HTTP-01 solver route uses path.type: Exact and therefore wins per
+        // Gateway API route precedence, so ACME validation continues to work.
+        if (redirectHttpToHttps)
+        {
+            var redirectRoute = new HttpRouteV1
+            {
+                Metadata = { Name = $"{gatewayName}-http-redirect" }
+            };
+            redirectRoute.Spec.ParentRefs.Add(new HttpRouteParentRefV1
+            {
+                Name = gatewayName,
+                SectionName = "http",
+            });
+            var redirectRule = new HttpRouteRuleV1();
+            redirectRule.Matches.Add(new HttpRouteMatchV1
+            {
+                Path = new HttpRoutePathMatchV1
+                {
+                    Type = "PathPrefix",
+                    Value = "/",
+                }
+            });
+            redirectRule.Filters.Add(new HttpRouteFilterV1
+            {
+                Type = "RequestRedirect",
+                RequestRedirect = new HttpRouteRequestRedirectV1
+                {
+                    Scheme = "https",
+                    StatusCode = 301,
+                }
+            });
+            redirectRoute.Spec.Rules.Add(redirectRule);
+            gatewayResource.GeneratedHttpRoutes.Add(redirectRoute);
+        }
+    }
+
+    /// <summary>
+    /// Renders the <c>Strict-Transport-Security</c> header value from the snapshot HSTS
+    /// settings on a <see cref="GatewayTlsConfig"/>. Format per RFC 6797 §6.1:
+    /// <c>max-age=&lt;seconds&gt;[; includeSubDomains][; preload]</c>.
+    /// </summary>
+    private static string BuildHstsHeaderValue(GatewayTlsConfig tls)
+    {
+        var maxAgeSeconds = (long)tls.HstsMaxAge.TotalSeconds;
+        var builder = new System.Text.StringBuilder();
+        builder.Append("max-age=").Append(maxAgeSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        if (tls.HstsIncludeSubDomains)
+        {
+            builder.Append("; includeSubDomains");
+        }
+
+        if (tls.HstsPreload)
+        {
+            builder.Append("; preload");
+        }
+
+        return builder.ToString();
     }
 
     private static HttpRouteBackendRefV1? ResolveGatewayBackendRef(
