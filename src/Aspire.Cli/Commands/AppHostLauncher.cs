@@ -8,6 +8,7 @@ using System.Text.Json;
 using Aspire.Cli.Backchannel;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Processes;
+using Aspire.Cli.Profiling;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
@@ -76,6 +77,7 @@ internal sealed class AppHostLauncher(
     /// <param name="waitForDebugger">Whether the AppHost is waiting for a debugger to attach.</param>
     /// <param name="globalArgs">Global CLI args to forward to child process.</param>
     /// <param name="additionalArgs">Additional unmatched args to forward.</param>
+    /// <param name="stopAfterLaunchDelay">Optional delay after launch before stopping the AppHost.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="CommandResult"/> indicating success or failure.</returns>
     public async Task<CommandResult> LaunchDetachedAsync(
@@ -86,6 +88,7 @@ internal sealed class AppHostLauncher(
         bool waitForDebugger,
         IEnumerable<string> globalArgs,
         IEnumerable<string> additionalArgs,
+        TimeSpan? stopAfterLaunchDelay,
         CancellationToken cancellationToken)
     {
         // In JSON mode or non-interactive mode, avoid interactive prompts.
@@ -161,7 +164,48 @@ internal sealed class AppHostLauncher(
         // Display results
         DisplayLaunchResult(launchResult, effectiveAppHostFile, childLogFile, format, isExtensionHost);
 
+        if (stopAfterLaunchDelay is not null)
+        {
+            await StopLaunchedAppHostAsync(launchResult, stopAfterLaunchDelay.Value, cancellationToken).ConfigureAwait(false);
+        }
+
         return CommandResult.Success();
+    }
+
+    private async Task StopLaunchedAppHostAsync(LaunchResult result, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        if (delay > TimeSpan.Zero)
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (result.Backchannel?.AppHostInfo is { } appHostInfo)
+        {
+            await result.Backchannel.StopAppHostAsync(cancellationToken).ConfigureAwait(false);
+
+            var manager = new RunningInstanceManager(logger, interactionService, timeProvider);
+            await manager.MonitorProcessesForTerminationAsync(appHostInfo, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (result.ChildProcess is { HasExited: false } childProcess)
+        {
+            try
+            {
+                await childProcess.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                childProcess.Kill(entireProcessTree: true);
+            }
+            catch (OperationCanceledException) when (!childProcess.HasExited)
+            {
+                // This path is only used for profile captures of detached launches. If shutdown is
+                // canceled while we are waiting for the child CLI to observe the AppHost stop, kill
+                // the process tree so the hidden capture mode does not leave an orphaned AppHost.
+                childProcess.Kill(entireProcessTree: true);
+                throw;
+            }
+        }
     }
 
     private async Task StopExistingInstancesAsync(FileInfo effectiveAppHostFile, CancellationToken cancellationToken)
@@ -250,6 +294,7 @@ internal sealed class AppHostLauncher(
     {
         var environment = new Dictionary<string, string> { [KnownConfigNames.CliRunDetached] = "true" };
         ProfilingTelemetry.AddActivityContextToEnvironment(activity, environment);
+        ProfileCaptureEnvironment.AddCurrentToEnvironment(environment);
         return environment;
     }
 
