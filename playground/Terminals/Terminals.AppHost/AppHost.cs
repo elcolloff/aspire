@@ -20,9 +20,6 @@ if (OperatingSystem.IsWindows())
 {
     // Single-replica executable wrapping cmd.exe to demonstrate that
     // WithTerminal() also works for arbitrary executables, not just projects.
-    // DCP's PTY allocator currently only supports Windows, so this branch is
-    // gated behind an OS check; future Phase 3 follow-ups will extend it to
-    // Linux and macOS.
     builder.AddExecutable("shell", "cmd.exe", ".")
         .WithTerminal();
 
@@ -44,6 +41,16 @@ if (OperatingSystem.IsWindows())
     // ("node") appended after bash and immediately exit.
     builder.AddContainer("nodebox", "node", "lts")
         .WithArgs("bash", "-l")
+        .WithTerminal();
+}
+else
+{
+    // Unix counterpart of `shell`: an interactive login bash so the terminal
+    // exercises the executable-with-PTY path on Linux/macOS. `-i` keeps bash
+    // in interactive mode (prompt, line editing, job control) and `-l` makes
+    // it source the user's login profile so `PATH`, aliases etc. behave the
+    // same as a normal terminal session.
+    builder.AddExecutable("shell", "/bin/bash", ".", "-i", "-l")
         .WithTerminal();
 }
 
