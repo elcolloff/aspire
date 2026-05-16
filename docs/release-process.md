@@ -57,8 +57,13 @@ Before starting a release:
    (definition `1600` in `dnceng/internal`)
 2. Click "Run pipeline"
 3. Under **Resources**, select the source build from the `aspire-build` dropdown
-   - This shows recent builds from the `dotnet-aspire` pipeline
-   - Select the specific signed build you want to release
+   - The picker is filtered to builds from `release/*` branches by default.
+   - Each build's tags are shown alongside its number — verify the
+     `release-version:X.Y.Z` tag matches the version you intend to ship
+     **before** clicking Run. If the tag is missing, either re-run the
+     source build (after the tag-emitting change in `azure-pipelines.yml`
+     is on that release branch) or pass an explicit `ReleaseVersion`
+     override below.
 4. Fill in the parameters. **Most should stay at their defaults** — the
    ones flagged `[Advanced]` in the run-pipeline form are only for
    re-running after a partial failure or for testing pipeline changes on a
@@ -68,7 +73,7 @@ Before starting a release:
 
    | Parameter | Description | Example |
    |-----------|-------------|---------|
-   | `ReleaseVersion` | Release version (used as `v<version>` tag) | `13.0.0` |
+   | `ReleaseVersion` | Override for the version label (used as `v<version>` tag). **Leave blank to auto-derive from the source build's `release-version:*` tag** — the normal case. Only set this when re-shipping under a corrected tag. | _(blank)_ |
    | `IsPrerelease` | `true` for preview releases | `false` |
    | `DryRun` | Set `true` to test without publishing or tagging | `false` |
    | `GaChannelName` | Target GA channel | `Aspire 9.x GA` |
