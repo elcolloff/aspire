@@ -174,7 +174,7 @@ public class SimplifiedDeploymentTests
     }
 
     [Fact]
-    public async Task WithSimplifiedDeployment_MultipleExternalResources_FallBackToPerResourcePaths()
+    public async Task WithSimplifiedDeployment_Throws_WhenMultipleExternalResources()
     {
         using var builder = TestDistributedApplicationBuilder.Create(
             DistributedApplicationOperation.Publish);
@@ -190,15 +190,17 @@ public class SimplifiedDeploymentTests
                .WithExternalHttpEndpoints();
 
         using var app = builder.Build();
-        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
-        var gateway = model.Resources.OfType<KubernetesGatewayResource>().Single();
-        await app.RunAsync();
 
-        // With more than one external resource the auto-router falls back to per-resource
-        // path prefixes; root-promotion only applies to the single-frontend case.
-        Assert.Contains(gateway.Routes, r => r.Path == "/api" && r.Endpoint.Resource.Name == "api");
-        Assert.Contains(gateway.Routes, r => r.Path == "/web" && r.Endpoint.Resource.Name == "web");
-        Assert.DoesNotContain(gateway.Routes, r => r.Path == "/");
+        // The auto-router enforces the single-frontend contract during the
+        // prepare-deployment-targets pipeline step (which runs under app.RunAsync in
+        // Publish mode), so the throw surfaces here rather than at builder construction
+        // time. Applications that need multiple external frontends must drop down to
+        // the verbose AddAzureKubernetesEnvironment + gateway/route/cert wiring path.
+        var ex = await Assert.ThrowsAsync<DistributedApplicationException>(() => app.RunAsync());
+        Assert.Contains("WithSimplifiedDeployment", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("api", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("web", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AddAzureKubernetesEnvironment", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -194,16 +194,4 @@ public sealed class SimplifiedDeploymentOptions
     /// user always wins).
     /// </summary>
     public bool AutoRouteExternalEndpoints { get; set; } = true;
-
-    /// <summary>
-    /// Path template applied to each auto-routed resource. <c>{name}</c> is
-    /// replaced with the resource name. Defaults to <c>"/{name}"</c>, which
-    /// produces routes like <c>/api</c>, <c>/web</c>, etc.
-    /// </summary>
-    /// <remarks>
-    /// When a single resource exposes more than one external endpoint, the
-    /// template is suffixed with <c>-{endpointName}</c> so each endpoint
-    /// receives a distinct path (for example, <c>/api-grpc</c>).
-    /// </remarks>
-    public string RoutePathTemplate { get; set; } = "/{name}";
 }

@@ -43,11 +43,20 @@ public static class AzureKubernetesSimplifiedDeploymentExtensions
     /// <para>
     /// Auto-routing runs as part of the Kubernetes <c>prepare-deployment-targets</c>
     /// pipeline step so user-authored <c>WithRoute</c> calls always win — a resource
-    /// that the user has explicitly routed is skipped. The
-    /// auto-router walks the application model, ignores infrastructure resources (gateway,
-    /// load balancer, cert-manager, issuer, vnet, subnet, dashboard, AKS env), and for each
-    /// remaining resource with one or more <c>IsExternal == true</c> HTTP endpoints adds a
-    /// route under <see cref="SimplifiedDeploymentOptions.RoutePathTemplate"/>.
+    /// that the user has explicitly routed is skipped. The auto-router walks the
+    /// application model, ignores infrastructure resources (gateway, load balancer,
+    /// cert-manager, issuer, vnet, subnet, dashboard, AKS env), and mounts the single
+    /// remaining resource that has an external HTTP endpoint at the gateway root
+    /// (<c>"/"</c>). If more than one such resource is present the auto-router
+    /// throws — see the remarks on the single-frontend constraint below.
+    /// </para>
+    /// <para>
+    /// <b>Single-frontend constraint:</b> the simplified path supports exactly one
+    /// resource with external HTTP endpoints. Multi-frontend hostname allocation
+    /// requires stable endpoint-to-listener mappings across deploys and bumps against
+    /// AGC's per-load-balancer frontend cap, so applications that need more than one
+    /// external frontend should drop down to <see cref="AzureKubernetesEnvironmentExtensions.AddAzureKubernetesEnvironment(IDistributedApplicationBuilder, string)"/>
+    /// and configure the gateway, routes, and cert-manager wiring directly.
     /// </para>
     /// <para>
     /// The defaults install Let's Encrypt production. For development loops that redeploy
@@ -178,9 +187,7 @@ public static class AzureKubernetesSimplifiedDeploymentExtensions
                 infraNames.Add(options.IssuerName);
             }
 
-            gateway.WithAnnotation(new KubernetesGatewayAutoRouteAnnotation(
-                options.RoutePathTemplate,
-                infraNames));
+            gateway.WithAnnotation(new KubernetesGatewayAutoRouteAnnotation(infraNames));
         }
 
         return builder;

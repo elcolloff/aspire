@@ -799,34 +799,40 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
             .Where(x => x.Endpoint is not null)
             .ToList();
 
-        // Pit-of-success behavior: when exactly one resource is auto-routed, mount it at
-        // "/" so the bare gateway URL just works. With multiple frontends we fall back to
-        // the per-resource path template ("/{name}") for disambiguation.
-        var promoteToRoot = candidates.Count == 1;
-
-        foreach (var entry in candidates)
+        // Single-frontend constraint: WithSimplifiedDeployment is designed for the
+        // 80% case of "expose one frontend behind one ALB hostname". Multi-frontend
+        // hostname allocation needs stable endpoint-to-listener mappings across deploys
+        // and bumps against AGC's 5-frontends-per-load-balancer limit, so users who
+        // need more than one external HTTP frontend should drop down to the verbose
+        // AddAzureKubernetesEnvironment path (manual gateway + routes + cert wiring).
+        // Fail loudly here rather than silently routing them under path prefixes,
+        // which (as we discovered) is a footgun when the backend doesn't expect a
+        // mount-point prefix.
+        if (candidates.Count > 1)
         {
-            var path = promoteToRoot
-                ? "/"
-                : autoRoute.PathTemplate.Replace("{name}", entry.Resource.Name, StringComparison.Ordinal);
+            var names = string.Join(", ", candidates.Select(c => c.Resource.Name).OrderBy(n => n, StringComparer.Ordinal));
+            throw new DistributedApplicationException(
+                $"WithSimplifiedDeployment only supports a single resource with external HTTP endpoints, " +
+                $"but found {candidates.Count}: {names}. " +
+                $"Use AddAzureKubernetesEnvironment with explicit gateway, route, and cert-manager " +
+                $"configuration to expose multiple external frontends.");
+        }
 
-            if (!usedPaths.Add(path))
+        // Pit-of-success behavior: the single allowed external frontend mounts at "/" so
+        // the bare gateway URL just works. No prefix to strip, so RewritePrefix stays off.
+        if (candidates.Count == 1)
+        {
+            var entry = candidates[0];
+
+            if (usedPaths.Add("/"))
             {
-                continue;
+                var endpointRef = new EndpointReference(entry.Resource, entry.Endpoint!.Name);
+                gatewayResource.Routes.Add(new GatewayRouteConfig(
+                    Host: null,
+                    Path: "/",
+                    PathType: IngressPathType.Prefix,
+                    Endpoint: endpointRef));
             }
-
-            var endpointRef = new EndpointReference(entry.Resource, entry.Endpoint!.Name);
-            gatewayResource.Routes.Add(new GatewayRouteConfig(
-                Host: null,
-                Path: path,
-                PathType: IngressPathType.Prefix,
-                Endpoint: endpointRef)
-            {
-                // Strip the synthetic per-resource prefix before forwarding so the
-                // backend, which only knows about "/", doesn't 404 on every request.
-                // Skipped when we mount at "/" since there's nothing to strip.
-                RewritePrefix = !promoteToRoot,
-            });
         }
     }
 
