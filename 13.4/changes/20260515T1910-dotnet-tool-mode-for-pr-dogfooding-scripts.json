@@ -5,15 +5,16 @@
   "breaking": false,
   "changeType": "New features",
   "communityContributors": [],
-  "description": "PR dogfooding scripts now support `--install-mode tool` (Bash) / `-InstallMode Tool` (PowerShell) to validate the `Aspire.Cli` dotnet-tool packaging route alongside the default archive mode.",
+  "description": "PR dogfooding scripts now support dotnet-tool install mode alongside the default archive mode. Bug fixes address PowerShell PATH update reliability and invalid flag rejection outside tool mode.",
   "docsPrs": [],
   "docsRequired": false,
   "emoji": "🛠️",
   "firstMergedAt": "2026-05-15T19:10:37Z",
-  "lastMergedAt": "2026-05-15T19:10:37Z",
+  "lastMergedAt": "2026-05-16T05:43:26Z",
   "name": "Dotnet-tool install mode for PR dogfooding scripts",
   "owner": "radical",
   "prs": [
-    16535
+    16535,
+    17142
   ]
 }

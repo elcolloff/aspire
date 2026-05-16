@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Bug fix follow-up to PR #16535 for PR dogfooding acquisition scripts - PATH update reliability and force flag validation",
+  "mergedAt": "2026-05-16T05:43:26Z",
+  "number": 17142,
+  "runDate": "2026-05-16T06:47:53Z",
+  "status": "included",
+  "title": "Fix PR acquisition script feedback"
+}
