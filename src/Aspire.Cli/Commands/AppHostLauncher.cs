@@ -623,8 +623,7 @@ internal sealed class AppHostLauncher(
         }
 
         var lines = new Queue<string>(maxLines);
-        using var stream = new FileStream(childLogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(stream);
+        using var reader = File.OpenText(childLogFile);
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
@@ -652,8 +651,7 @@ internal sealed class AppHostLauncher(
         }
 
         var entries = new Queue<CliLogFormat.FileLogEntry>(maxLines);
-        using var stream = new FileStream(childLogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(stream);
+        using var reader = File.OpenText(childLogFile);
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {

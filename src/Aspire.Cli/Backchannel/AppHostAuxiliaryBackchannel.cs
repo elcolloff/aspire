@@ -84,9 +84,6 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
     /// <inheritdoc />
     public bool SupportsV3 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V3);
 
-    /// <inheritdoc />
-    public bool SupportsV4 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V4);
-
     /// <summary>
     /// Gets the JSON-RPC proxy for communicating with the AppHost.
     /// </summary>
@@ -307,7 +304,7 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
     /// <inheritdoc />
     public async Task<WaitForAppHostReadyResponse?> WaitForAppHostReadyAsync(CancellationToken cancellationToken = default)
     {
-        if (!SupportsV4)
+        if (!SupportsV3)
         {
             return null;
         }
