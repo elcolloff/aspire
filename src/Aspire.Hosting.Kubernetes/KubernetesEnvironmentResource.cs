@@ -813,7 +813,12 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                     Host: null,
                     Path: path,
                     PathType: IngressPathType.Prefix,
-                    Endpoint: endpointRef));
+                    Endpoint: endpointRef)
+                {
+                    // Strip the synthetic per-resource prefix before forwarding so the
+                    // backend, which only knows about "/", doesn't 404 on every request.
+                    RewritePrefix = true,
+                });
             }
         }
     }
@@ -1015,6 +1020,27 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                                     Name = "Strict-Transport-Security",
                                     Value = hstsHeader,
                                 }
+                            }
+                        }
+                    });
+                }
+
+                // Strip the matched path prefix before forwarding when the route was
+                // synthesized by the auto-router. Without this, a backend mounted at "/"
+                // sees the full "/{resource}" path and returns 404 for every request.
+                // PathPrefix matches only — Exact matches forward as-is and don't need
+                // a rewrite. ReplacePrefixMatch with "/" replaces the matched prefix.
+                if (route.RewritePrefix && route.PathType == IngressPathType.Prefix)
+                {
+                    rule.Filters.Add(new HttpRouteFilterV1
+                    {
+                        Type = "URLRewrite",
+                        UrlRewrite = new HttpRouteUrlRewriteV1
+                        {
+                            Path = new HttpRouteUrlRewritePathV1
+                            {
+                                Type = "ReplacePrefixMatch",
+                                ReplacePrefixMatch = "/",
                             }
                         }
                     });

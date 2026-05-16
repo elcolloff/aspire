@@ -41,6 +41,64 @@ public sealed class HttpRouteFilterV1
     /// </summary>
     [YamlMember(Alias = "responseHeaderModifier")]
     public HttpRouteResponseHeaderModifierV1? ResponseHeaderModifier { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <c>URLRewrite</c> filter payload. Only meaningful when
+    /// <see cref="Type"/> is <c>"URLRewrite"</c>. Used to strip a path prefix before
+    /// forwarding to a backend that doesn't know about the gateway-side mount point.
+    /// </summary>
+    [YamlMember(Alias = "urlRewrite")]
+    public HttpRouteUrlRewriteV1? UrlRewrite { get; set; }
+}
+
+/// <summary>
+/// Payload for a <c>URLRewrite</c> HTTPRoute filter. Mutates the path (and optionally
+/// the host) on a request before the Gateway forwards it to the backend.
+/// </summary>
+/// <remarks>
+/// See <see href="https://gateway-api.sigs.k8s.io/api-types/httproute/#urlrewrite"/>.
+/// Used by the auto-router in <c>WithClusterDefaults</c> to strip the synthetic
+/// per-resource path prefix (for example <c>/webfrontend-http</c>) so the backend
+/// receives requests at the path it actually serves.
+/// </remarks>
+[YamlSerializable]
+public sealed class HttpRouteUrlRewriteV1
+{
+    /// <summary>
+    /// Gets or sets the path-rewrite payload.
+    /// </summary>
+    [YamlMember(Alias = "path")]
+    public HttpRouteUrlRewritePathV1? Path { get; set; }
+}
+
+/// <summary>
+/// Path component of a <see cref="HttpRouteUrlRewriteV1"/> filter.
+/// </summary>
+[YamlSerializable]
+public sealed class HttpRouteUrlRewritePathV1
+{
+    /// <summary>
+    /// Gets or sets the rewrite mode. Common values are <c>"ReplaceFullPath"</c> and
+    /// <c>"ReplacePrefixMatch"</c>.
+    /// </summary>
+    [YamlMember(Alias = "type")]
+    public string Type { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the replacement value when <see cref="Type"/> is
+    /// <c>"ReplacePrefixMatch"</c>. The matched prefix from the rule's
+    /// <c>PathPrefix</c> match is replaced with this value; typically <c>"/"</c>
+    /// to forward the trailing path as-is to a backend that serves at the root.
+    /// </summary>
+    [YamlMember(Alias = "replacePrefixMatch")]
+    public string? ReplacePrefixMatch { get; set; }
+
+    /// <summary>
+    /// Gets or sets the full replacement path when <see cref="Type"/> is
+    /// <c>"ReplaceFullPath"</c>.
+    /// </summary>
+    [YamlMember(Alias = "replaceFullPath")]
+    public string? ReplaceFullPath { get; set; }
 }
 
 /// <summary>
