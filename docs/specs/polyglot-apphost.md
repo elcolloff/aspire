@@ -976,7 +976,7 @@ Documentation is captured for:
 - Enum types and enum values
 - Exported value catalogs and exported values
 
-`[AspireExport(Description = "...")]` remains compatibility metadata and is only used as a fallback summary when XML documentation is unavailable. New API documentation should prefer XML docs so C# and generated guest SDK documentation stay tied together.
+`[AspireExport(Description = "...")]` remains compatibility metadata and is only used as a fallback summary when XML summary documentation is unavailable (either because the member has no XML documentation or because its `<summary>`/`<ats-summary>` text is missing). New API documentation should prefer XML docs so C# and generated guest SDK documentation stay tied together.
 
 First-level `ats-*` tags override the matching standard XML documentation when generated SDKs need language-neutral or polyglot-specific text:
 
