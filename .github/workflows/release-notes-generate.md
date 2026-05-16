@@ -52,10 +52,7 @@ network:
 # Use the native `update-release` safe output instead of giving the agent
 # write access to the GitHub MCP. The agent emits a structured update
 # request; gh-aw runs a separate job (with the minimum required permissions)
-# that calls the Releases REST API. This also prevents the auto-injected
-# `create-issue` fallback that previously turned silent agent failures into
-# stray issues — when an explicit `safe-outputs:` block exists, gh-aw does
-# not auto-inject other output types.
+# that calls the Releases REST API.
 safe-outputs:
   update-release:
     max: 1
@@ -75,12 +72,6 @@ tools:
     # notes. The MCP container is still scoped to a single repo via
     # `allowed-repos` and `github-app`.
     min-integrity: none
-    # Note: we intentionally do NOT set `min-integrity: approved` here. The
-    # `aspire-repo-bot` legitimately authors backport PRs and merge commits
-    # for our release branches, and gating the compare/search results on the
-    # default integrity filter drops those items from the data set the
-    # agent sees, which hurts the generated notes. The MCP container is
-    # still scoped to a single repo via `allowed-repos` and `github-app`.
     allowed-repos:
       - microsoft/aspire
     github-app:

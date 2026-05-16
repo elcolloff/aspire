@@ -23,9 +23,9 @@ parameters:
   # are deliberately re-running after a partial failure.
 
   - name: ReleaseVersion
-    displayName: 'Release Version (leave blank to auto-derive from source build tag)'
+    displayName: 'Release Version (leave as "auto" to derive from source build tag, or set explicitly e.g. 13.3.4)'
     type: string
-    default: ''
+    default: 'auto'
 
   - name: IsPrerelease
     displayName: 'Is this a preview / prerelease?'
@@ -38,7 +38,7 @@ parameters:
     default: false
 
   - name: GaChannelName
-    displayName: 'GA Channel Name'
+    displayName: '[Advanced] GA Channel Name (darc promotion target; do NOT change even for Aspire 10.x+ — the channel is named "Aspire 9.x GA" historically)'
     type: string
     default: 'Aspire 9.x GA'
 
@@ -107,12 +107,15 @@ resources:
     - pipeline: aspire-build
       source: microsoft-aspire  # Name of the main build pipeline
       project: internal      # AzDO project name
-      # Default the source-build picker to the newest build from a release/*
-      # branch. This is what the release pipeline is actually run against
-      # ~100% of the time; without this filter AzDO defaults to the absolute
-      # latest build (often from `main`), which has to be manually changed
-      # every run.
-      branch: refs/heads/release/*
+      # Default the source-build picker to the newest build from the current
+      # active release branch. AzDO's pipeline-resource `branch:` field does
+      # not support wildcards as a default-source filter (confirmed via dry
+      # run), so this must be hard-coded to the active release branch and
+      # bumped each time a new release/* branch is snapped. Without this,
+      # AzDO defaults to the absolute latest build (often from `main`),
+      # which has to be manually changed every run.
+      # TODO: bump this when a new release/* branch is snapped.
+      branch: refs/heads/release/13.3
       trigger: none          # Manual trigger only - no automatic releases
 
 extends:
@@ -200,6 +203,13 @@ extends:
                   $org     = "$(System.CollectionUri)"
                   $project = "internal"
                   $override = "${{ parameters.ReleaseVersion }}"
+
+                  # Sentinel: AzDO's UI rejects empty-string param values even
+                  # when default is '', so we use the literal 'auto' as a
+                  # stand-in for "derive from source build tag".
+                  if ($override -eq 'auto') {
+                    $override = ''
+                  }
 
                   $uri = "${org}${project}/_apis/build/builds/${buildId}/tags?api-version=7.0"
                   Write-Host "Fetching tags for source build $buildId from $uri"

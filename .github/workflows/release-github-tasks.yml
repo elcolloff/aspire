@@ -77,14 +77,19 @@ permissions:
   pull-requests: write
 
 jobs:
-  # All release tasks run as sequential steps on a single runner. Splitting
-  # them across multiple jobs (the previous design) paid the ~30-60s
-  # runner-provision tax 6 times per release; consolidating cuts that to one
-  # provisioning event. Each step preserves the previous per-job `if:`
-  # gating against the `skip_*` inputs so partial-failure re-runs still
-  # behave the same way. The `summary` step at the end runs with
-  # `if: always()` so it surfaces the result regardless of which step (if
-  # any) failed.
+  # Three-job layout:
+  # - `release` does the linear, must-be-sequential work (authorize, tag,
+  #   GitHub release). Splitting these would buy nothing because they
+  #   strictly depend on each other.
+  # - `merge-pr` and `baseline-pr` run in parallel after `release`. They are
+  #   independent (a failure in one must NOT block the other — that was the
+  #   pre-consolidation behavior we want to preserve), so they each pay
+  #   their own runner-provision tax but run concurrently.
+  # - `summary` joins on all three with `if: always()` and prints the final
+  #   status.
+  #
+  # Each step preserves the previous per-job `if:` gating against the
+  # `skip_*` inputs so partial-failure re-runs still behave the same way.
   release:
     name: Release Tasks
     runs-on: ubuntu-latest
@@ -326,10 +331,35 @@ jobs:
             echo "✓ Created GitHub Release: $TAG_NAME"
           fi
 
-      # --- Create Merge-Back PR ---------------------------------------------
+  # ----------------------------------------------------------------------------
+  # merge-pr: runs in parallel with baseline-pr after the release job. A
+  # failure here must NOT block baseline-pr (and vice versa) — that matches
+  # the pre-consolidation per-job design.
+  # ----------------------------------------------------------------------------
+  merge-pr:
+    name: Create Merge-Back PR
+    needs: release
+    if: inputs.skip_merge_pr != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        with:
+          app-id: ${{ secrets.ASPIRE_BOT_APP_ID }}
+          private-key: ${{ secrets.ASPIRE_BOT_PRIVATE_KEY }}
+
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Check for Existing Merge PR
         id: check-merge-pr
-        if: inputs.skip_merge_pr != true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -346,7 +376,7 @@ jobs:
           fi
 
       - name: Dry Run - Show Merge PR Details
-        if: inputs.skip_merge_pr != true && steps.check-merge-pr.outputs.pr_exists != 'true' && inputs.dry_run == true
+        if: steps.check-merge-pr.outputs.pr_exists != 'true' && inputs.dry_run == true
         run: |
           echo "🔍 [DRY RUN] Would create merge PR:"
           echo "   Title: Merge ${{ inputs.release_branch }} to main after v${{ inputs.release_version }} release"
@@ -365,7 +395,7 @@ jobs:
           echo "   ─────────────────────────────────────"
 
       - name: Create Merge PR
-        if: inputs.skip_merge_pr != true && steps.check-merge-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
+        if: steps.check-merge-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
         uses: ./.github/actions/create-pull-request
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -386,23 +416,37 @@ jobs:
           labels: |
             area-engineering-systems
 
-      # --- Create Baseline Version PR ---------------------------------------
-      # Before modifying baseline file, switch the working tree to the tip of
-      # main. The earlier checkout fetched full history for all refs, so this
-      # is just a local checkout — no network round-trip. We need to be on
-      # main because the baseline-update branch is meant to be branched off
-      # main (not the release branch the workflow may have been dispatched
-      # from).
-      - name: Switch to main for Baseline PR
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true
-        run: |
-          git fetch origin main --depth 1
-          git checkout -B main origin/main
-          echo "✓ Working tree is now at the tip of main ($(git rev-parse --short HEAD))"
+  # ----------------------------------------------------------------------------
+  # baseline-pr: runs in parallel with merge-pr after the release job.
+  # ----------------------------------------------------------------------------
+  baseline-pr:
+    name: Create Baseline Version PR
+    needs: release
+    if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        with:
+          app-id: ${{ secrets.ASPIRE_BOT_APP_ID }}
+          private-key: ${{ secrets.ASPIRE_BOT_PRIVATE_KEY }}
+
+      # Checkout main directly — the baseline-update branch is meant to be
+      # branched off main, not off the release branch the workflow was
+      # dispatched from.
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Check for Existing Baseline PR
         id: check-baseline-pr
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -419,7 +463,7 @@ jobs:
           fi
 
       - name: Update PackageValidationBaselineVersion
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true && steps.check-baseline-pr.outputs.pr_exists != 'true'
+        if: steps.check-baseline-pr.outputs.pr_exists != 'true'
         run: |
           VERSION="${{ inputs.release_version }}"
           FILE="src/Directory.Build.props"
@@ -440,7 +484,7 @@ jobs:
           git diff "$FILE"
 
       - name: Dry Run - Show Baseline PR Details
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true && steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run == true
+        if: steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run == true
         run: |
           VERSION="${{ inputs.release_version }}"
           BRANCH_NAME="update-baseline-$VERSION"
@@ -459,7 +503,7 @@ jobs:
           echo "   Commit message: Update PackageValidationBaselineVersion to $VERSION"
 
       - name: Create Branch and Commit for Baseline PR
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true && steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
+        if: steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
         run: |
           BRANCH_NAME="update-baseline-${{ inputs.release_version }}"
           VERSION="${{ inputs.release_version }}"
@@ -475,7 +519,7 @@ jobs:
           echo "✓ Created branch: $BRANCH_NAME"
 
       - name: Create Baseline PR
-        if: inputs.skip_baseline_pr != true && inputs.is_prerelease != true && steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
+        if: steps.check-baseline-pr.outputs.pr_exists != 'true' && inputs.dry_run != true
         uses: ./.github/actions/create-pull-request
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -496,14 +540,18 @@ jobs:
           labels: |
             area-engineering-systems
 
-      # --- Summary -----------------------------------------------------------
-      # Runs regardless of upstream step outcomes so the final result is
-      # always reported. With consolidation we no longer have per-job result
-      # granularity (everything is one job), so the summary reflects the
-      # overall job status. Individual step results are still visible in the
-      # run UI for anyone investigating a failure.
+  # ----------------------------------------------------------------------------
+  # summary: joins all upstream jobs with `if: always()` and reports the
+  # final outcome. Uses `needs.*.result` to surface per-job status because
+  # the work is no longer in a single job.
+  # ----------------------------------------------------------------------------
+  summary:
+    name: Summary
+    needs: [release, merge-pr, baseline-pr]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
       - name: Print Summary
-        if: always()
         run: |
           echo ""
           if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -524,12 +572,13 @@ jobs:
           echo "║ Skip GitHub Release: ${{ inputs.skip_github_release }}"
           echo "║ Skip Merge PR:       ${{ inputs.skip_merge_pr }}"
           echo "║ Skip Baseline PR:    ${{ inputs.skip_baseline_pr }}"
-          echo "║ Overall Job Status: ${{ job.status }}"
+          echo "║ Release job:    ${{ needs.release.result }}"
+          echo "║ Merge PR job:   ${{ needs.merge-pr.result }}"
+          echo "║ Baseline PR job: ${{ needs.baseline-pr.result }}"
           echo "╚═══════════════════════════════════════════════════════════════╝"
           echo ""
 
       - name: Create Job Summary
-        if: always()
         run: |
           DRY_RUN_BANNER=""
           if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -542,23 +591,31 @@ jobs:
           "
           fi
 
-          OVERALL="${{ job.status }}"
-          if [ "$OVERALL" == "success" ]; then
-            OVERALL_ICON="✅"
-          elif [ "$OVERALL" == "cancelled" ]; then
-            OVERALL_ICON="⏹️"
-          else
-            OVERALL_ICON="❌"
-          fi
+          # Map a needs.*.result string to an icon for the summary table.
+          render_status() {
+            case "$1" in
+              success)   echo "✅ \`success\`" ;;
+              failure)   echo "❌ \`failure\`" ;;
+              cancelled) echo "⏹️ \`cancelled\`" ;;
+              skipped)   echo "⏭️ \`skipped\`" ;;
+              *)         echo "❔ \`$1\`" ;;
+            esac
+          }
+
+          RELEASE_STATUS=$(render_status "${{ needs.release.result }}")
+          MERGE_STATUS=$(render_status "${{ needs.merge-pr.result }}")
+          BASELINE_STATUS=$(render_status "${{ needs.baseline-pr.result }}")
 
           cat << EOF >> $GITHUB_STEP_SUMMARY
           # Release Summary: v${{ inputs.release_version }}
 
-          ${DRY_RUN_BANNER}**Overall result:** ${OVERALL_ICON} \`${OVERALL}\`
+          ${DRY_RUN_BANNER}## Job results
 
-          Individual step results are visible in the run UI above. With the
-          single-job design, drill into the step that failed (if any) to
-          diagnose; the previous per-job summary table is no longer needed.
+          | Job | Result |
+          |-----|--------|
+          | Release Tasks (tag + GitHub release) | ${RELEASE_STATUS} |
+          | Create Merge-Back PR | ${MERGE_STATUS} |
+          | Create Baseline Version PR | ${BASELINE_STATUS} |
 
           ## Details
           - **Tag**: v${{ inputs.release_version }}
