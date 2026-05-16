@@ -2618,6 +2618,7 @@ public static class ResourceBuilderExtensions
 
         var endpointName = endpoint.EndpointName;
 
+        Uri? uri = null;
         builder.OnResourceEndpointsAllocated((_, @event, ct) =>
         {
             if (!endpoint.Exists)
@@ -2625,12 +2626,6 @@ public static class ResourceBuilderExtensions
                 throw new DistributedApplicationException($"The endpoint '{endpointName}' does not exist on the resource '{builder.Resource.Name}'.");
             }
 
-            return Task.CompletedTask;
-        });
-
-        Uri? uri = null;
-        builder.OnBeforeResourceStarted((_, @event, ct) =>
-        {
             var baseUri = new Uri(endpoint.Url, UriKind.Absolute);
             uri = new Uri(baseUri, path);
             return Task.CompletedTask;

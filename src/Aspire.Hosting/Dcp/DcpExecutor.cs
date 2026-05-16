@@ -112,7 +112,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
         _executionContext = executionContext;
         _appResources = appResources;
 
-        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, PublishEndpointsAllocatedEventAsync, _shutdownCancellation.Token);
+        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, PublishLateEndpointsAllocatedEventAsync, _shutdownCancellation.Token);
 
         DeleteResourceRetryPipeline = DcpPipelineBuilder.BuildDeleteRetryPipeline(logger);
 
@@ -892,7 +892,33 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                 return;
             }
 
-            await _executorEvents.PublishAsync(new OnConnectionStringAvailableContext(cancellationToken, modelResource)).ConfigureAwait(false);
+            if (replicas.All(r => IsDelayedStart(r.DcpResource)))
+            {
+                // DCP resources with Spec.Start=false are created now so they are visible to DCP and the dashboard,
+                // but their process/container is not actually started until StartResourceAsync flips Spec.Start to true.
+                // Keep BeforeResourceStartedEvent tied to the actual start operation rather than object creation.
+                foreach (var r in replicas)
+                {
+                    await _executorEvents.PublishAsync(new OnResourceChangedContext(
+                        cancellationToken, resourceType, modelResource,
+                        r.DcpResource.Metadata.Name,
+                        new ResourceStatus(KnownResourceStates.NotStarted, null, null),
+                        s => s with
+                        {
+                            State = new ResourceStateSnapshot(KnownResourceStates.NotStarted, null)
+                        })
+                    ).ConfigureAwait(false);
+                }
+
+                foreach (var er in replicas)
+                {
+                    await CreateReplicaAsync(er).ConfigureAwait(false);
+                }
+
+                return;
+            }
+
+            await PublishConnectionStringAvailableEventAsync(modelResource, cancellationToken).ConfigureAwait(false);
 
             // For single-replica resources (e.g. containers), include the DCP resource name in the starting event.
             // For multi-replica resources (e.g. projects with replicas), the starting event applies to the group, so DcpResourceName is null.
@@ -901,37 +927,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
 
             foreach (var er in replicas)
             {
-                try
-                {
-                    using var replicaActivity = ProfilingTelemetry.StartDcpCreateResourceReplica(_configuration, er.ModelResource, er.DcpResourceKind, er.DcpResourceName);
-                    AspireEventSource.Instance.DcpObjectCreationStart(er.DcpResourceKind, er.DcpResourceName);
-                    try
-                    {
-                        await creator.CreateObjectAsync(er, context, resourceLogger, this, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        replicaActivity.SetError(ex);
-                        throw;
-                    }
-                    finally
-                    {
-                        AspireEventSource.Instance.DcpObjectCreationStop(er.DcpResourceKind, er.DcpResourceName);
-                    }
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (FailedToApplyEnvironmentException)
-                {
-                    await _executorEvents.PublishAsync(new OnResourceFailedToStartContext(cancellationToken, resourceType, er.ModelResource, er.DcpResource.Metadata.Name)).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    resourceLogger.LogError(ex, "Failed to create resource {ResourceName}", er.ModelResource.Name);
-                    await _executorEvents.PublishAsync(new OnResourceFailedToStartContext(cancellationToken, resourceType, er.ModelResource, er.DcpResource.Metadata.Name)).ConfigureAwait(false);
-                }
+                await CreateReplicaAsync(er).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -956,6 +952,51 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                 Executable exe => s => _resourceWatcher.SnapshotBuilder.ToSnapshot(exe, s),
                 ContainerExec containerExec => s => _resourceWatcher.SnapshotBuilder.ToSnapshot(containerExec, s),
                 _ => throw new NotImplementedException($"Does not support snapshots for resources of type '{dcpResource.Kind}'")
+            };
+        }
+
+        async Task CreateReplicaAsync(RenderedModelResource<TDcpResource> er)
+        {
+            try
+            {
+                using var replicaActivity = ProfilingTelemetry.StartDcpCreateResourceReplica(_configuration, er.ModelResource, er.DcpResourceKind, er.DcpResourceName);
+                AspireEventSource.Instance.DcpObjectCreationStart(er.DcpResourceKind, er.DcpResourceName);
+                try
+                {
+                    await creator.CreateObjectAsync(er, context, resourceLogger, this, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    replicaActivity.SetError(ex);
+                    throw;
+                }
+                finally
+                {
+                    AspireEventSource.Instance.DcpObjectCreationStop(er.DcpResourceKind, er.DcpResourceName);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (FailedToApplyEnvironmentException)
+            {
+                await _executorEvents.PublishAsync(new OnResourceFailedToStartContext(cancellationToken, resourceType, er.ModelResource, er.DcpResource.Metadata.Name)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                resourceLogger.LogError(ex, "Failed to create resource {ResourceName}", er.ModelResource.Name);
+                await _executorEvents.PublishAsync(new OnResourceFailedToStartContext(cancellationToken, resourceType, er.ModelResource, er.DcpResource.Metadata.Name)).ConfigureAwait(false);
+            }
+        }
+
+        static bool IsDelayedStart(CustomResource resource)
+        {
+            return resource switch
+            {
+                Container { Spec.Start: false } => true,
+                Executable { Spec.Start: false } => true,
+                _ => false
             };
         }
     }
@@ -1114,7 +1155,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                     // Ensure we explicitly start the container even if original container was created in "delay-start" mode.
                     cr.DcpResource.Spec.Start = true;
 
-                    await _executorEvents.PublishAsync(new OnConnectionStringAvailableContext(cancellationToken, resourceReference.ModelResource)).ConfigureAwait(false);
+                    await PublishConnectionStringAvailableEventAsync(resourceReference.ModelResource, cancellationToken).ConfigureAwait(false);
                     await _executorEvents.PublishAsync(new OnResourceStartingContext(cancellationToken, resourceType, resourceReference.ModelResource, resourceReference.DcpResourceName)).ConfigureAwait(false);
                     var cctx = await _containerContextSource.Task.ConfigureAwait(false);
                     await _containerCreator.CreateObjectAsync(cr, cctx, resourceLogger, this, cancellationToken).ConfigureAwait(false);
@@ -1125,7 +1166,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                     // Ensure we explicitly start the executable even if original executable was created in "delay-start" mode.
                     er.DcpResource.Spec.Start = true;
 
-                    await _executorEvents.PublishAsync(new OnConnectionStringAvailableContext(cancellationToken, resourceReference.ModelResource)).ConfigureAwait(false);
+                    await PublishConnectionStringAvailableEventAsync(resourceReference.ModelResource, cancellationToken).ConfigureAwait(false);
                     await _executorEvents.PublishAsync(new OnResourceStartingContext(cancellationToken, resourceType, resourceReference.ModelResource, resourceReference.DcpResourceName)).ConfigureAwait(false);
                     await _executableCreator.CreateObjectAsync(er, EmptyCreationContext.s_instance, resourceLogger, this, cancellationToken).ConfigureAwait(false);
                     break;
@@ -1230,17 +1271,36 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
         }
     }
 
-    private async Task PublishEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)
+    private async Task<bool> PublishEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)
     {
         lock (_endpointsAdvertised)
         {
             if (!_endpointsAdvertised.Add(resource.Name))
             {
-                return; // Already published for this resource.
+                return false; // Already published for this resource.
             }
         }
 
         var ev = new ResourceEndpointsAllocatedEvent(resource, _executionContext.ServiceProvider);
         await _distributedApplicationEventing.PublishAsync(ev, EventDispatchBehavior.NonBlockingConcurrent, ct).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task PublishLateEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)
+    {
+        if (await PublishEndpointsAllocatedEventAsync(resource, ct).ConfigureAwait(false))
+        {
+            await PublishConnectionStringAvailableEventAsync(resource, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PublishConnectionStringAvailableEventAsync(IResource resource, CancellationToken ct)
+    {
+        if (!DcpModelUtilities.AreResourceEndpointsAllocated(resource))
+        {
+            return;
+        }
+
+        await _executorEvents.PublishAsync(new OnConnectionStringAvailableContext(ct, resource)).ConfigureAwait(false);
     }
 }

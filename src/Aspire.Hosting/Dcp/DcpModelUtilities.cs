@@ -156,6 +156,11 @@ internal static class DcpModelUtilities
 
         if (!svc.HasCompleteAddress && sp.EndpointAnnotation.IsProxied.GetValueOrDefault())
         {
+            if (allowPending)
+            {
+                return false;
+            }
+
             // This should never happen; if it does, we have a bug without a workaround for the user.
             // We should have waited for the service to have a complete address before getting here.
             throw new InvalidDataException($"Service {svc.Metadata.Name} should have valid address at this point");
@@ -244,7 +249,7 @@ internal static class DcpModelUtilities
         sp.EndpointAnnotation.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(KnownNetworkIdentifiers.DefaultAspireContainerNetwork, allocatedEndpoint);
     }
 
-    private static bool AreResourceEndpointsAllocated(IResource resource)
+    internal static bool AreResourceEndpointsAllocated(IResource resource)
     {
         return !resource.TryGetEndpoints(out var endpoints) || endpoints.All(e => e.AllocatedEndpoint is not null);
     }

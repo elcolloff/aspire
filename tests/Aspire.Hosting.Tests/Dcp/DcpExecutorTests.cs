@@ -92,7 +92,9 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions, events: events);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var executables = kubernetesService.CreatedResources.OfType<Executable>()
+            .Where(executable => string.Equals(executable.AppModelResourceName, "ServiceA", StringComparison.Ordinal))
+            .ToList();
         Assert.Equal(2, executables.Count);
 
         var e = Assert.Single(startingEvents);
@@ -827,7 +829,9 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var executables = kubernetesService.CreatedResources.OfType<Executable>()
+            .Where(executable => string.Equals(executable.AppModelResourceName, "ServiceA", StringComparison.Ordinal))
+            .ToList();
         Assert.Equal(replicaCount, executables.Count);
 
         foreach (var exe in executables)
