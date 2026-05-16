@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Routine CI workflow improvement to CLI E2E recording comment format; no user-facing product impact",
+  "mergedAt": "2026-05-16T03:47:21Z",
+  "number": 17154,
+  "runDate": "2026-05-16T05:07:46Z",
+  "status": "excluded",
+  "title": "Mirror deployment E2E summary in CLI E2E recording comment"
+}

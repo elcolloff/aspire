@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Internal skill update (pr-testing SKILL.md) with no user-facing product impact",
+  "mergedAt": "2026-05-16T03:46:21Z",
+  "number": 17156,
+  "runDate": "2026-05-16T05:07:46Z",
+  "status": "excluded",
+  "title": "Fix pr-testing skill: genericize tool refs, fix stale URLs, consolidate duplication, cross-platform cleanup"
+}

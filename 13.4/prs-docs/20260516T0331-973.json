@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Documents AKS AGC ingress (PR #16990) and cert-manager integration (PR #17008)",
+  "mergedAt": "2026-05-16T03:31:19Z",
+  "number": 973,
+  "runDate": "2026-05-16T05:07:46Z",
+  "status": "included",
+  "title": "Document AddAzureKubernetesEnvironment ingress + AddCertManager flow"
+}

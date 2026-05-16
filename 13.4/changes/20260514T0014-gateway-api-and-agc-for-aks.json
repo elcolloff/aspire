@@ -6,7 +6,9 @@
   "changeType": "New features",
   "communityContributors": [],
   "description": "Azure Application Gateway for Containers (AGC) is now fully wired up in AddAzureKubernetesEnvironment. When AddLoadBalancer(...) is used, Aspire automatically provisions the AGC ingress profile on AKS, grants the controller identity the required Network Contributor role, and exposes Gateway API — delivering a complete ingress story with a single aspire deploy.",
-  "docsPrs": [],
+  "docsPrs": [
+    973
+  ],
   "docsRequired": true,
   "emoji": "🌐",
   "firstMergedAt": "2026-05-14T00:14:01Z",
