@@ -234,13 +234,15 @@ builder.Build().Run();
             await auto.EnterAsync();
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(3));
 
-            // The starter template registers an "apiservice" project with WithExternalHttpEndpoints.
-            // The auto-router should have wired it to /apiservice on the auto-gateway.
-            output.WriteLine("Step 17: Verifying HTTPS /apiservice/weatherforecast returns 200 (auto-routed)...");
+            // The starter template registers a single "apiservice" project with
+            // WithExternalHttpEndpoints. The auto-router promotes the only external
+            // frontend to the gateway root ("/") so the bare gateway URL just works,
+            // i.e. /weatherforecast (not /apiservice/weatherforecast).
+            output.WriteLine("Step 17: Verifying HTTPS /weatherforecast returns 200 (auto-routed at root)...");
             await auto.TypeAsync(
                 "FQDN=$(kubectl get gateway public-gw -n $NS -o jsonpath='{.status.addresses[0].value}') && " +
                 "OK=0; for i in $(seq 1 30); do sleep 5; " +
-                "S=$(curl -kso /dev/null -w '%{http_code}' -m 10 https://$FQDN/apiservice/weatherforecast 2>/dev/null); " +
+                "S=$(curl -kso /dev/null -w '%{http_code}' -m 10 https://$FQDN/weatherforecast 2>/dev/null); " +
                 "[ \"$S\" = \"200\" ] && echo \"HTTPS $S OK (auto-routed)\" && OK=1 && break; " +
                 "echo \"Attempt $i: HTTPS $S\"; done; " +
                 "[ \"$OK\" = \"1\" ] || { echo 'FAIL: auto-routed HTTPS endpoint never returned 200'; exit 1; }");
@@ -251,8 +253,8 @@ builder.Build().Run();
             output.WriteLine("Step 18: Verifying HTTP → HTTPS 301 redirect (Phase 1)...");
             await auto.TypeAsync(
                 "FQDN=$(kubectl get gateway public-gw -n $NS -o jsonpath='{.status.addresses[0].value}') && " +
-                "STATUS=$(curl -so /dev/null -w '%{http_code}' -m 10 http://$FQDN/apiservice) && " +
-                "LOC=$(curl -sI -m 10 http://$FQDN/apiservice | tr -d '\\r' | awk -F': ' '/^[Ll]ocation:/{print $2}') && " +
+                "STATUS=$(curl -so /dev/null -w '%{http_code}' -m 10 http://$FQDN/) && " +
+                "LOC=$(curl -sI -m 10 http://$FQDN/ | tr -d '\\r' | awk -F': ' '/^[Ll]ocation:/{print $2}') && " +
                 "echo \"HTTP status=$STATUS location=$LOC\" && " +
                 "[ \"$STATUS\" = \"301\" ] && echo \"$LOC\" | grep -q '^https://' || { echo 'FAIL: expected 301 to https'; exit 1; }");
             await auto.EnterAsync();
@@ -261,7 +263,7 @@ builder.Build().Run();
             output.WriteLine("Step 19: Verifying HSTS header is present on HTTPS responses (Phase 1)...");
             await auto.TypeAsync(
                 "FQDN=$(kubectl get gateway public-gw -n $NS -o jsonpath='{.status.addresses[0].value}') && " +
-                "HSTS=$(curl -ksI -m 10 https://$FQDN/apiservice/weatherforecast | tr -d '\\r' | awk -F': ' '/^[Ss]trict-[Tt]ransport-[Ss]ecurity:/{print $2}') && " +
+                "HSTS=$(curl -ksI -m 10 https://$FQDN/weatherforecast | tr -d '\\r' | awk -F': ' '/^[Ss]trict-[Tt]ransport-[Ss]ecurity:/{print $2}') && " +
                 "echo \"HSTS=$HSTS\" && " +
                 "echo \"$HSTS\" | grep -q 'max-age=' || { echo 'FAIL: HSTS header missing or malformed'; exit 1; }");
             await auto.EnterAsync();
