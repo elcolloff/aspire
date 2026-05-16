@@ -139,6 +139,23 @@ public static class AzureKubernetesSimplifiedDeploymentExtensions
         var gateway = builder.AddGateway(options.GatewayName)
                              .WithLoadBalancer(loadBalancer);
 
+        // Optional custom hostname. When set, the HTTPS listener binds to this name
+        // (cert-manager will issue an LE cert for it) instead of the ALB-assigned
+        // *.alb.azure.com hostname that the tls-fqdn-discovery step would otherwise
+        // discover post-deploy. The HostnameParameter overload wins so the value can be
+        // supplied per-environment via `aspire deploy -p hostname=...` without editing
+        // the AppHost; the plain string is a convenience for the hardcoded case. Both
+        // ultimately set Gateway.Hostnames, which short-circuits the FQDN discovery
+        // step (it only runs for gateways with no hostname).
+        if (options.HostnameParameter is not null)
+        {
+            gateway.WithHostname(options.HostnameParameter);
+        }
+        else if (!string.IsNullOrWhiteSpace(options.Hostname))
+        {
+            gateway.WithHostname(options.Hostname);
+        }
+
         // 5. Optional TLS chain: cert-manager + Let's Encrypt + HTTPS listener on the gateway.
         if (options.EnableTls)
         {

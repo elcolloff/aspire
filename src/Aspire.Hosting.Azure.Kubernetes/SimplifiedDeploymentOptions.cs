@@ -194,4 +194,55 @@ public sealed class SimplifiedDeploymentOptions
     /// user always wins).
     /// </summary>
     public bool AutoRouteExternalEndpoints { get; set; } = true;
+
+    /// <summary>
+    /// Optional hostname that the auto-gateway should listen on (and that the
+    /// auto-issued certificate covers). When unset (the default), the gateway
+    /// listens on the ALB-assigned <c>*.alb.azure.com</c> hostname that the
+    /// <c>tls-fqdn-discovery</c> pipeline step discovers post-deploy.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Setting a custom hostname binds the HTTPS listener to that name and
+    /// asks cert-manager to issue a Let's Encrypt cert for it. The plain-HTTP
+    /// listener stays unbound to any hostname so the ACME HTTP-01 challenge
+    /// and the HTTP→HTTPS redirect keep working regardless of which name a
+    /// request arrives under.
+    /// </para>
+    /// <para>
+    /// <b>DNS chicken-and-egg:</b> Let's Encrypt's HTTP-01 challenge requires
+    /// the hostname to already resolve to the ALB at validation time. On the
+    /// first deploy:
+    /// <list type="number">
+    ///   <item>Run <c>aspire deploy</c>; the ALB is provisioned and assigned
+    ///     a public hostname (e.g. <c>*.alb.azure.com</c>) but the cert stays
+    ///     <c>Pending</c>.</item>
+    ///   <item>Read that ALB hostname from the deploy output (or
+    ///     <c>kubectl get gateway</c>) and create a CNAME from
+    ///     <c><see cref="Hostname"/></c> to it.</item>
+    ///   <item>cert-manager retries automatically; the cert issues and the
+    ///     listener becomes ready.</item>
+    /// </list>
+    /// Once the CNAME is in place subsequent deploys are uneventful.
+    /// </para>
+    /// <para>
+    /// If <see cref="HostnameParameter"/> is also set it takes precedence over
+    /// this property so the hostname can be supplied per environment via
+    /// <c>aspire deploy -p hostname=app.contoso.com</c>.
+    /// </para>
+    /// </remarks>
+    public string? Hostname { get; set; }
+
+    /// <summary>
+    /// Optional parameter that, when set, overrides <see cref="Hostname"/> at
+    /// <c>WithSimplifiedDeployment</c> time. Use this to keep the hostname out
+    /// of source and pass it in via <c>aspire deploy -p hostname=app.contoso.com</c>.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="Hostname"/> for the DNS chicken-and-egg flow on first
+    /// deploy. The same constraints apply when the value is supplied via
+    /// parameter.
+    /// </remarks>
+    [AspireExportIgnore(Reason = "Polyglot app hosts express parameter overrides differently.")]
+    public IResourceBuilder<ParameterResource>? HostnameParameter { get; set; }
 }

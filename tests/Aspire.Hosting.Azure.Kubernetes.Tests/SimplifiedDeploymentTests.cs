@@ -312,4 +312,91 @@ public class SimplifiedDeploymentTests
         Assert.Equal(3, userPool.MinCount);
         Assert.Equal(10, userPool.MaxCount);
     }
+
+    [Fact]
+    public void WithSimplifiedDeployment_NoHostname_GatewayHasNoHostnames()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(
+            DistributedApplicationOperation.Publish);
+
+        var acmeEmail = builder.AddParameter("acme-email", "ops@contoso.com");
+        builder.AddAzureKubernetesEnvironment("aks").WithSimplifiedDeployment(acmeEmail);
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var gateway = model.Resources.OfType<KubernetesGatewayResource>().Single();
+
+        // No explicit hostname means the gateway listener stays unbound, and the
+        // tls-fqdn-discovery pipeline step is the one that will patch in the
+        // ALB-assigned *.alb.azure.com hostname post-deploy.
+        Assert.Empty(gateway.Hostnames);
+    }
+
+    [Fact]
+    public async Task WithSimplifiedDeployment_HostnameString_FlowsToGateway()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(
+            DistributedApplicationOperation.Publish);
+
+        var acmeEmail = builder.AddParameter("acme-email", "ops@contoso.com");
+        builder.AddAzureKubernetesEnvironment("aks").WithSimplifiedDeployment(acmeEmail, o =>
+        {
+            o.Hostname = "app.contoso.com";
+        });
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var gateway = model.Resources.OfType<KubernetesGatewayResource>().Single();
+
+        var hostname = Assert.Single(gateway.Hostnames);
+        var resolved = await hostname.GetValueAsync(default);
+        Assert.Equal("app.contoso.com", resolved);
+    }
+
+    [Fact]
+    public async Task WithSimplifiedDeployment_HostnameParameter_FlowsToGateway()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(
+            DistributedApplicationOperation.Publish);
+
+        var acmeEmail = builder.AddParameter("acme-email", "ops@contoso.com");
+        var hostnameParam = builder.AddParameter("hostname", "app.contoso.com");
+        builder.AddAzureKubernetesEnvironment("aks").WithSimplifiedDeployment(acmeEmail, o =>
+        {
+            o.HostnameParameter = hostnameParam;
+        });
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var gateway = model.Resources.OfType<KubernetesGatewayResource>().Single();
+
+        var hostname = Assert.Single(gateway.Hostnames);
+        var resolved = await hostname.GetValueAsync(default);
+        Assert.Equal("app.contoso.com", resolved);
+    }
+
+    [Fact]
+    public async Task WithSimplifiedDeployment_HostnameParameter_TakesPrecedenceOverString()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(
+            DistributedApplicationOperation.Publish);
+
+        var acmeEmail = builder.AddParameter("acme-email", "ops@contoso.com");
+        var hostnameParam = builder.AddParameter("hostname", "param-wins.contoso.com");
+        builder.AddAzureKubernetesEnvironment("aks").WithSimplifiedDeployment(acmeEmail, o =>
+        {
+            // Both supplied — parameter overload wins so per-environment overrides via
+            // `aspire deploy -p hostname=...` aren't shadowed by a hardcoded default.
+            o.Hostname = "string-loses.contoso.com";
+            o.HostnameParameter = hostnameParam;
+        });
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var gateway = model.Resources.OfType<KubernetesGatewayResource>().Single();
+
+        var hostname = Assert.Single(gateway.Hostnames);
+        var resolved = await hostname.GetValueAsync(default);
+        Assert.Equal("param-wins.contoso.com", resolved);
+    }
 }
