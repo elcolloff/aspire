@@ -148,8 +148,13 @@ function Get-DefaultHiveName {
 
 function Normalize-HiveName {
   param([string]$Value)
-  if ($Value -match '^(stable|staging|daily|local|local-[a-z0-9-]+|pr-[0-9]+)$') {
-    return $Value
+  # AspireCliChannel is validated case-sensitively at runtime, so always emit a
+  # lowercase value. Match case-sensitively after lowercasing so we preserve
+  # well-formed channel names like 'pr-123' and produce a valid channel for
+  # inputs like 'Stable' or 'Local-foo'.
+  $lower = $Value.ToLowerInvariant()
+  if ($lower -cmatch '^(stable|staging|daily|local|local-[a-z0-9-]+|pr-[0-9]+)$') {
+    return $lower
   }
   "local-$(ConvertTo-ChannelSuffix -Value $Value)"
 }
@@ -355,7 +360,16 @@ if (Test-Path -LiteralPath $hiveRoot) {
 function Copy-PackagesToHive {
   param([string]$Source,[string]$Destination,[string]$VersionSuffix)
   New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-  Get-ChildItem -LiteralPath $Source -Filter "*$VersionSuffix*.nupkg" -File | Copy-Item -Destination $Destination -Force
+  # Filter by the current VersionSuffix so we don't carry over stale packages
+  # from a previous run. The earlier preflight only checks for *any* .nupkg, so
+  # validate here that at least one package matches the expected suffix before
+  # producing an otherwise-empty hive.
+  $matched = @(Get-ChildItem -LiteralPath $Source -Filter "*$VersionSuffix*.nupkg" -File)
+  if ($matched.Count -eq 0) {
+    Write-Err "No .nupkg files matching '*$VersionSuffix*.nupkg' were found in $Source. Re-run pack with the expected VersionSuffix '$VersionSuffix', or remove stale packages."
+    exit 1
+  }
+  $matched | Copy-Item -Destination $Destination -Force
 }
 
 if ($Copy) {
@@ -421,6 +435,7 @@ if (-not $SkipBundle) {
 }
 
 # Install the CLI to $aspireRoot/bin
+$cliInstalled = $false
 if (-not $SkipCli) {
   $cliExeName = if ($bundleRid -like 'win-*') { 'aspire.exe' } else { 'aspire' }
   $frameworkDependentCli = $false
@@ -534,6 +549,7 @@ if (-not $SkipCli) {
 
     $installedCliPath = Join-Path $cliBinDir $cliExeName
     Write-Log "Aspire CLI installed to: $installedCliPath"
+    $cliInstalled = $true
 
     if (-not $Output) {
       $pathSeparator = [System.IO.Path]::PathSeparator
@@ -564,7 +580,10 @@ if ($Archive) {
   Write-Log "Archive created: $archivePath"
 }
 
-if (-not $Output) {
+if (-not $Output -and $cliInstalled) {
+  # Only purge old $HOME\.aspire-local\* installs when we successfully installed
+  # a replacement CLI. Skipping the purge when -SkipCli is set (or CLI install
+  # failed) avoids deleting prior installs without putting anything in their place.
   Remove-OldLocalHives -CurrentRoot $aspireRoot
 }
 

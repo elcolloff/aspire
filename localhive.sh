@@ -443,6 +443,7 @@ if [[ $SKIP_BUNDLE -eq 0 ]]; then
 fi
 
 # Install the CLI to $ASPIRE_ROOT/bin
+CLI_INSTALLED=0
 if [[ $SKIP_CLI -eq 0 ]]; then
   FRAMEWORK_DEPENDENT_CLI=0
   if [[ $NATIVE_AOT -eq 1 ]]; then
@@ -510,6 +511,7 @@ if [[ $SKIP_CLI -eq 0 ]]; then
     chmod +x "$CLI_BIN_DIR/aspire"
 
     log "Aspire CLI installed to: $CLI_BIN_DIR/aspire"
+    CLI_INSTALLED=1
 
     if [[ -z "$OUTPUT_DIR" ]] && is_sourced; then
         if [[ ":$PATH:" != *":$CLI_BIN_DIR:"* ]]; then
@@ -539,7 +541,10 @@ if [[ $ARCHIVE -eq 1 ]]; then
   log "Archive created: $ARCHIVE_PATH"
 fi
 
-if [[ -z "$OUTPUT_DIR" ]]; then
+if [[ -z "$OUTPUT_DIR" ]] && [[ $CLI_INSTALLED -eq 1 ]]; then
+  # Only purge old ~/.aspire-local/* installs when we successfully installed a
+  # replacement CLI. Skipping the purge when --skip-cli is set (or CLI install
+  # failed) avoids deleting prior installs without putting anything in their place.
   purge_old_local_hives "$ASPIRE_ROOT"
 fi
 
