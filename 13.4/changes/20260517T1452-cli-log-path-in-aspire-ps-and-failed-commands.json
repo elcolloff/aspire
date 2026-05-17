@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The CLI log file path is now communicated via the backchannel and surfaced to users: `aspire ps` shows a new \"Logs\" column with a clickable link to the log file, and when a resource command fails, the CLI prints the log path so users can inspect detailed logs.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📋",
+  "firstMergedAt": "2026-05-17T14:52:58Z",
+  "lastMergedAt": "2026-05-17T14:52:58Z",
+  "name": "CLI log path surfaced in aspire ps and on command failures",
+  "owner": "JamesNK",
+  "prs": [
+    17168
+  ]
+}

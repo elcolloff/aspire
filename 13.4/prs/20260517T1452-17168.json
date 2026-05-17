@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "CLI improvement: surfaces log file path in aspire ps Logs column and when resource commands fail",
+  "mergedAt": "2026-05-17T14:52:58Z",
+  "number": 17168,
+  "runDate": "2026-05-17T16:22:05Z",
+  "status": "included",
+  "title": "CLI: Print app host CLI log path when connected to a running app host"
+}
