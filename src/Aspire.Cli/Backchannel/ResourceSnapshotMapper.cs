@@ -46,7 +46,12 @@ internal static class ResourceSnapshotMapper
     /// <param name="includeEnvironmentVariableValues">Whether to include environment variable values. Defaults to <c>true</c>. Set to <c>false</c> to exclude values for security reasons.</param>
     public static ResourceJson MapToResourceJson(ResourceSnapshot snapshot, IReadOnlyList<ResourceSnapshot> allSnapshots, string? dashboardBaseUrl = null, bool includeEnvironmentVariableValues = true)
     {
+        // Compatibility: resource snapshots come from independently-versioned AppHosts. Treat
+        // malformed child entries as absent so describe/ps/MCP can still render the rest.
+        var snapshotName = !string.IsNullOrEmpty(snapshot.Name) ? snapshot.Name : snapshot.DisplayName ?? string.Empty;
         var urls = snapshot.Urls
+            .WhereNotNull()
+            .Where(static u => !string.IsNullOrEmpty(u.Name) && !string.IsNullOrEmpty(u.Url))
             .Select(u => new ResourceUrlJson
             {
                 Name = u.Name,
@@ -57,6 +62,8 @@ internal static class ResourceSnapshotMapper
             .ToArray();
 
         var volumes = snapshot.Volumes
+            .WhereNotNull()
+            .Where(static v => !string.IsNullOrEmpty(v.Target) && !string.IsNullOrEmpty(v.MountType))
             .Select(v => new ResourceVolumeJson
             {
                 Source = v.Source,
@@ -66,17 +73,22 @@ internal static class ResourceSnapshotMapper
             })
             .ToArray();
 
-        var healthReports = snapshot.HealthReports.OrderBy(h => h.Name).ToDistinctDictionary(
-            h => h.Name,
-            h => new ResourceHealthReportJson
-            {
-                Status = h.Status,
-                Description = h.Description,
-                ExceptionMessage = h.ExceptionText
-            });
+        var healthReports = snapshot.HealthReports
+            .WhereNotNull()
+            .Where(static h => !string.IsNullOrEmpty(h.Name))
+            .OrderBy(h => h.Name)
+            .ToDistinctDictionary(
+                h => h.Name,
+                h => new ResourceHealthReportJson
+                {
+                    Status = h.Status,
+                    Description = h.Description,
+                    ExceptionMessage = h.ExceptionText
+                });
 
         var environment = snapshot.EnvironmentVariables
-            .Where(e => e.IsFromSpec)
+            .WhereNotNull()
+            .Where(static e => e.IsFromSpec && !string.IsNullOrEmpty(e.Name))
             .OrderBy(e => e.Name)
             .ToDistinctDictionary(
                 e => e.Name,
@@ -90,7 +102,7 @@ internal static class ResourceSnapshotMapper
 
         // Build relationships by matching DisplayName
         var relationships = new List<ResourceRelationshipJson>();
-        foreach (var relationship in snapshot.Relationships)
+        foreach (var relationship in snapshot.Relationships.WhereNotNull().Where(static r => !string.IsNullOrEmpty(r.ResourceName) && !string.IsNullOrEmpty(r.Type)))
         {
             var matches = allSnapshots
                 .Where(r => string.Equals(r.DisplayName, relationship.ResourceName, StringComparisons.ResourceName))
@@ -101,25 +113,33 @@ internal static class ResourceSnapshotMapper
                 relationships.Add(new ResourceRelationshipJson
                 {
                     Type = relationship.Type,
-                    ResourceName = match.Name
+                    ResourceName = !string.IsNullOrEmpty(match.Name) ? match.Name : relationship.ResourceName
                 });
             }
         }
 
         // Only include enabled commands
         var commands = snapshot.Commands
+            .WhereNotNull()
             .Where(IsCommandAvailableToApi)
             .OrderBy(c => c.Name)
             .ToDistinctDictionary(
                 c => c.Name,
-                c => new ResourceCommandJson
+                c =>
                 {
-                    DisplayName = string.IsNullOrWhiteSpace(c.DisplayName) ? null : c.DisplayName.Trim(),
-                    Description = c.Description,
-                    Visibility = IsDefaultCommandVisibility(c.Visibility) ? null : c.Visibility,
-                    ArgumentInputs = c.ArgumentInputs.Length > 0
-                        ? c.ArgumentInputs.Select(MapCommandArgumentInput).ToArray()
-                        : null
+                    var argumentInputs = c.ArgumentInputs
+                        .WhereNotNull()
+                        .Where(IsValidCommandArgumentInput)
+                        .Select(MapCommandArgumentInput)
+                        .ToArray();
+
+                    return new ResourceCommandJson
+                    {
+                        DisplayName = string.IsNullOrWhiteSpace(c.DisplayName) ? null : c.DisplayName.Trim(),
+                        Description = c.Description,
+                        Visibility = IsDefaultCommandVisibility(c.Visibility) ? null : c.Visibility,
+                        ArgumentInputs = argumentInputs.Length > 0 ? argumentInputs : null
+                    };
                 });
 
         // Get source information using the shared ResourceSourceViewModel
@@ -132,13 +152,13 @@ internal static class ResourceSnapshotMapper
         string? dashboardUrl = null;
         if (!string.IsNullOrEmpty(dashboardBaseUrl))
         {
-            var resourcePath = DashboardUrls.ResourcesUrl(snapshot.Name);
+            var resourcePath = DashboardUrls.ResourcesUrl(snapshotName);
             dashboardUrl = DashboardUrls.CombineUrl(dashboardBaseUrl, resourcePath);
         }
 
         return new ResourceJson
         {
-            Name = snapshot.Name,
+            Name = snapshotName,
             DisplayName = snapshot.DisplayName,
             ResourceType = snapshot.ResourceType,
             State = snapshot.State,
@@ -217,7 +237,9 @@ internal static class ResourceSnapshotMapper
 
     internal static bool IsCommandAvailableToApi(ResourceSnapshotCommand command)
     {
-        return string.Equals(command.State, "Enabled", StringComparison.OrdinalIgnoreCase) &&
+        return !string.IsNullOrEmpty(command.Name) &&
+            !string.IsNullOrEmpty(command.State) &&
+            string.Equals(command.State, "Enabled", StringComparison.OrdinalIgnoreCase) &&
             IsCommandVisibleToApi(command.Visibility);
     }
 
@@ -229,6 +251,11 @@ internal static class ResourceSnapshotMapper
     private static bool IsCommandVisibleToApi(string? visibility)
     {
         return visibility?.Split(',').Any(static value => string.Equals(value.Trim(), KnownCommandVisibility.Api, StringComparison.OrdinalIgnoreCase)) is true;
+    }
+
+    private static bool IsValidCommandArgumentInput(ResourceSnapshotCommandArgument input)
+    {
+        return !string.IsNullOrEmpty(input.Name) && !string.IsNullOrEmpty(input.InputType);
     }
 
     private static ResourceCommandArgumentJson MapCommandArgumentInput(ResourceSnapshotCommandArgument input)
@@ -316,7 +343,7 @@ internal static class ResourceSnapshotMapper
                 {
                     // There are multiple resources with the same display name so they're part of a replica set.
                     // Need to use the name which has a unique ID to tell them apart.
-                    return resource.Name;
+                    return !string.IsNullOrEmpty(resource.Name) ? resource.Name : resource.DisplayName ?? string.Empty;
                 }
             }
         }
@@ -353,7 +380,7 @@ internal static class ResourceSnapshotMapper
 
         var hiddenResourceNames = effectiveIncludeHidden
             ? new HashSet<string>(StringComparers.ResourceName)
-            : new HashSet<string>(allSnapshots.Where(IsHiddenResource).Select(s => s.Name), StringComparers.ResourceName);
+            : new HashSet<string>(allSnapshots.Where(IsHiddenResource).Select(s => s.Name).Where(static n => !string.IsNullOrEmpty(n)), StringComparers.ResourceName);
 
         var snapshots = effectiveIncludeHidden
             ? allSnapshots.ToList()
