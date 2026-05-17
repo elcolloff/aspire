@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Globalization;
+using System.Text;
 using Aspire.Cli.EndToEnd.Tests.Helpers;
 using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.Utils;
@@ -23,7 +24,7 @@ public sealed class AppHostSyntaxErrorOutputTests(ITestOutputHelper output)
         var strategy = CliInstallStrategy.Detect(output.WriteLine);
         var workspace = TemporaryWorkspace.Create(output);
 
-        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, workspace: workspace);
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, workspace: workspace, height: 160);
 
         var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
 
@@ -42,18 +43,38 @@ public sealed class AppHostSyntaxErrorOutputTests(ITestOutputHelper output)
             WriteBrokenDotNetAppHost(Path.Combine(workspace.WorkspaceRoot.FullName, "BrokenDotNetApp"));
             WriteBrokenTypeScriptAppHost(Path.Combine(workspace.WorkspaceRoot.FullName, "BrokenTypeScriptApp"));
 
-            var outputsDirectory = Path.Combine(workspace.WorkspaceRoot.FullName, "outputs");
-            Directory.CreateDirectory(outputsDirectory);
-
-            await RunAspireCommandToOutputFileAsync(auto, counter, "BrokenDotNetApp", "aspire run --apphost BrokenDotNetApp.csproj", "dotnet-run", timeout: TimeSpan.FromMinutes(2));
-            await RunAspireCommandToOutputFileAsync(auto, counter, "BrokenDotNetApp", "aspire start --apphost BrokenDotNetApp.csproj", "dotnet-start", timeout: TimeSpan.FromMinutes(2));
-            await RunAspireCommandToOutputFileAsync(auto, counter, "BrokenTypeScriptApp", "aspire run", "typescript-run", timeout: TimeSpan.FromMinutes(3));
-            await RunAspireCommandToOutputFileAsync(auto, counter, "BrokenTypeScriptApp", "aspire start", "typescript-start", timeout: TimeSpan.FromMinutes(3));
-
-            AssertDotNetRunOutput(ReadCommandOutput(outputsDirectory, "dotnet-run"));
-            AssertDotNetStartOutput(ReadCommandOutput(outputsDirectory, "dotnet-start"));
-            AssertTypeScriptRunOutput(ReadCommandOutput(outputsDirectory, "typescript-run"));
-            AssertTypeScriptStartOutput(ReadCommandOutput(outputsDirectory, "typescript-start"));
+            await AssertAspireCommandOutputAsync(
+                auto,
+                counter,
+                "BrokenDotNetApp",
+                "aspire run --apphost BrokenDotNetApp.csproj",
+                expectedExitCode: 6,
+                AssertDotNetRunOutput,
+                timeout: TimeSpan.FromMinutes(2));
+            await AssertAspireCommandOutputAsync(
+                auto,
+                counter,
+                "BrokenDotNetApp",
+                "aspire start --apphost BrokenDotNetApp.csproj",
+                expectedExitCode: 2,
+                AssertDotNetStartOutput,
+                timeout: TimeSpan.FromMinutes(2));
+            await AssertAspireCommandOutputAsync(
+                auto,
+                counter,
+                "BrokenTypeScriptApp",
+                "aspire run",
+                expectedExitCode: 2,
+                AssertTypeScriptRunOutput,
+                timeout: TimeSpan.FromMinutes(3));
+            await AssertAspireCommandOutputAsync(
+                auto,
+                counter,
+                "BrokenTypeScriptApp",
+                "aspire start",
+                expectedExitCode: 2,
+                AssertTypeScriptStartOutput,
+                timeout: TimeSpan.FromMinutes(3));
         }
         catch
         {
@@ -79,70 +100,84 @@ public sealed class AppHostSyntaxErrorOutputTests(ITestOutputHelper output)
 
     }
 
-    private static async Task RunAspireCommandToOutputFileAsync(
+    private static async Task AssertAspireCommandOutputAsync(
         Hex1bTerminalAutomator auto,
         SequenceCounter counter,
         string workingDirectory,
         string command,
-        string outputName,
+        int expectedExitCode,
+        Action<string> assertOutput,
         TimeSpan timeout)
     {
         var quotedWorkingDirectory = AspireCliShellCommandHelpers.QuoteBashArg(workingDirectory);
-        var quotedOutputPath = AspireCliShellCommandHelpers.QuoteBashArg($"../outputs/{outputName}.out");
-        var quotedExitCodePath = AspireCliShellCommandHelpers.QuoteBashArg($"../outputs/{outputName}.exit");
-        var timeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds);
+        await auto.RunCommandAsync($"cd \"$ASPIRE_E2E_WORKSPACE\"/{quotedWorkingDirectory}", counter, TimeSpan.FromSeconds(10));
+        await auto.ClearScreenAsync(counter);
 
-        await auto.RunCommandAsync(
-            $"(cd {quotedWorkingDirectory} && timeout --kill-after=5s {timeoutSeconds}s {command} > {quotedOutputPath} 2>&1; printf '%s\\n' \"$?\" > {quotedExitCodePath})",
-            counter,
-            timeout + TimeSpan.FromSeconds(10));
+        await auto.TypeAsync(command);
+        await auto.EnterAsync();
+
+        var expectedCounter = counter.Value;
+        var observedTerminalText = new StringBuilder();
+        var previousScreenText = "";
+        var errorPromptSearcher = new CellPatternSearcher()
+            .FindPattern(expectedCounter.ToString(CultureInfo.InvariantCulture))
+            .RightText($" ERR:{expectedExitCode}] $ ");
+
+        await auto.WaitUntilAsync(snapshot =>
+        {
+            var screenText = snapshot.GetScreenText();
+            if (!string.Equals(screenText, previousScreenText, StringComparison.Ordinal))
+            {
+                observedTerminalText.AppendLine(screenText);
+                previousScreenText = screenText;
+            }
+
+            if (errorPromptSearcher.Search(snapshot).Count == 0)
+            {
+                return false;
+            }
+
+            return true;
+        }, timeout, description: $"waiting for '{command}' to fail with exit code {expectedExitCode}");
+        counter.Increment();
+
+        assertOutput(observedTerminalText.ToString());
     }
 
-    private static CommandOutput ReadCommandOutput(string outputsDirectory, string outputName)
+    private static void AssertDotNetRunOutput(string output)
     {
-        return new CommandOutput(
-            File.ReadAllText(Path.Combine(outputsDirectory, $"{outputName}.out")),
-            int.Parse(File.ReadAllText(Path.Combine(outputsDirectory, $"{outputName}.exit")).Trim(), CultureInfo.InvariantCulture));
+        Assert.Contains("error CS1002: ; expected", output);
+        Assert.Contains("Build FAILED.", output);
+        Assert.Contains("The project could not be built.", output);
+        Assert.DoesNotContain(RunCommandStrings.RecentAppHostStartupOutput, output);
     }
 
-    private static void AssertDotNetRunOutput(CommandOutput output)
+    private static void AssertDotNetStartOutput(string output)
     {
-        Assert.Equal(6, output.ExitCode);
-        Assert.Contains("error CS1002: ; expected", output.Text);
-        Assert.Contains("Build FAILED.", output.Text);
-        Assert.Contains("The project could not be built.", output.Text);
-        Assert.DoesNotContain(RunCommandStrings.RecentAppHostStartupOutput, output.Text);
+        Assert.Contains(RunCommandStrings.FailedToStartAppHost, output);
+        Assert.Contains(RunCommandStrings.RecentAppHostStartupOutput, output);
+        Assert.Contains("error CS1002: ; expected", output);
+        Assert.Contains("Build FAILED.", output);
+        Assert.Contains(RunCommandStrings.AppHostFailedToBuild, output);
     }
 
-    private static void AssertDotNetStartOutput(CommandOutput output)
+    private static void AssertTypeScriptRunOutput(string output)
     {
-        Assert.Equal(2, output.ExitCode);
-        Assert.Contains(RunCommandStrings.FailedToStartAppHost, output.Text);
-        Assert.Contains(RunCommandStrings.RecentAppHostStartupOutput, output.Text);
-        Assert.Contains("error CS1002: ; expected", output.Text);
-        Assert.Contains("Build FAILED.", output.Text);
-        Assert.Contains(RunCommandStrings.AppHostFailedToBuild, output.Text);
+        Assert.Contains("apphost.ts(1,15): error TS1109: Expression expected.", output);
+        Assert.Contains("The TypeScript (Node.js) apphost failed.", output);
+        Assert.DoesNotContain(RunCommandStrings.RecentAppHostStartupOutput, output);
+        Assert.DoesNotContain("Executing:", output);
     }
 
-    private static void AssertTypeScriptRunOutput(CommandOutput output)
+    private static void AssertTypeScriptStartOutput(string output)
     {
-        Assert.Equal(2, output.ExitCode);
-        Assert.Contains("apphost.ts(1,15): error TS1109: Expression expected.", output.Text);
-        Assert.Contains("The TypeScript (Node.js) apphost failed.", output.Text);
-        Assert.DoesNotContain(RunCommandStrings.RecentAppHostStartupOutput, output.Text);
-        Assert.DoesNotContain("Executing:", output.Text);
-    }
-
-    private static void AssertTypeScriptStartOutput(CommandOutput output)
-    {
-        Assert.Equal(2, output.ExitCode);
-        Assert.Contains(RunCommandStrings.FailedToStartAppHost, output.Text);
-        Assert.Contains(RunCommandStrings.RecentAppHostStartupOutput, output.Text);
-        Assert.Contains("apphost.ts(1,15): error TS1109: Expression expected.", output.Text);
-        Assert.Contains("AppHost process exited with code 2.", output.Text);
-        Assert.DoesNotContain("Executing:", output.Text);
-        Assert.DoesNotContain("audited", output.Text);
-        Assert.DoesNotContain("funding", output.Text);
+        Assert.Contains(RunCommandStrings.FailedToStartAppHost, output);
+        Assert.Contains(RunCommandStrings.RecentAppHostStartupOutput, output);
+        Assert.Contains("apphost.ts(1,15): error TS1109: Expression expected.", output);
+        Assert.Contains("AppHost process exited with code 2.", output);
+        Assert.DoesNotContain("Executing:", output);
+        Assert.DoesNotContain("audited", output);
+        Assert.DoesNotContain("funding", output);
     }
 
     private static void WriteBrokenDotNetAppHost(string projectDirectory)
@@ -185,6 +220,4 @@ public sealed class AppHostSyntaxErrorOutputTests(ITestOutputHelper output)
     {
         File.WriteAllText(Path.Combine(projectDirectory, "apphost.ts"), "const value = ;");
     }
-
-    private sealed record CommandOutput(string Text, int ExitCode);
 }
