@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Improvement to version log messages across CLI, AppHost and Dashboard",
+  "mergedAt": "2026-05-16T23:34:28Z",
+  "number": 17163,
+  "runDate": "2026-05-17T00:32:45Z",
+  "status": "included",
+  "title": "Improve version log messages in CLI, AppHost and dashboard"
+}

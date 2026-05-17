@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a shutdown race condition in the CLI where signal callbacks could call Cancel() on an already-disposed CancellationTokenSource, resulting in an ObjectDisposedException.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-16T23:40:07Z",
+  "lastMergedAt": "2026-05-16T23:40:07Z",
+  "name": "Fix CLI shutdown cancellation race",
+  "owner": "JamesNK",
+  "prs": [
+    17179
+  ]
+}

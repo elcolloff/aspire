@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Version log messages emitted at startup are now more descriptive and distinguishable between CLI, AppHost, and Dashboard processes, making it easier to identify the source of log output.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🪵",
+  "firstMergedAt": "2026-05-16T23:34:28Z",
+  "lastMergedAt": "2026-05-16T23:34:28Z",
+  "name": "Improved version log messages at startup",
+  "owner": "JamesNK",
+  "prs": [
+    17163
+  ]
+}

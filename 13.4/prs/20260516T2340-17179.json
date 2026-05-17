@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Bug fix for CLI shutdown cancellation race condition",
+  "mergedAt": "2026-05-16T23:40:07Z",
+  "number": 17179,
+  "runDate": "2026-05-17T00:32:45Z",
+  "status": "included",
+  "title": "Fix CLI cancellation disposal race on shutdown"
+}

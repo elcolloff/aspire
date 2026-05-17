@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The CLI deployment commands (aspire deploy, aspire destroy, aspire do, aspire publish, aspire update) are no longer labeled as preview in their help text and documentation, indicating they are now generally available.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🚀",
+  "firstMergedAt": "2026-05-17T00:12:26Z",
+  "lastMergedAt": "2026-05-17T00:12:26Z",
+  "name": "CLI deployment commands are now generally available",
+  "owner": "davidfowl",
+  "prs": [
+    17174
+  ]
+}

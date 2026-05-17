@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "CLI deployment commands are no longer labeled preview - now GA",
+  "mergedAt": "2026-05-17T00:12:26Z",
+  "number": 17174,
+  "runDate": "2026-05-17T00:32:45Z",
+  "status": "included",
+  "title": "Unpreview Aspire CLI deployment commands"
+}
