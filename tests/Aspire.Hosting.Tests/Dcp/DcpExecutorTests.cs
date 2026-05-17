@@ -92,9 +92,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions, events: events);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>()
-            .Where(executable => string.Equals(executable.AppModelResourceName, "ServiceA", StringComparison.Ordinal))
-            .ToList();
+        var executables = GetCreatedExecutablesForResource(kubernetesService, "ServiceA");
         Assert.Equal(2, executables.Count);
 
         var e = Assert.Single(startingEvents);
@@ -162,7 +160,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions, events: events, configuration: configuration);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var executables = GetCreatedExecutablesForResource(kubernetesService, "ServiceA");
         var exe = Assert.Single(executables);
 
         // Ignore dotnet specific args for .NET project in process execution.
@@ -233,7 +231,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.True(exe.TryGetAnnotationAsObjectList<AppLaunchArgumentAnnotation>(CustomResource.ResourceAppArgsAnnotation, out var argAnnotations));
         Assert.Equal(2, argAnnotations.Count);
         AssertEffectiveArgumentIndexesMatchSpecArgs(argAnnotations, exe.Spec.Args);
@@ -419,7 +417,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions, events: events);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        var executables = GetCreatedExecutablesForResource(kubernetesService, resource.Name);
 
         var exe1 = Assert.Single(executables);
         var callCount1 = exe1.Spec.Env!.Single(e => e.Name == "CALL_COUNT");
@@ -437,7 +435,7 @@ public class DcpExecutorTests
 
         await appExecutor.StartResourceAsync(reference, CancellationToken.None);
 
-        executables = kubernetesService.CreatedResources.OfType<Executable>().ToList();
+        executables = GetCreatedExecutablesForResource(kubernetesService, resource.Name);
         Assert.Equal(2, executables.Count);
 
         var exe2 = executables[1];
@@ -829,9 +827,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, dcpOptions: dcpOptions);
         await appExecutor.RunApplicationAsync();
 
-        var executables = kubernetesService.CreatedResources.OfType<Executable>()
-            .Where(executable => string.Equals(executable.AppModelResourceName, "ServiceA", StringComparison.Ordinal))
-            .ToList();
+        var executables = GetCreatedExecutablesForResource(kubernetesService, "ServiceA");
         Assert.Equal(replicaCount, executables.Count);
 
         foreach (var exe in executables)
@@ -1269,7 +1265,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var exes = kubernetesService.CreatedResources.OfType<Executable>().Where(e => e.AppModelResourceName == "ServiceA").ToList();
+        var exes = GetCreatedExecutablesForResource(kubernetesService, "ServiceA");
         Assert.Equal(3, exes.Count);
 
         foreach (var dcpExe in exes)
@@ -1314,7 +1310,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var exes = kubernetesService.CreatedResources.OfType<Executable>().Where(e => e.AppModelResourceName == "ServiceA").ToList();
+        var exes = GetCreatedExecutablesForResource(kubernetesService, "ServiceA");
         Assert.Equal(3, exes.Count);
 
         foreach (var dcpExe in exes)
@@ -1355,7 +1351,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
         await appExecutor.RunApplicationAsync();
 
-        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        var dcpExe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
 
         var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "ServiceA");
@@ -1392,7 +1388,7 @@ public class DcpExecutorTests
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, configuration: configuration);
         await appExecutor.RunApplicationAsync();
 
-        var dcpExe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        var dcpExe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.True(dcpExe.TryGetAnnotationAsObjectList<ServiceProducerAnnotation>(CustomResource.ServiceProducerAnnotation, out var spAnnList));
 
         var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "ServiceA");
@@ -1877,7 +1873,7 @@ public class DcpExecutorTests
         await executor.RunApplicationAsync();
 
         // Assert
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.NotNull(plc);
         Assert.False(plc!.DisableLaunchProfile);
@@ -1911,7 +1907,7 @@ public class DcpExecutorTests
 
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.NotNull(plc);
         Assert.Equal(expectedMode, plc!.Mode);
@@ -1945,7 +1941,7 @@ public class DcpExecutorTests
         await executor.RunApplicationAsync();
 
         // Assert
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.NotNull(plc);
         Assert.True(plc!.DisableLaunchProfile);
@@ -1981,7 +1977,7 @@ public class DcpExecutorTests
         await executor.RunApplicationAsync();
 
         // Assert
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.NotNull(plc);
         // Should have fallen back to the first available profile (in insertion order) which is Foo, not the missing one.
@@ -2017,7 +2013,7 @@ public class DcpExecutorTests
         var executor = CreateAppExecutor(model, configuration: configuration, kubernetesService: kubernetes);
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.False(plc!.DisableLaunchProfile);
         Assert.Equal("http", plc.LaunchProfile);
@@ -2048,7 +2044,7 @@ public class DcpExecutorTests
         var executor = CreateAppExecutor(model, configuration: configuration, kubernetesService: kubernetes);
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.False(plc!.DisableLaunchProfile);
         Assert.Equal("http", plc.LaunchProfile); // explicit wins
@@ -2079,7 +2075,7 @@ public class DcpExecutorTests
         var executor = CreateAppExecutor(model, configuration: configuration, kubernetesService: kubernetes);
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.True(plc!.DisableLaunchProfile);
         Assert.Equal(string.Empty, plc.LaunchProfile);
@@ -2109,7 +2105,7 @@ public class DcpExecutorTests
         var executor = CreateAppExecutor(model, configuration: configuration, kubernetesService: kubernetes);
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.False(plc!.DisableLaunchProfile); // not excluded
         Assert.Equal(string.Empty, plc.LaunchProfile); // nothing selected
@@ -2138,7 +2134,7 @@ public class DcpExecutorTests
         var executor = CreateAppExecutor(model, configuration: configuration, kubernetesService: kubernetes);
         await executor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetes.CreatedResources.OfType<Executable>());
+        var exe = GetCreatedExecutableForResource(kubernetes, "proj");
         Assert.True(exe.TryGetProjectLaunchConfiguration(out var plc));
         Assert.False(plc!.DisableLaunchProfile);
         Assert.Equal("Zed", plc.LaunchProfile); // first inserted wins
@@ -2696,11 +2692,7 @@ public class DcpExecutorTests
         // Act
         await appExecutor.RunApplicationAsync();
 
-        // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
-        Assert.Single(dcpExes);
-
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
     }
 
@@ -2733,11 +2725,7 @@ public class DcpExecutorTests
         // Act
         await appExecutor.RunApplicationAsync();
 
-        // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
-        Assert.Single(dcpExes);
-
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
     }
 
@@ -2776,11 +2764,7 @@ public class DcpExecutorTests
         // Act
         await appExecutor.RunApplicationAsync();
 
-        // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
-        Assert.Single(dcpExes);
-
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
     }
 
@@ -2821,7 +2805,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
     }
 
@@ -2856,7 +2840,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
         Assert.NotNull(exe.Spec.FallbackExecutionTypes);
         Assert.Equal(ExecutionType.Process, Assert.Single(exe.Spec.FallbackExecutionTypes));
@@ -2904,7 +2888,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
     }
 
@@ -2930,7 +2914,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
     }
 
@@ -2972,7 +2956,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
     }
 
@@ -3011,13 +2995,10 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
-        Assert.Equal(2, dcpExes.Count);
-
-        var standardExe = Assert.Single(dcpExes, e => e.AppModelResourceName == "standard-project");
+        var standardExe = GetCreatedExecutableForResource(kubernetesService, "standard-project");
         Assert.Equal(ExecutionType.IDE, standardExe.Spec.ExecutionType);
 
-        var customExe = Assert.Single(dcpExes, e => e.AppModelResourceName == "custom-project");
+        var customExe = GetCreatedExecutableForResource(kubernetesService, "custom-project");
         Assert.Equal(ExecutionType.IDE, customExe.Spec.ExecutionType);
         Assert.NotNull(customExe.Spec.FallbackExecutionTypes);
         Assert.Equal(ExecutionType.Process, Assert.Single(customExe.Spec.FallbackExecutionTypes));
@@ -3072,15 +3053,12 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>().ToList();
-        Assert.Equal(2, dcpExes.Count);
-
         // Standard project: Process execution because the IDE did not advertise "project" support.
-        var standardExe = Assert.Single(dcpExes, e => e.AppModelResourceName == "standard-project");
+        var standardExe = GetCreatedExecutableForResource(kubernetesService, "standard-project");
         Assert.Equal(ExecutionType.Process, standardExe.Spec.ExecutionType);
 
         // Azure Functions project: IDE via explicit "azure-functions" support.
-        var functionsExe = Assert.Single(dcpExes, e => e.AppModelResourceName == "functions-project");
+        var functionsExe = GetCreatedExecutableForResource(kubernetesService, "functions-project");
         Assert.Equal(ExecutionType.IDE, functionsExe.Spec.ExecutionType);
     }
 
@@ -3113,7 +3091,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
         Assert.NotNull(exe.Spec.FallbackExecutionTypes);
         Assert.Single(exe.Spec.FallbackExecutionTypes);
@@ -3195,7 +3173,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
         Assert.NotNull(exe.Spec.FallbackExecutionTypes);
         Assert.Equal(ExecutionType.Process, Assert.Single(exe.Spec.FallbackExecutionTypes));
@@ -3229,7 +3207,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "ServiceA");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "ServiceA");
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
     }
 
@@ -3264,7 +3242,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "TestFunction");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "TestFunction");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
         Assert.NotNull(exe.Spec.FallbackExecutionTypes);
         Assert.Equal(ExecutionType.Process, Assert.Single(exe.Spec.FallbackExecutionTypes));
@@ -3307,7 +3285,7 @@ public class DcpExecutorTests
 
         await appExecutor.RunApplicationAsync();
 
-        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         // Should be IDE, because it's a normal Project profile
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
         Assert.NotNull(exe.Spec.FallbackExecutionTypes);
@@ -4002,8 +3980,7 @@ public class DcpExecutorTests
         await appExecutor.RunApplicationAsync();
 
         // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>();
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.IDE, exe.Spec.ExecutionType);
 
         // The launch config should have been applied in CreateExecutableAsync (not PrepareProjectExecutables)
@@ -4049,8 +4026,7 @@ public class DcpExecutorTests
         await appExecutor.RunApplicationAsync();
 
         // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>();
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         // Should fall back to Process execution when the launch configuration producer throws
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
     }
@@ -4090,9 +4066,20 @@ public class DcpExecutorTests
         await appExecutor.RunApplicationAsync();
 
         // Assert
-        var dcpExes = kubernetesService.CreatedResources.OfType<Executable>();
-        var exe = Assert.Single(dcpExes, e => e.AppModelResourceName == "proj");
+        var exe = GetCreatedExecutableForResource(kubernetesService, "proj");
         Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
+    }
+
+    private static Executable GetCreatedExecutableForResource(TestKubernetesService kubernetesService, string appModelResourceName)
+    {
+        return Assert.Single(GetCreatedExecutablesForResource(kubernetesService, appModelResourceName));
+    }
+
+    private static List<Executable> GetCreatedExecutablesForResource(TestKubernetesService kubernetesService, string appModelResourceName)
+    {
+        return [.. kubernetesService.CreatedResources
+            .OfType<Executable>()
+            .Where(e => e.AppModelResourceName == appModelResourceName)];
     }
 
     private static DcpExecutor CreateAppExecutor(
