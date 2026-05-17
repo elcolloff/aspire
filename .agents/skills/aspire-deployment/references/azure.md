@@ -77,7 +77,6 @@ Azure deployment settings:
 | `Azure:SubscriptionId` | `Azure__SubscriptionId` | Target subscription |
 | `Azure:Location` | `Azure__Location` | Azure region |
 | `Azure:ResourceGroup` | `Azure__ResourceGroup` | Resource group |
-| `Azure:TenantId` | `Azure__TenantId` | Optional tenant pinning |
 | `Azure:CredentialSource` | `Azure__CredentialSource` | Credential source override |
 
 For local deployment, these can be stored as AppHost secrets:
@@ -89,6 +88,8 @@ aspire secret set "Azure:ResourceGroup" "<resource-group>"
 ```
 
 Do not print secret values. Subscription/resource group/location are not secrets, but still summarize them carefully.
+
+If `az account show` reports a tenant but `aspire deploy` later prompts during `fetch-tenant`, do not assume `aspire secret set "Azure:TenantId" ...` will answer that prompt. Tenant selection can still be a pipeline prompt. Run the deploy in a real interactive terminal/PTY, or make the Azure CLI login context unambiguous before deploying.
 
 ## Azure Container Apps
 
@@ -233,6 +234,10 @@ Deploy:
 ```bash
 aspire deploy
 ```
+
+For local Azure deploys, prefer a real interactive terminal for the first apply. Azure deployment can prompt for values that are not AppHost parameters, such as tenant selection when multiple tenants are available. Do not use `--non-interactive` for the first Azure apply unless you have already confirmed the deployment has no prompt-producing inputs.
+
+Do not pipe an interactive `aspire deploy` through `tee`, `tail`, or another command when prompts may appear. The pipe can make the current terminal non-interactive and selection prompts will fail. Use the attached terminal output and the Aspire CLI log path printed by the command instead of capturing the transcript with a pipe.
 
 Use `--environment <name>` for staging/production context:
 

@@ -70,6 +70,8 @@ aspire publish --list-steps
 aspire deploy --list-steps
 ```
 
+Treat `--list-steps` as a structural preview, not proof that a later deploy can run unattended. Some targets can emit deploy-time selection prompts that are not AppHost parameters, such as Azure tenant selection. If a prompt appears, answer it in a real interactive terminal/PTY; do not try to satisfy it by setting unrelated AppHost secrets unless the target docs explicitly define that mapping.
+
 Use publish when the user wants to inspect generated artifacts:
 
 ```bash
@@ -77,6 +79,8 @@ aspire publish -o ./aspire-output
 ```
 
 The output path can be a scratch path if the user only asked for a preview. Do not commit generated deployment artifacts unless the user explicitly asks to keep them in source control.
+
+When running a command that may prompt, do not pipe it through `tee`, `tail`, or similar output filters. Pipes can remove the interactive terminal that selection prompts require. Use the shell/session transcript or the CLI log file path printed by Aspire for diagnostics.
 
 `aspire publish` and `aspire deploy` are related but not a two-step apply pipeline:
 
