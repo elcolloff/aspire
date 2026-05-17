@@ -22,6 +22,8 @@ interface ResourceCommandChoiceItem extends vscode.QuickPickItem {
     value: string;
 }
 
+// Resource command number inputs are forwarded to the CLI, which parses them with invariant culture.
+// Accept examples like "1", "-1", and "1.5"; reject locale-specific values like "1,5".
 const numberPattern = /^-?\d+(\.\d+)?$/;
 
 export async function collectResourceCommandArguments(commandName: string, command: ResourceCommandJson | undefined): Promise<string[] | undefined> {

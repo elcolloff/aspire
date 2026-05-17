@@ -45,6 +45,43 @@ suite('ResourceCommandArguments', () => {
         assert.deepStrictEqual(buildResourceCommandCliArgs(values), ['--', '--enabled=false']);
     });
 
+    test('submits choice option values instead of display labels', () => {
+        const values: ResourceCommandArgumentValue[] = [
+            {
+                input: makeInput({
+                    name: 'mode',
+                    inputType: 'Choice',
+                    options: {
+                        'dry-run': 'Dry run',
+                    },
+                }),
+                value: 'dry-run',
+            },
+        ];
+
+        assert.deepStrictEqual(buildResourceCommandCliArgs(values), ['--', '--mode', 'dry-run']);
+    });
+
+    test('preserves spaces quotes and shell metacharacters as single argument values', () => {
+        const value = 'hello world "quoted" $PATH ; & | < >';
+        const values: ResourceCommandArgumentValue[] = [
+            { input: makeInput({ name: 'message' }), value },
+        ];
+
+        assert.deepStrictEqual(buildResourceCommandCliArgs(values), ['--', '--message', value]);
+    });
+
+    test('skips empty optional non-boolean inputs but submits booleans', () => {
+        const values: ResourceCommandArgumentValue[] = [
+            { input: makeInput({ name: 'optionalText', inputType: 'Text' }), value: '' },
+            { input: makeInput({ name: 'optionalSecret', inputType: 'SecretText' }), value: '' },
+            { input: makeInput({ name: 'optionalNumber', inputType: 'Number' }), value: '' },
+            { input: makeInput({ name: 'requireHealthy', inputType: 'Boolean' }), value: 'false' },
+        ];
+
+        assert.deepStrictEqual(buildResourceCommandCliArgs(values), ['--', '--requireHealthy=false']);
+    });
+
     test('omits delimiter when no values are submitted', () => {
         const values: ResourceCommandArgumentValue[] = [
             { input: makeInput({ name: 'optional' }), value: '' },
@@ -59,10 +96,17 @@ suite('ResourceCommandArguments', () => {
         assert.strictEqual(getResourceCommandArgumentValidationMessage(input, '   '), 'This field is required.');
     });
 
+    test('does not require boolean input text', () => {
+        const input = makeInput({ inputType: 'Boolean', required: true });
+
+        assert.strictEqual(getResourceCommandArgumentValidationMessage(input, ''), undefined);
+    });
+
     test('validates invariant-culture numbers', () => {
         const input = makeInput({ inputType: 'Number' });
 
         assert.strictEqual(getResourceCommandArgumentValidationMessage(input, '1.5'), undefined);
+        assert.strictEqual(getResourceCommandArgumentValidationMessage(input, '-1.5'), undefined);
         assert.strictEqual(getResourceCommandArgumentValidationMessage(input, '1,5'), 'Enter a number using digits and an optional decimal point.');
     });
 

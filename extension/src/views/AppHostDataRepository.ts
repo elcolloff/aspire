@@ -20,6 +20,8 @@ export interface ResourceCommandJson {
     argumentInputs?: ResourceCommandArgumentInputJson[] | null;
 }
 
+// Mirrors the CLI JSON contract in src/Shared/Model/Serialization/ResourceJson.cs
+// (`ResourceCommandArgumentJson`), populated by Aspire.Cli's ResourceSnapshotMapper.
 export interface ResourceCommandArgumentInputJson {
     name: string;
     label: string | null;

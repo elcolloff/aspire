@@ -174,5 +174,42 @@ suite('AspireTerminalProvider tests', () => {
                 getAspireTerminalStub.restore();
             }
         });
+
+        test('quotes additional arguments with spaces and shell metacharacters', async () => {
+            resolveCliPathStub.resolves({ cliPath: 'aspire', available: true, source: 'path' });
+            let executedCommand: string | undefined;
+            const terminal = {
+                shellIntegration: {
+                    executeCommand: (commandLine: string) => {
+                        executedCommand = commandLine;
+                        return {} as vscode.TerminalShellExecution;
+                    }
+                },
+                sendText: () => { },
+                show: () => { }
+            } as unknown as vscode.Terminal;
+            const getAspireTerminalStub = sinon.stub(terminalProvider, 'getAspireTerminal').returns({
+                terminal,
+                dispose: () => { }
+            });
+
+            try {
+                await terminalProvider.sendAspireCommandToAspireTerminal('resource "web" "configure"', true, [
+                    '--',
+                    '--message',
+                    'hello world "quoted" $PATH ; & | < >',
+                    '--path',
+                    "it's fine",
+                ]);
+
+                const expected = process.platform === 'win32'
+                    ? '& "aspire" resource "web" "configure" "--" "--message" "hello world `"quoted`" `$PATH ; & | < >" "--path" "it\'s fine"'
+                    : 'aspire resource "web" "configure" \'--\' \'--message\' \'hello world "quoted" $PATH ; & | < >\' \'--path\' \'it\'"\'"\'s fine\'';
+                assert.strictEqual(executedCommand, expected);
+            }
+            finally {
+                getAspireTerminalStub.restore();
+            }
+        });
     });
 });
