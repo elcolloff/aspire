@@ -691,29 +691,18 @@ function Update-PathEnvironment {
         }
     }
 
-    # Update persistent PATH for Windows
-    if ($Script:HostOS -eq "win") {
+    # Update persistent PATH for Windows.
+    # PR installs deliberately skip the persistent user PATH write: a PR build is a per-session
+    # dogfood activation. Writing it into HKCU\Environment would silently demote a developer's
+    # daily/stable install on every new shell until they hunt down the stale entry. The
+    # activation hint printed elsewhere shows how to opt in manually.
+    $isPrPath = $CliBinDir -match '[/\\]dogfood[/\\]pr-[^/\\]+[/\\]bin$'
+    if ($Script:HostOS -eq "win" -and -not $isPrPath) {
         try {
             $userPath = [Environment]::GetEnvironmentVariable("PATH", [EnvironmentVariableTarget]::User)
             if (-not $userPath) { $userPath = "" }
             $userPathArray = if ($userPath) { $userPath.Split($pathSeparator, [StringSplitOptions]::RemoveEmptyEntries) } else { @() }
             if ($userPathArray -notcontains $CliBinDir) {
-                # PR installs land under <prefix>\dogfood\pr-<N>\bin, a path that changes per
-                # PR number. Without the rewrite below, every PR install would leave a fresh,
-                # never-cleaned-up entry in the user's PATH (one per PR tried). When we are
-                # adding a dogfood\pr-*\bin entry, drop any previously-recorded dogfood\pr-*\bin
-                # entries first; for non-PR installs fall through to the original append.
-                $isPrPath = $CliBinDir -match '[/\\]dogfood[/\\]pr-[^/\\]+[/\\]bin$'
-                if ($isPrPath) {
-                    $beforeCount = $userPathArray.Count
-                    $userPathArray = @($userPathArray | Where-Object {
-                        $_ -notmatch '[/\\]dogfood[/\\]pr-[^/\\]+[/\\]bin$'
-                    })
-                    $removedCount = $beforeCount - $userPathArray.Count
-                    if ($removedCount -gt 0) {
-                        Write-Message "Removed $removedCount previous dogfood\pr-*\bin entry/entries from user PATH" -Level Info
-                    }
-                }
                 if ($PSCmdlet.ShouldProcess("User PATH environment variable", "Add $CliBinDir")) {
                     $newUserPath = (@($CliBinDir) + $userPathArray) -join $pathSeparator
                     [Environment]::SetEnvironmentVariable("PATH", $newUserPath, [EnvironmentVariableTarget]::User)
@@ -728,6 +717,8 @@ function Update-PathEnvironment {
             Write-Message "Failed to update persistent PATH environment variable: $($_.Exception.Message)" -Level Warning
             Write-Message "You may need to manually add $CliBinDir to your PATH environment variable" -Level Info
         }
+    } elseif ($Script:HostOS -eq "win" -and $isPrPath) {
+        Write-Message "PR install: leaving user PATH untouched; the activation hint below shows the PATH line to use." -Level Info
     }
 
     # GitHub Actions support
