@@ -1550,23 +1550,19 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
     }
 
     // ------------------------------------------------------------------
-    // Regression: `aspire update` crash when the AppHost's pinned
-    // Aspire.AppHost.Sdk version no longer resolves (e.g. updating from
-    // one PR build to another after the hive was refreshed).
+    // `aspire update` is the recovery command for an AppHost whose pinned
+    // Aspire.AppHost.Sdk version no longer resolves, so it must be able
+    // to locate the configured AppHost without first round-tripping
+    // through MSBuild validation. ProjectLocator.GetAppHostFromSettingsAsync
+    // trusts the path recorded in settings;
+    // UseOrFindAppHostProjectFileAsync runs the strict discovery path
+    // (ValidateAppHostAsync → DotNetCliRunner.GetAppHostInformationAsync)
+    // which surfaces "No buildable AppHosts were found" when the SDK pin
+    // is broken — exactly the state this command exists to repair.
     //
-    // PR #16653 added MSBuild validation in ProjectLocator
-    // (GetValidatedAppHostProjectFileFromSettingsAsync → ValidateAppHostAsync
-    // → DotNetCliRunner.GetAppHostInformationAsync). When the SDK version
-    // can't be resolved, validation fails, the configured path is dropped,
-    // discovery also marks the project unbuildable, and the user gets
-    // "No buildable AppHosts were found" — from the very command whose job
-    // is to repair that state.
-    //
-    // The fix is for `aspire update` to prefer GetAppHostFromSettingsAsync
-    // (which does not MSBuild-validate the configured path) before falling
-    // back to the strict discovery path. This test asserts the settings
-    // lookup is consulted and that its result short-circuits the discovery
-    // path so a real MSBuild SDK-resolution failure would not crash here.
+    // The contract this test locks down: when no AppHost is passed
+    // explicitly, `aspire update` consults the settings lookup first and
+    // its result short-circuits the strict discovery path.
     // ------------------------------------------------------------------
     [Fact]
     public async Task UpdateCommand_WhenAppHostSdkVersionUnresolvable_UsesSettingsLookup()
@@ -1613,28 +1609,25 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
     }
 
     // ------------------------------------------------------------------
-    // Regression: `aspire update` defaults to "daily" (Implicit) instead
-    // of the running CLI's identity channel.
+    // Identity-channel fallback contract: when no channel is supplied on
+    // the command line and neither the per-project nor the global
+    // "channel" config pins one, `aspire update` falls back to the
+    // running CLI's identity channel (the value baked into the assembly
+    // via AssemblyMetadata("AspireCliChannel", ...)) before reaching the
+    // implicit/default channel. Without that fallback, a `pr-<N>` or
+    // `daily` CLI updating an AppHost that has nothing pinning the
+    // channel silently lands on the Implicit ("default") channel, which
+    // resolves Aspire packages from public NuGet and effectively moves
+    // the AppHost to daily even though the running CLI knows which
+    // channel it shipped from.
     //
-    // PR #16820 baked the channel into the CLI assembly via
-    // AssemblyMetadata("AspireCliChannel", ...) and removed two writes of
-    // the global "channel" config:
-    //   * acquisition scripts (get-aspire-cli-pr.{sh,ps1}) no longer seed
-    //     `channel: pr-<N>` into the user's global aspire.config.json;
-    //   * `aspire update --self` no longer seeds it either.
-    //
-    // With both removals, a user who installed an AppHost before #16820
-    // has nothing pinning the channel: --channel/per-project/global all
-    // miss, and the fallback path picks the Implicit ("default") channel
-    // which resolves Aspire packages from public NuGet — effectively
-    // moving the AppHost to daily even when the running CLI knows it is
-    // a PR-built CLI with a matching hive on disk.
-    //
-    // UpdateCommand now consults ExecutionContext.IdentityChannel after
-    // the explicit/per-project/global lookups fail. The tests below pin
-    // down the matrix: identity-match wins for daily / pr-<N>; local is
-    // skipped; unmatched identity falls through; explicit --channel and
-    // per-project config still override identity.
+    // The tests below pin down the matrix: identity-channel match wins
+    // for `daily` and `pr-<N>`; `local` is intentionally skipped so a
+    // developer-built CLI cannot pin a real project to a hive that only
+    // exists on that machine; an identity that does not match a
+    // registered channel falls through to the existing prompt/implicit
+    // logic; explicit `--channel` and per-project config still override
+    // identity.
     // ------------------------------------------------------------------
     [Theory]
     [InlineData("pr-12345", "pr-12345")]
@@ -1644,9 +1637,10 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
-        // Create a hive so we hit the would-prompt branch — that's the path
-        // the regression broke. Without a hive, the implicit fallback already
-        // fired and the user wouldn't see "daily".
+        // Create a hive so the would-prompt branch is exercised — that is
+        // the path the identity-channel fallback covers. Without a hive,
+        // the implicit fallback fires first and the identity-channel
+        // logic never runs.
         var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
         hivesDir.CreateSubdirectory("pr-12345");
 

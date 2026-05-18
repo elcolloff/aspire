@@ -182,11 +182,12 @@ internal sealed class UpdateCommand : BaseCommand
             // process-wide IConfiguration is rooted at the launch cwd at startup, so using
             // it here would silently read the wrong app's local config (issue #16650).
             //
-            // Step 3 (global config "channel") is a transitional read-only path: the CLI no
-            // longer WRITES the global channel (acquisition scripts and `aspire update --self`
-            // both stopped seeding it), and identity-channel is baked into the binary via
-            // AspireCliChannel metadata. The global read remains so users who deliberately ran
-            // `aspire config set -g channel <x>` on the new CLI keep their preference honored.
+            // Step 3 (global config "channel") is intentionally a read-only path: no CLI
+            // code path seeds the global "channel" config (neither the acquisition scripts
+            // nor `aspire update --self` write it), and the running CLI's channel is
+            // already discoverable via the AspireCliChannel assembly metadata. The global
+            // read remains so users who explicitly ran `aspire config set -g channel <x>`
+            // continue to have their preference honored.
             // TODO: revisit removing the step-3 fallback once telemetry confirms global
             // channel usage is negligible.
             var channelName = parseResult.GetValue(_channelOption) ?? parseResult.GetValue(_qualityOption);
@@ -223,21 +224,19 @@ internal sealed class UpdateCommand : BaseCommand
             else
             {
                 // Before falling through to the hives prompt, default to the running CLI's
-                // identity channel when it matches a registered channel. This restores the
-                // pre-#16820 behavior where a `pr-<N>` / `daily` / `stable` CLI implicitly
-                // pinned an existing AppHost to the same channel (previously achieved via a
-                // global "channel" config write from the acquisition scripts and
-                // `aspire update --self`; those writes were removed when the channel was
-                // baked into the assembly). Without this, a PR-built CLI updating an AppHost
-                // that has no per-project `channel` and no global config silently defaulted
-                // to the implicit ("default") channel — which resolves Aspire packages from
-                // public NuGet, effectively moving the project to daily.
+                // identity channel (the value baked into the assembly via the
+                // AspireCliChannel metadata) when it matches a registered channel. Without
+                // this, a `pr-<N>` or `daily` CLI updating an AppHost that has no
+                // per-project `channel` and no global `channel` config would silently land
+                // on the Implicit ("default") channel, which resolves Aspire packages from
+                // public NuGet and effectively moves the project to daily even though the
+                // running CLI knows which channel it shipped from.
                 //
-                // We intentionally skip `local` here: a developer-built CLI must not silently
+                // `local` is intentionally skipped: a developer-built CLI must not silently
                 // pin a real project to a hive that only exists on that machine. We also
                 // require the identity to match an entry in `allChannels`, so a stale
-                // `pr-<N>` identity (e.g. the matching hive was deleted) falls through to the
-                // existing prompt/implicit logic instead of failing.
+                // `pr-<N>` identity (e.g. the matching hive was deleted) falls through to
+                // the existing prompt/implicit logic instead of failing.
                 var identityChannel = ExecutionContext.IdentityChannel;
                 PackageChannel? identityMatch = null;
                 if (!string.IsNullOrWhiteSpace(identityChannel)
