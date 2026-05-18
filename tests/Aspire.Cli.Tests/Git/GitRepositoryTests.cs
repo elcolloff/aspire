@@ -14,21 +14,11 @@ namespace Aspire.Cli.Tests.Git;
 
 public class GitRepositoryTests(ITestOutputHelper outputHelper)
 {
-    private static CliExecutionContext CreateExecutionContext(DirectoryInfo workingDirectory)
-    {
-        var settings = workingDirectory.CreateSubdirectory(".aspire-cli-state");
-        var hives = settings.CreateSubdirectory("hives");
-        var cache = settings.CreateSubdirectory("cache");
-        var sdks = settings.CreateSubdirectory("sdks");
-        var logs = settings.CreateSubdirectory("logs");
-        return new CliExecutionContext(workingDirectory, hives, cache, sdks, logs, "test.log");
-    }
-
     [Fact]
     public async Task GetIncludedFilesAsync_OutsideRepo_ReturnsNull()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
-        var executionContext = CreateExecutionContext(workspace.WorkspaceRoot);
+        var executionContext = workspace.CreateExecutionContext();
         using var profilingTelemetry = CreateProfilingTelemetry();
         var repo = new GitRepository(executionContext, NullLogger<GitRepository>.Instance, profilingTelemetry);
 
@@ -68,7 +58,7 @@ public class GitRepositoryTests(ITestOutputHelper outputHelper)
         await GitTestHelper.RunGitAsync(workspace.WorkspaceRoot.FullName, "add", "App/AppHost.csproj", ".gitignore");
         await GitTestHelper.RunGitAsync(workspace.WorkspaceRoot.FullName, "commit", "-m", "init");
 
-        var executionContext = CreateExecutionContext(workspace.WorkspaceRoot);
+        var executionContext = workspace.CreateExecutionContext();
         using var profilingTelemetry = CreateProfilingTelemetry();
         var repo = new GitRepository(executionContext, NullLogger<GitRepository>.Instance, profilingTelemetry);
 
@@ -97,7 +87,7 @@ public class GitRepositoryTests(ITestOutputHelper outputHelper)
         // listed by `git ls-files --cached`.
         File.Delete(trackedFile);
 
-        var executionContext = CreateExecutionContext(workspace.WorkspaceRoot);
+        var executionContext = workspace.CreateExecutionContext();
         using var profilingTelemetry = CreateProfilingTelemetry();
         var repo = new GitRepository(executionContext, NullLogger<GitRepository>.Instance, profilingTelemetry);
 
@@ -129,17 +119,22 @@ public class GitRepositoryTests(ITestOutputHelper outputHelper)
         using var profilingTelemetry = CreateProfilingTelemetry(
             (ProfilingTelemetry.EnvironmentVariables.Enabled, "true"),
             (ProfilingTelemetry.EnvironmentVariables.SessionId, sessionId));
-        var executionContext = CreateExecutionContext(workspace.WorkspaceRoot);
+        var executionContext = workspace.CreateExecutionContext();
         var repo = new GitRepository(executionContext, NullLogger<GitRepository>.Instance, profilingTelemetry);
 
         var result = await repo.GetIncludedFilesAsync(workspace.WorkspaceRoot, CancellationToken.None).DefaultTimeout();
 
         Assert.NotNull(result);
-        var startedActivity = Assert.Single(startedActivities, activity => IsActivityFromSession(activity, ProfilingTelemetry.Activities.GitCommand, sessionId));
-        Assert.Equal(ProfilingTelemetry.Activities.GitCommand, startedActivity.OperationName);
+        var startedActivity = Assert.Single(startedActivities, activity =>
+            IsActivityFromSession(activity, ProfilingTelemetry.Activities.Process, sessionId) &&
+            activity.GetTagItem(ProfilingTelemetry.Tags.GitCommand) as string == "ls-files");
+        Assert.Equal(ProfilingTelemetry.Activities.Process, startedActivity.OperationName);
+        Assert.Equal("process git", startedActivity.DisplayName);
         Assert.Equal("ls-files", startedActivity.GetTagItem(ProfilingTelemetry.Tags.GitCommand));
         Assert.Equal(workspace.WorkspaceRoot.FullName, startedActivity.GetTagItem(ProfilingTelemetry.Tags.GitWorkingDirectory));
         Assert.Equal("git", startedActivity.GetTagItem(TelemetryConstants.Tags.ProcessExecutableName));
+        Assert.Equal("git", startedActivity.GetTagItem(TelemetryConstants.Tags.ProcessExecutablePath));
+        Assert.Equal(new[] { "ls-files", "--cached", "--others", "--exclude-standard", "-z" }, Assert.IsType<string[]>(startedActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgs)));
         Assert.Equal(5, startedActivity.GetTagItem(ProfilingTelemetry.Tags.ProcessCommandArgsCount));
         Assert.Equal(0, startedActivity.GetTagItem(TelemetryConstants.Tags.ProcessExitCode));
         Assert.True((int)startedActivity.GetTagItem(TelemetryConstants.Tags.ProcessPid)! > 0);
