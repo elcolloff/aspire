@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Kubernetes publisher crash on non-string scalar env var values",
+  "mergedAt": "2026-05-18T10:53:37Z",
+  "number": 15560,
+  "runDate": "2026-05-18T11:22:35Z",
+  "status": "included",
+  "title": "Fix Kubernetes publisher crash on Boolean/scalar environment variable values"
+}

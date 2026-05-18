@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Test-only fix for race condition in dashboard test",
+  "mergedAt": "2026-05-18T10:08:46Z",
+  "number": 17202,
+  "runDate": "2026-05-18T11:22:35Z",
+  "status": "excluded",
+  "title": "Fix race condition in WatchDashboardLogs_WrittenToHostLoggerFactory test"
+}

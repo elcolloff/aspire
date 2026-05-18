@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Multiple regressions in aspire update command",
+  "mergedAt": "2026-05-18T09:13:05Z",
+  "number": 17192,
+  "runDate": "2026-05-18T11:22:35Z",
+  "status": "included",
+  "title": "Fix regressions in `aspire update`"
+}

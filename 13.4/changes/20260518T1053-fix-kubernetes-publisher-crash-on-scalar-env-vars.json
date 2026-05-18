@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The Kubernetes publisher no longer crashes with `NotSupportedException` when environment variables are set to non-string scalar values (such as `bool`, `int`, or `double`) by third-party integrations.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "☸️",
+  "firstMergedAt": "2026-05-18T10:53:37Z",
+  "lastMergedAt": "2026-05-18T10:53:37Z",
+  "name": "Fix Kubernetes publisher crash on scalar environment variable values",
+  "owner": "mitchdenny",
+  "prs": [
+    15560
+  ]
+}

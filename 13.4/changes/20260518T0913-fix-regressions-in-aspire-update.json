@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Multiple regressions in `aspire update` are resolved: crashes when the AppHost references a since-replaced PR hive, incorrect default channel selection, and wrong NuGet hive configuration after a channel switch.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-18T09:13:05Z",
+  "lastMergedAt": "2026-05-18T09:13:05Z",
+  "name": "Fix regressions in aspire update",
+  "owner": "mitchdenny",
+  "prs": [
+    17192
+  ]
+}
