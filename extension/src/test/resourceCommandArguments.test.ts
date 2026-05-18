@@ -209,13 +209,17 @@ suite('ResourceCommandArguments', () => {
 
     test('stores secret warning suppression when requested', async () => {
         const memento = new TestMemento();
-        const warningStub = sinon.stub(vscode.window, 'showWarningMessage').resolves("Don't show again" as never);
+        const suppressWarningItem: vscode.QuickPickItem & { suppressFutureWarnings: boolean } = { label: "Don't show again", suppressFutureWarnings: true };
+        const quickPickStub = sinon.stub(vscode.window, 'showQuickPick').resolves(suppressWarningItem as never);
+        const warningStub = sinon.stub(vscode.window, 'showWarningMessage');
 
         try {
             assert.strictEqual(await confirmSecretArgumentWarning(memento), true);
             assert.strictEqual(memento.get(resourceCommandSecretWarningSuppressedKey), true);
+            assert.strictEqual(warningStub.called, false);
         }
         finally {
+            quickPickStub.restore();
             warningStub.restore();
         }
     });
@@ -223,14 +227,14 @@ suite('ResourceCommandArguments', () => {
     test('skips secret warning when suppression is stored', async () => {
         const memento = new TestMemento();
         await memento.update(resourceCommandSecretWarningSuppressedKey, true);
-        const warningStub = sinon.stub(vscode.window, 'showWarningMessage');
+        const quickPickStub = sinon.stub(vscode.window, 'showQuickPick');
 
         try {
             assert.strictEqual(await confirmSecretArgumentWarning(memento), true);
-            assert.strictEqual(warningStub.called, false);
+            assert.strictEqual(quickPickStub.called, false);
         }
         finally {
-            warningStub.restore();
+            quickPickStub.restore();
         }
     });
 });

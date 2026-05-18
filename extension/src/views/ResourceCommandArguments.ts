@@ -23,6 +23,10 @@ interface ResourceCommandChoiceItem extends vscode.QuickPickItem {
     value: string;
 }
 
+interface SecretWarningItem extends vscode.QuickPickItem {
+    suppressFutureWarnings: boolean;
+}
+
 export const resourceCommandSecretWarningSuppressedKey = 'resourceCommandArguments.secretWarningSuppressed';
 
 export interface ResourceCommandArgumentOptions {
@@ -68,18 +72,25 @@ export async function confirmSecretArgumentWarning(secretWarningState: vscode.Me
         return true;
     }
 
-    const result = await vscode.window.showWarningMessage(
-        resourceCommandSecretWarning,
-        { modal: true },
-        resourceCommandContinue,
-        resourceCommandDontShowAgain);
+    const continueItem: SecretWarningItem = { label: resourceCommandContinue, suppressFutureWarnings: false };
+    const dontShowAgainItem: SecretWarningItem = { label: resourceCommandDontShowAgain, suppressFutureWarnings: true };
 
-    if (result === resourceCommandDontShowAgain) {
+    // Keep this warning in the QuickInput flow instead of a notification toast. Resource commands
+    // already prompt for arguments here, and using a toast as a blocking pre-prompt can leave a
+    // stale notification visible when focus immediately moves into the next input.
+    const result = await vscode.window.showQuickPick(
+        [continueItem, dontShowAgainItem],
+        {
+            title: resourceCommandSecretWarning,
+            ignoreFocusOut: true,
+        });
+
+    if (result?.suppressFutureWarnings) {
         await secretWarningState?.update(resourceCommandSecretWarningSuppressedKey, true);
         return true;
     }
 
-    return result === resourceCommandContinue;
+    return result !== undefined;
 }
 
 export function hasSecretResourceCommandArguments(command: ResourceCommandJson | undefined): boolean {
