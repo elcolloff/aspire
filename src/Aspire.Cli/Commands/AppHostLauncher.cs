@@ -115,7 +115,7 @@ internal sealed class AppHostLauncher(
 
         if (effectiveAppHostFile is null)
         {
-            return CommandResult.Failure(ExitCodeConstants.FailedToFindProject);
+            return CommandResult.Failure(CliExitCodes.FailedToFindProject);
         }
 
         logger.LogDebug("Starting AppHost in background: {AppHostPath}", effectiveAppHostFile.FullName);
@@ -125,6 +125,7 @@ internal sealed class AppHostLauncher(
 
         // Build child process arguments
         var childLogFile = GenerateChildLogFilePath(executionContext.LogsDirectory.FullName, timeProvider);
+        executionContext.AppHostCliLogFilePath = childLogFile;
         var (executablePath, childArgs) = BuildChildProcessArgs(effectiveAppHostFile, childLogFile, isolated, globalArgs, additionalArgs);
 
         // Compute the expected socket prefix for backchannel detection
@@ -158,7 +159,7 @@ internal sealed class AppHostLauncher(
         // Handle failure cases
         if (launchResult.Backchannel is null || launchResult.ChildProcess is null)
         {
-            return CommandResult.FromExitCode(HandleLaunchFailure(launchResult, childLogFile));
+            return CommandResult.FromExitCode(HandleLaunchFailure(launchResult));
         }
 
         // Display results
@@ -391,12 +392,12 @@ internal sealed class AppHostLauncher(
         return new LaunchResult(childProcess, null, null, false, 0);
     }
 
-    private int HandleLaunchFailure(LaunchResult result, string childLogFile)
+    private int HandleLaunchFailure(LaunchResult result)
     {
         if (result.ChildProcess is null)
         {
             interactionService.DisplayError(RunCommandStrings.FailedToStartAppHost);
-            return ExitCodeConstants.FailedToDotnetRunAppHost;
+            return CliExitCodes.FailedToDotnetRunAppHost;
         }
 
         if (result.ChildExitedEarly)
@@ -420,16 +421,7 @@ internal sealed class AppHostLauncher(
             }
         }
 
-        var checkLogsMessage = string.Format(
-            CultureInfo.CurrentCulture,
-            RunCommandStrings.CheckLogsForDetails,
-            MarkupHelpers.SafeFileLink(interactionService, childLogFile));
-        interactionService.DisplayMessage(
-            KnownEmojis.MagnifyingGlassTiltedLeft,
-            checkLogsMessage,
-            allowMarkup: true);
-
-        return ExitCodeConstants.FailedToDotnetRunAppHost;
+        return CliExitCodes.FailedToDotnetRunAppHost;
     }
 
     private void DisplayLaunchResult(
@@ -478,7 +470,7 @@ internal sealed class AppHostLauncher(
     {
         return childExitCode switch
         {
-            ExitCodeConstants.FailedToBuildArtifacts => RunCommandStrings.AppHostFailedToBuild,
+            CliExitCodes.FailedToBuildArtifacts => RunCommandStrings.AppHostFailedToBuild,
             _ => string.Format(CultureInfo.CurrentCulture, RunCommandStrings.AppHostExitedWithCode, childExitCode)
         };
     }
