@@ -175,7 +175,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
 
             ctr.Annotate(CustomResource.ResourceNameAnnotation, container.Name);
             ctr.Annotate(CustomResource.OtelServiceNameAnnotation, container.Name);
-            ctr.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, containerObjectInstance.Suffix);
+            ctr.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, container.GetOtelServiceInstanceId(containerObjectInstance));
             DcpExecutor.SetInitialResourceState(container, ctr);
 
             var aanns = container.Annotations.OfType<ContainerNetworkAliasAnnotation>().ToImmutableArray();
@@ -292,7 +292,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
                 workingDirectory: containerExecutable.WorkingDirectory);
 
             containerExec.Annotate(CustomResource.OtelServiceNameAnnotation, containerExecutable.Name);
-            containerExec.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
+            containerExec.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, containerExecutable.GetOtelServiceInstanceId(exeInstance));
             containerExec.Annotate(CustomResource.ResourceNameAnnotation, containerExecutable.Name);
             DcpExecutor.SetInitialResourceState(containerExecutable, containerExec);
 

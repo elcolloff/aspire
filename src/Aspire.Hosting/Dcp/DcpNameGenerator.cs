@@ -14,7 +14,7 @@ internal sealed class DcpNameGenerator
     // A random suffix added to every DCP object name ensures that those names (and derived object names, for example container names)
     // are unique machine-wide with a high level of probability.
     // The length of 8 achieves that while keeping the names relatively short and readable.
-    // The second purpose of the suffix is to play a role of a unique OpenTelemetry service instance ID.
+    // The second purpose of the suffix is to play the role of a unique OpenTelemetry service instance ID for session resources.
     private const int RandomNameSuffixLength = 8;
     private readonly IConfiguration _configuration;
     private readonly IOptions<DcpOptions> _options;

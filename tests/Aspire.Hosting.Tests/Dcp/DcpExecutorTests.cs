@@ -2277,6 +2277,75 @@ public class DcpExecutorTests
     }
 
     [Fact]
+    public async Task PersistentContainerWithOtlpExporterUsesStableServiceInstanceId()
+    {
+        var first = await CreateOtlpServiceInstanceIdAsync(builder =>
+        {
+            builder.AddContainer("database", "image")
+                .WithPersistentLifetime()
+                .WithOtlpExporter();
+        });
+        var second = await CreateOtlpServiceInstanceIdAsync(builder =>
+        {
+            builder.AddContainer("database", "image")
+                .WithPersistentLifetime()
+                .WithOtlpExporter();
+        });
+
+        Assert.Equal("database-12345678", first);
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public async Task PersistentExecutableWithOtlpExporterUsesStableServiceInstanceId()
+    {
+        var first = await CreateOtlpServiceInstanceIdAsync(builder =>
+        {
+            builder.AddExecutable("worker", "worker", Environment.CurrentDirectory)
+                .WithPersistentLifetime()
+                .WithOtlpExporter();
+        });
+        var second = await CreateOtlpServiceInstanceIdAsync(builder =>
+        {
+            builder.AddExecutable("worker", "worker", Environment.CurrentDirectory)
+                .WithPersistentLifetime()
+                .WithOtlpExporter();
+        });
+
+        Assert.Equal("worker-12345678", first);
+        Assert.Equal(first, second);
+    }
+
+    private static async Task<string> CreateOtlpServiceInstanceIdAsync(Action<IDistributedApplicationBuilder> configureBuilder)
+    {
+        var builder = DistributedApplication.CreateBuilder();
+        configureBuilder(builder);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+            })
+            .Build();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(
+            distributedAppModel,
+            kubernetesService: kubernetesService,
+            configuration: configuration);
+
+        await appExecutor.RunApplicationAsync();
+
+        var resource = Assert.Single(kubernetesService.CreatedResources, r =>
+            r.Metadata.Annotations is not null &&
+            r.Metadata.Annotations.ContainsKey(CustomResource.OtelServiceInstanceIdAnnotation));
+
+        return resource.Metadata.Annotations![CustomResource.OtelServiceInstanceIdAnnotation];
+    }
+
+    [Fact]
     public async Task ExplicitParentProcessLifetimeIncludesMonitorProcess()
     {
         var builder = DistributedApplication.CreateBuilder();

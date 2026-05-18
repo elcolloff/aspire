@@ -163,7 +163,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                 exe.Spec.WorkingDirectory = Path.GetDirectoryName(projectMetadata.ProjectPath);
 
                 exe.Annotate(CustomResource.OtelServiceNameAnnotation, project.Name);
-                exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
+                exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, project.GetOtelServiceInstanceId(exeInstance));
                 exe.Annotate(CustomResource.ResourceNameAnnotation, project.Name);
                 exe.Annotate(CustomResource.ResourceReplicaCount, replicas.ToString(CultureInfo.InvariantCulture));
                 exe.Annotate(CustomResource.ResourceReplicaIndex, i.ToString(CultureInfo.InvariantCulture));
@@ -287,7 +287,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             // The working directory is always relative to the app host project directory (if it exists).
             exe.Spec.WorkingDirectory = executable.WorkingDirectory;
             exe.Annotate(CustomResource.OtelServiceNameAnnotation, executable.Name);
-            exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
+            exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, executable.GetOtelServiceInstanceId(exeInstance));
             exe.Annotate(CustomResource.ResourceNameAnnotation, executable.Name);
 
             var persistent = executable.GetLifetimeType() == Lifetime.Persistent;

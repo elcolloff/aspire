@@ -1102,6 +1102,11 @@ public static class ResourceExtensions
         return resource.GetLifetimeType() == Lifetime.Persistent;
     }
 
+    internal static string GetOtelServiceInstanceId(this IResource resource, DcpInstance instance)
+    {
+        return resource.GetLifetimeType() == Lifetime.Persistent ? instance.Name : instance.Suffix;
+    }
+
     /// <summary>
     /// Determines whether the specified resource has a parent process lifetime.
     /// </summary>
