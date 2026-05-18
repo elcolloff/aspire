@@ -69,9 +69,9 @@ internal sealed class DcpNameGenerator
 
     public (string Name, string Suffix) GetContainerName(IResource container)
     {
-        var nameSuffix = container.GetContainerLifetimeType() switch
+        var nameSuffix = container.GetLifetimeType() switch
         {
-            ContainerLifetime.Session => GetRandomNameSuffix(),
+            Lifetime.Session => GetRandomNameSuffix(),
             _ => GetProjectHashSuffix(),
         };
 
@@ -80,7 +80,7 @@ internal sealed class DcpNameGenerator
 
     public (string Name, string Suffix) GetExecutableName(IResource project)
     {
-        var nameSuffix = project.GetExecutableLifetimeType() switch
+        var nameSuffix = project.GetLifetimeType() switch
         {
             Lifetime.Session => GetRandomNameSuffix(),
             _ => GetProjectHashSuffix(),

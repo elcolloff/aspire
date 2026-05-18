@@ -26,7 +26,7 @@ public class PersistentContainerWarningTests(ITestOutputHelper testOutputHelper)
 
         var resources = new ResourceCollection();
         var container = new ContainerResource("my-container");
-        container.Annotations.Add(new ContainerLifetimeAnnotation { Lifetime = ContainerLifetime.Persistent });
+        container.Annotations.Add(new LifetimeAnnotation { Lifetime = Lifetime.Persistent });
         resources.Add(container);
 
         var model = new DistributedApplicationModel(resources);
@@ -50,7 +50,7 @@ public class PersistentContainerWarningTests(ITestOutputHelper testOutputHelper)
 
         var resources = new ResourceCollection();
         var container = new ContainerResource("my-container");
-        container.Annotations.Add(new ContainerLifetimeAnnotation { Lifetime = ContainerLifetime.Persistent });
+        container.Annotations.Add(new LifetimeAnnotation { Lifetime = Lifetime.Persistent });
         resources.Add(container);
 
         var model = new DistributedApplicationModel(resources);

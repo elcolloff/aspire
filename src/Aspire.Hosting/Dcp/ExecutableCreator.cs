@@ -173,7 +173,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                 var projectArgs = new List<string>();
 
                 var isInDebugSession = !string.IsNullOrEmpty(_configuration[DcpExecutor.DebugSessionPortVar]);
-                var persistent = project.GetExecutableLifetimeType() == Lifetime.Persistent;
+                var persistent = project.GetLifetimeType() == Lifetime.Persistent;
                 exe.Spec.Persistent = persistent;
                 if (persistent)
                 {
@@ -290,7 +290,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
             exe.Annotate(CustomResource.ResourceNameAnnotation, executable.Name);
 
-            var persistent = executable.GetExecutableLifetimeType() == Lifetime.Persistent;
+            var persistent = executable.GetLifetimeType() == Lifetime.Persistent;
             if (persistent)
             {
                 exe.Spec.Persistent = true;
@@ -324,7 +324,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
     private void ApplyMonitorProcess(IResource resource, ExecutableSpec spec)
     {
-        if (resource.TryGetLastAnnotation<ParentProcessLifetimeAnnotation>(out var annotation))
+        if (resource.TryGetParentProcessLifetime(out var annotation))
         {
             var monitorProcess = _processMonitor.GetMonitorProcess(annotation.ParentProcess);
             spec.MonitorPid = monitorProcess.ProcessId;
@@ -446,7 +446,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
     private string GetCertificatesRootDirectory(RenderedModelResource<Executable> er, Executable exe)
     {
-        if (er.ModelResource.GetExecutableLifetimeType() == Lifetime.Persistent)
+        if (er.ModelResource.GetLifetimeType() == Lifetime.Persistent)
         {
             return Path.Join(_aspireStore.BasePath, "dcp", "executables", exe.Metadata.Name, "certificates");
         }

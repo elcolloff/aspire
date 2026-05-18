@@ -307,9 +307,9 @@ public class AddAzureKustoTests
         });
 
         // Assert
-        var lifetimeAnnotation = resourceBuilder.Resource.Annotations.OfType<ContainerLifetimeAnnotation>().SingleOrDefault();
+        var lifetimeAnnotation = resourceBuilder.Resource.Annotations.OfType<LifetimeAnnotation>().SingleOrDefault();
         Assert.NotNull(lifetimeAnnotation);
-        Assert.Equal(ContainerLifetime.Persistent, lifetimeAnnotation.Lifetime);
+        Assert.Equal(Lifetime.Persistent, lifetimeAnnotation.Lifetime);
     }
 
     [Fact]

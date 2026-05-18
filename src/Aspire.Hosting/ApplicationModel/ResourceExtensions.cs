@@ -1049,38 +1049,44 @@ public static class ResourceExtensions
     }
 
     /// <summary>
-    /// Gets the lifetime type of the container for the specified resource.
-    /// Defaults to <see cref="ContainerLifetime.Session"/> if no <see cref="ContainerLifetimeAnnotation"/> is found.
+    /// Gets the lifetime type for the specified resource.
+    /// Defaults to <see cref="Lifetime.Session"/> if no lifetime annotation is found.
     /// </summary>
-    /// <param name="resource">The resource to get the ContainerLifetimeType for.</param>
+    /// <param name="resource">The resource to get the lifetime type for.</param>
     /// <returns>
-    /// The <see cref="ContainerLifetime"/> from the <see cref="ContainerLifetimeAnnotation"/> for the resource (if the annotation exists).
-    /// Defaults to <see cref="ContainerLifetime.Session"/> if the annotation is not set.
-    /// </returns>
-    internal static ContainerLifetime GetContainerLifetimeType(this IResource resource)
-    {
-        if (resource.TryGetLastAnnotation<ContainerLifetimeAnnotation>(out var lifetimeAnnotation))
-        {
-            return lifetimeAnnotation.Lifetime;
-        }
-
-        return ContainerLifetime.Session;
-    }
-
-    /// <summary>
-    /// Gets the lifetime type of the executable for the specified resource.
-    /// Defaults to <see cref="Lifetime.Session"/> if no <see cref="ExecutableLifetimeAnnotation"/> is found.
-    /// </summary>
-    /// <param name="resource">The resource to get the ExecutableLifetimeType for.</param>
-    /// <returns>
-    /// The <see cref="Lifetime"/> from the <see cref="ExecutableLifetimeAnnotation"/> for the resource (if the annotation exists).
+    /// The <see cref="Lifetime"/> from the <see cref="LifetimeAnnotation"/> for the resource (if the annotation exists).
     /// Defaults to <see cref="Lifetime.Session"/> if the annotation is not set.
     /// </returns>
-    internal static Lifetime GetExecutableLifetimeType(this IResource resource)
+    internal static Lifetime GetLifetimeType(this IResource resource)
     {
-        if (resource.TryGetLastAnnotation<ExecutableLifetimeAnnotation>(out var lifetimeAnnotation))
+        return GetLifetimeType(resource, []);
+    }
+
+    private static Lifetime GetLifetimeType(IResource resource, HashSet<IResource> visitedResources)
+    {
+        if (!visitedResources.Add(resource))
         {
-            return lifetimeAnnotation.Lifetime;
+            throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
+        }
+
+        foreach (var annotation in resource.Annotations.Reverse())
+        {
+            switch (annotation)
+            {
+                case LifetimeAnnotation lifetimeAnnotation:
+                    return lifetimeAnnotation.Lifetime;
+                case LifetimeReferenceAnnotation lifetimeReferenceAnnotation:
+                    return GetLifetimeType(lifetimeReferenceAnnotation.SourceResource, visitedResources);
+                case ExecutableLifetimeAnnotation executableLifetimeAnnotation:
+                    return executableLifetimeAnnotation.Lifetime;
+                case ContainerLifetimeAnnotation containerLifetimeAnnotation:
+                    return containerLifetimeAnnotation.Lifetime switch
+                    {
+                        ContainerLifetime.Session => Lifetime.Session,
+                        ContainerLifetime.Persistent => Lifetime.Persistent,
+                        _ => throw new InvalidOperationException($"Unknown container lifetime '{Enum.GetName(typeof(ContainerLifetime), containerLifetimeAnnotation.Lifetime)}'.")
+                    };
+            }
         }
 
         return Lifetime.Session;
@@ -1093,8 +1099,44 @@ public static class ResourceExtensions
     /// <returns><see langword="true"/> if the resource has a persistent container or executable lifetime, otherwise <see langword="false"/>.</returns>
     internal static bool HasPersistentLifetime(this IResource resource)
     {
-        return resource.GetContainerLifetimeType() == ContainerLifetime.Persistent ||
-               resource.GetExecutableLifetimeType() == Lifetime.Persistent;
+        return resource.GetLifetimeType() == Lifetime.Persistent;
+    }
+
+    /// <summary>
+    /// Determines whether the specified resource has a parent process lifetime.
+    /// </summary>
+    /// <param name="resource">The resource to get parent process lifetime behavior for.</param>
+    /// <param name="annotation">The parent process lifetime annotation if one exists.</param>
+    /// <returns><see langword="true"/> if the resource has a parent process lifetime, otherwise <see langword="false"/>.</returns>
+    internal static bool TryGetParentProcessLifetime(this IResource resource, [NotNullWhen(true)] out ParentProcessLifetimeAnnotation? annotation)
+    {
+        return TryGetParentProcessLifetime(resource, [], out annotation);
+    }
+
+    private static bool TryGetParentProcessLifetime(IResource resource, HashSet<IResource> visitedResources, [NotNullWhen(true)] out ParentProcessLifetimeAnnotation? annotation)
+    {
+        if (!visitedResources.Add(resource))
+        {
+            throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
+        }
+
+        foreach (var resourceAnnotation in resource.Annotations.Reverse())
+        {
+            switch (resourceAnnotation)
+            {
+                case ParentProcessLifetimeAnnotation parentProcessLifetimeAnnotation:
+                    annotation = parentProcessLifetimeAnnotation;
+                    return true;
+                case LifetimeReferenceAnnotation lifetimeReferenceAnnotation:
+                    return TryGetParentProcessLifetime(lifetimeReferenceAnnotation.SourceResource, visitedResources, out annotation);
+                case LifetimeAnnotation or ExecutableLifetimeAnnotation or ContainerLifetimeAnnotation:
+                    annotation = null;
+                    return false;
+            }
+        }
+
+        annotation = null;
+        return false;
     }
 
     /// <summary>

@@ -3,6 +3,7 @@
 
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Reflection;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure.EventHubs;
 using Aspire.Hosting.Utils;
@@ -507,15 +508,15 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
     public void AddAzureEventHubsWithEmulator_SetsStorageLifetime(bool isPersistent)
     {
         using var builder = TestDistributedApplicationBuilder.Create();
-        var lifetime = isPersistent ? ContainerLifetime.Persistent : ContainerLifetime.Session;
+        var lifetime = isPersistent ? Lifetime.Persistent : Lifetime.Session;
 
-        var serviceBus = builder.AddAzureEventHubs("eh").RunAsEmulator(configureContainer: builder =>
+        var eventHubs = builder.AddAzureEventHubs("eh").RunAsEmulator(configureContainer: builder =>
         {
             _ = lifetime switch
             {
-                ContainerLifetime.Session => builder.WithSessionLifetime(),
-                ContainerLifetime.Persistent => builder.WithPersistentLifetime(),
-                _ => throw new InvalidOperationException($"Unknown container lifetime '{Enum.GetName(typeof(ContainerLifetime), lifetime)}'.")
+                Lifetime.Session => builder.WithSessionLifetime(),
+                Lifetime.Persistent => builder.WithPersistentLifetime(),
+                _ => throw new InvalidOperationException($"Unknown resource lifetime '{Enum.GetName(typeof(Lifetime), lifetime)}'.")
             };
         });
 
@@ -523,11 +524,24 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
 
         Assert.NotNull(azurite);
 
-        serviceBus.Resource.TryGetLastAnnotation<ContainerLifetimeAnnotation>(out var sbLifetimeAnnotation);
-        azurite.TryGetLastAnnotation<ContainerLifetimeAnnotation>(out var sqlLifetimeAnnotation);
+        var sourceResource = GetLifetimeReferenceSource(azurite);
+        Assert.Same(eventHubs.Resource.Annotations, sourceResource.Annotations);
 
-        Assert.Equal(lifetime, sbLifetimeAnnotation?.Lifetime);
-        Assert.Equal(lifetime, sqlLifetimeAnnotation?.Lifetime);
+        eventHubs.Resource.TryGetLastAnnotation<LifetimeAnnotation>(out var lifetimeAnnotation);
+        Assert.Equal(lifetime, lifetimeAnnotation?.Lifetime);
+    }
+
+    [Fact]
+    public void AddAzureEventHubsWithEmulator_DoesNotSetStorageLifetimeWithoutContainerConfiguration()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        builder.AddAzureEventHubs("eh").RunAsEmulator();
+
+        var azurite = builder.Resources.FirstOrDefault(x => x.Name == "eh-storage");
+
+        Assert.NotNull(azurite);
+        Assert.DoesNotContain(azurite.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
     }
 
     [Fact]
@@ -537,6 +551,14 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
         var eventHubs = builder.AddAzureEventHubs("eh").RunAsEmulator();
 
         Assert.Throws<InvalidOperationException>(() => eventHubs.RunAsEmulator());
+    }
+
+    private static IResource GetLifetimeReferenceSource(IResource resource)
+    {
+        var annotation = Assert.Single(resource.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
+        var sourceResource = annotation.GetType().GetProperty("SourceResource", BindingFlags.Instance | BindingFlags.Public)!.GetValue(annotation);
+
+        return Assert.IsAssignableFrom<IResource>(sourceResource);
     }
 
     [Fact]

@@ -87,6 +87,37 @@ public static class ResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Configures a resource to match the lifetime of another resource.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <typeparam name="TSource">The source resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="sourceBuilder">The resource builder whose lifetime should be used.</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <remarks>
+    /// The resource lifetime is evaluated from <paramref name="sourceBuilder"/> when the application model is prepared, so later lifetime
+    /// changes to the source resource are reflected by this resource.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Thrown when the resource does not support lifetime configuration.</exception>
+    [AspireExport(Description = "Sets resource lifetime behavior to match another resource")]
+    public static IResourceBuilder<T> WithLifetimeOf<T, TSource>(this IResourceBuilder<T> builder, IResourceBuilder<TSource> sourceBuilder)
+        where T : IResource
+        where TSource : IResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(sourceBuilder);
+
+        RemoveLifetimeAnnotations(builder);
+
+        if (builder.Resource is ContainerResource or ExecutableResource or ProjectResource)
+        {
+            return builder.WithAnnotation(new LifetimeReferenceAnnotation(sourceBuilder.Resource), ResourceAnnotationMutationBehavior.Replace);
+        }
+
+        throw new InvalidOperationException($"Resource '{builder.Resource.Name}' does not support lifetime configuration.");
+    }
+
+    /// <summary>
     /// Configures a resource to use a persistent lifetime that ends when a parent process exits.
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
@@ -129,25 +160,40 @@ public static class ResourceBuilderExtensions
     private static IResourceBuilder<T> ApplyLifetime<T>(IResourceBuilder<T> builder, Lifetime lifetime)
         where T : IResource
     {
-        RemoveParentProcessLifetime(builder);
+        RemoveLifetimeAnnotations(builder);
 
-        if (builder.Resource is ContainerResource)
+        if (builder.Resource is ContainerResource or ExecutableResource or ProjectResource)
         {
-            return builder.WithAnnotation(new ContainerLifetimeAnnotation { Lifetime = ToContainerLifetime(lifetime) }, ResourceAnnotationMutationBehavior.Replace);
-        }
-
-        if (builder.Resource is ExecutableResource or ProjectResource)
-        {
-            return builder.WithAnnotation(new ExecutableLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+            return builder.WithAnnotation(new LifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
         }
 
         throw new InvalidOperationException($"Resource '{builder.Resource.Name}' does not support lifetime configuration.");
     }
 
-    private static void RemoveParentProcessLifetime<T>(IResourceBuilder<T> builder)
+    private static void RemoveLifetimeAnnotations<T>(IResourceBuilder<T> builder)
         where T : IResource
     {
         foreach (var annotation in builder.Resource.Annotations.OfType<ParentProcessLifetimeAnnotation>().ToArray())
+        {
+            builder.Resource.Annotations.Remove(annotation);
+        }
+
+        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeAnnotation>().ToArray())
+        {
+            builder.Resource.Annotations.Remove(annotation);
+        }
+
+        foreach (var annotation in builder.Resource.Annotations.OfType<ContainerLifetimeAnnotation>().ToArray())
+        {
+            builder.Resource.Annotations.Remove(annotation);
+        }
+
+        foreach (var annotation in builder.Resource.Annotations.OfType<ExecutableLifetimeAnnotation>().ToArray())
+        {
+            builder.Resource.Annotations.Remove(annotation);
+        }
+
+        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeReferenceAnnotation>().ToArray())
         {
             builder.Resource.Annotations.Remove(annotation);
         }
@@ -1590,14 +1636,6 @@ public static class ResourceBuilderExtensions
 
         return builder;
     }
-
-    private static ContainerLifetime ToContainerLifetime(Lifetime lifetime)
-        => lifetime switch
-        {
-            Lifetime.Session => ContainerLifetime.Session,
-            Lifetime.Persistent => ContainerLifetime.Persistent,
-            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
-        };
 
     /// <summary>
     /// Exposes an endpoint on a resource. This endpoint reference can be retrieved using <see cref="ResourceBuilderExtensions.GetEndpoint{T}(IResourceBuilder{T}, string, NetworkIdentifier)"/>.

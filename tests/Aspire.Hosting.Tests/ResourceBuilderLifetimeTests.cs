@@ -9,15 +9,15 @@ namespace Aspire.Hosting.Tests;
 public class ResourceBuilderLifetimeTests
 {
     [Fact]
-    public void WithPersistentLifetimeAddsContainerLifetimeAnnotation()
+    public void WithPersistentLifetimeAddsLifetimeAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
         var container = builder.AddContainer("container", "image")
             .WithPersistentLifetime();
 
-        var annotation = container.Resource.Annotations.OfType<ContainerLifetimeAnnotation>().Single();
-        Assert.Equal(ContainerLifetime.Persistent, annotation.Lifetime);
+        var annotation = container.Resource.Annotations.OfType<LifetimeAnnotation>().Single();
+        Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
     }
 
     [Fact]
@@ -43,6 +43,87 @@ public class ResourceBuilderLifetimeTests
             .WithPersistentLifetime();
 
         Assert.False(container.Resource.TryGetLastAnnotation<ParentProcessLifetimeAnnotation>(out _));
+    }
+
+    [Fact]
+    public void WithLifetimeOfMatchesSourceResourceLifetime()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var source = builder.AddContainer("source", "image")
+            .WithPersistentLifetime();
+        var container = builder.AddContainer("container", "image")
+            .WithSessionLifetime()
+            .WithLifetimeOf(source);
+
+        Assert.Equal(Lifetime.Persistent, container.Resource.GetLifetimeType());
+        Assert.Empty(container.Resource.Annotations.OfType<LifetimeAnnotation>());
+
+        source.WithSessionLifetime();
+
+        Assert.Equal(Lifetime.Session, container.Resource.GetLifetimeType());
+    }
+
+    [Fact]
+    public void WithLifetimeOfMatchesSourceParentProcessLifetime()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var source = builder.AddContainer("source", "image")
+            .WithParentProcessLifetime(Environment.ProcessId);
+        var container = builder.AddContainer("container", "image")
+            .WithLifetimeOf(source);
+
+        Assert.True(container.Resource.TryGetParentProcessLifetime(out var parentProcessLifetimeAnnotation));
+        Assert.Equal(Environment.ProcessId, parentProcessLifetimeAnnotation.ParentProcess.Id);
+
+        source.WithSessionLifetime();
+
+        Assert.False(container.Resource.TryGetParentProcessLifetime(out _));
+    }
+
+    [Fact]
+    public void ExplicitLifetimeOverridesWithLifetimeOf()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var source = builder.AddContainer("source", "image")
+            .WithSessionLifetime();
+        var container = builder.AddContainer("container", "image")
+            .WithLifetimeOf(source)
+            .WithPersistentLifetime();
+
+        source.WithSessionLifetime();
+
+        Assert.Equal(Lifetime.Persistent, container.Resource.GetLifetimeType());
+    }
+
+    [Fact]
+    public void WithLifetimeOfRejectsUnsupportedResourceTypes()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var parameter = builder.AddParameter("parameter");
+        var container = builder.AddContainer("container", "image");
+
+        void ConfigureLifetime() => parameter.WithLifetimeOf(container);
+
+        var exception = Assert.Throws<InvalidOperationException>((Action)ConfigureLifetime);
+        Assert.Contains("does not support lifetime configuration", exception.Message);
+    }
+
+    [Fact]
+    public void WithLifetimeOfDetectsCircularReferences()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var containerA = builder.AddContainer("container-a", "image");
+        var containerB = builder.AddContainer("container-b", "image")
+            .WithLifetimeOf(containerA);
+        containerA.WithLifetimeOf(containerB);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => containerA.Resource.GetLifetimeType());
+        Assert.Contains("circular lifetime reference", exception.Message);
     }
 
     [Fact]

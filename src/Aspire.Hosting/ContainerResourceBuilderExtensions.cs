@@ -561,7 +561,21 @@ public static class ContainerResourceBuilderExtensions
             builder.Resource.Annotations.Remove(annotation);
         }
 
-        return builder.WithAnnotation(new ContainerLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeReferenceAnnotation>().ToArray())
+        {
+            builder.Resource.Annotations.Remove(annotation);
+        }
+
+        var resourceLifetime = lifetime switch
+        {
+            ContainerLifetime.Session => Lifetime.Session,
+            ContainerLifetime.Persistent => Lifetime.Persistent,
+            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+        };
+
+        return builder
+            .WithAnnotation(new LifetimeAnnotation { Lifetime = resourceLifetime }, ResourceAnnotationMutationBehavior.Replace)
+            .WithAnnotation(new ContainerLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
     }
 
     /// <summary>

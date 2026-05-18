@@ -115,7 +115,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
         if (!containerResources.Any()) { return; }
 
         var network = ContainerNetwork.Create(KnownNetworkIdentifiers.DefaultAspireContainerNetwork.Value);
-        if (containerResources.Any(cr => cr.GetContainerLifetimeType() == ContainerLifetime.Persistent))
+        if (containerResources.Any(cr => cr.GetLifetimeType() == Lifetime.Persistent))
         {
             network.Spec.Persistent = true;
             network.Spec.NetworkName = $"{DcpExecutor.DefaultAspirePersistentNetworkName}-{_nameGenerator.GetProjectHashSuffix()}";
@@ -155,7 +155,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
 
             ctr.Spec.ContainerName = containerObjectInstance.Name;
 
-            if (container.GetContainerLifetimeType() == ContainerLifetime.Persistent)
+            if (container.GetLifetimeType() == Lifetime.Persistent)
             {
                 ctr.Spec.Persistent = true;
                 ApplyMonitorProcess(container, ctr.Spec);
@@ -212,7 +212,7 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
 
     private void ApplyMonitorProcess(IResource resource, ContainerSpec spec)
     {
-        if (resource.TryGetLastAnnotation<ParentProcessLifetimeAnnotation>(out var annotation))
+        if (resource.TryGetParentProcessLifetime(out var annotation))
         {
             var monitorProcess = _processMonitor.GetMonitorProcess(annotation.ParentProcess);
             spec.MonitorPid = monitorProcess.ProcessId;

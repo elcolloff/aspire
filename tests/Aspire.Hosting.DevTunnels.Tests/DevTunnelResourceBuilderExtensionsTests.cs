@@ -56,25 +56,25 @@ public class DevTunnelResourceBuilderExtensionsTests
     }
 
     [Fact]
-    public void AddDevTunnel_WithPersistentExecutableLifetime_AddsExecutableLifetimeAnnotation()
+    public void AddDevTunnel_WithPersistentLifetime_AddsLifetimeAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
         var tunnel = builder.AddDevTunnel("tunnel", "custom-id")
             .WithPersistentLifetime();
 
-        Assert.True(tunnel.Resource.TryGetLastAnnotation<ExecutableLifetimeAnnotation>(out var annotation));
+        Assert.True(tunnel.Resource.TryGetLastAnnotation<LifetimeAnnotation>(out var annotation));
         Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
     }
 
     [Fact]
-    public void AddDevTunnel_DefaultLifetimeDoesNotAddExecutableLifetimeAnnotation()
+    public void AddDevTunnel_DefaultLifetimeDoesNotAddLifetimeAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
         var tunnel = builder.AddDevTunnel("tunnel", "custom-id");
 
-        Assert.False(tunnel.Resource.TryGetLastAnnotation<ExecutableLifetimeAnnotation>(out _));
+        Assert.False(tunnel.Resource.TryGetLastAnnotation<LifetimeAnnotation>(out _));
     }
 
     [Fact]

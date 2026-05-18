@@ -73,13 +73,13 @@ public class ExecutableResourceBuilderExtensionTests
     }
 
     [Fact]
-    public void WithPersistentLifetimeAddsExecutableLifetimeAnnotation()
+    public void WithPersistentLifetimeAddsLifetimeAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
         var executable = builder.AddExecutable("myexe", "command", "workingdirectory")
             .WithPersistentLifetime();
 
-        var annotation = executable.Resource.Annotations.OfType<ExecutableLifetimeAnnotation>().Single();
+        var annotation = executable.Resource.Annotations.OfType<LifetimeAnnotation>().Single();
         Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
     }
 

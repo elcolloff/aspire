@@ -273,30 +273,17 @@ public static class AzureEventHubsExtensions
                 .AddAzureStorage($"{builder.Resource.Name}-storage")
                 .WithParentRelationship(builder);
 
-        var lifetime = ContainerLifetime.Session;
-
-        // Copy the lifetime from the main resource to the storage resource
         var surrogate = new AzureEventHubsEmulatorResource(builder.Resource);
         var surrogateBuilder = builder.ApplicationBuilder.CreateResourceBuilder(surrogate);
         if (configureContainer != null)
         {
             configureContainer(surrogateBuilder);
-
-            if (surrogate.TryGetLastAnnotation<ContainerLifetimeAnnotation>(out var lifetimeAnnotation))
-            {
-                lifetime = lifetimeAnnotation.Lifetime;
-            }
+            storageResource = storageResource.RunAsEmulator(c => c.WithLifetimeOf(surrogateBuilder));
         }
-
-        storageResource = storageResource.RunAsEmulator(c =>
+        else
         {
-            _ = lifetime switch
-            {
-                ContainerLifetime.Session => c.WithSessionLifetime(),
-                ContainerLifetime.Persistent => c.WithPersistentLifetime(),
-                _ => throw new InvalidOperationException($"Unknown container lifetime '{Enum.GetName(typeof(ContainerLifetime), lifetime)}'.")
-            };
-        });
+            storageResource = storageResource.RunAsEmulator();
+        }
 
         var storage = storageResource.Resource;
 
