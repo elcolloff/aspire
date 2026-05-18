@@ -181,6 +181,7 @@
   "mcpServerDefinitionProviders.aspire.label": "Aspire",
   "aspire-vscode.strings.selectDashboardPlaceholder": "Select a dashboard to open",
   "aspire-vscode.strings.resourceCommandArgumentsTitle": "Run {0}",
+  "aspire-vscode.strings.resourceCommandArgumentInputTitle": "{0}: {1}",
   "aspire-vscode.strings.resourceCommandCustomChoice": "Use \"{0}\"",
   "aspire-vscode.strings.resourceCommandCustomChoiceDescription": "Custom value",
   "aspire-vscode.strings.resourceCommandSecretWarning": "This command has secret arguments. Values are masked while you enter them, but they are passed to the Aspire CLI terminal and may be visible in terminal history or scrollback.",

@@ -3,6 +3,7 @@ import {
     fieldRequired,
     noLabel,
     resourceCommandArgumentsTitle,
+    resourceCommandArgumentInputTitle,
     resourceCommandContinue,
     resourceCommandCustomChoice,
     resourceCommandCustomChoiceDescription,
@@ -52,11 +53,11 @@ export async function collectResourceCommandArguments(commandName: string, comma
     }
 
     const values: ResourceCommandArgumentValue[] = [];
-    const title = resourceCommandArgumentsTitle(commandName);
+    const commandTitle = resourceCommandArgumentsTitle(commandName);
 
     for (let i = 0; i < inputs.length; i++) {
         const input = inputs[i];
-        const value = await promptForArgumentValue(title, input, i + 1, inputs.length);
+        const value = await promptForArgumentValue(commandTitle, input, i + 1, inputs.length);
         if (value === undefined) {
             return undefined;
         }
@@ -153,7 +154,7 @@ async function promptForTextArgument(title: string, input: ResourceCommandArgume
         const inputBox = vscode.window.createInputBox();
         let settled = false;
 
-        inputBox.title = title;
+        inputBox.title = getArgumentInputTitle(title, input);
         inputBox.step = step;
         inputBox.totalSteps = totalSteps;
         inputBox.value = input.value ?? '';
@@ -197,7 +198,7 @@ async function promptForBooleanArgument(title: string, input: ResourceCommandArg
         const quickPick = vscode.window.createQuickPick<ResourceCommandChoiceItem>();
         let settled = false;
 
-        quickPick.title = title;
+        quickPick.title = getArgumentInputTitle(title, input);
         quickPick.step = step;
         quickPick.totalSteps = totalSteps;
         quickPick.placeholder = input.placeholder ?? getArgumentPrompt(input);
@@ -229,7 +230,7 @@ async function promptForChoiceArgument(title: string, input: ResourceCommandArgu
         const quickPick = vscode.window.createQuickPick<ResourceCommandChoiceItem>();
         let settled = false;
 
-        quickPick.title = title;
+        quickPick.title = getArgumentInputTitle(title, input);
         quickPick.step = step;
         quickPick.totalSteps = totalSteps;
         quickPick.placeholder = input.placeholder ?? getArgumentPrompt(input);
@@ -337,6 +338,10 @@ function shouldSubmitValue(input: ResourceCommandArgumentInputJson, value: strin
 
 function getArgumentPrompt(input: ResourceCommandArgumentInputJson): string {
     return input.description ?? getArgumentLabel(input);
+}
+
+function getArgumentInputTitle(commandTitle: string, input: ResourceCommandArgumentInputJson): string {
+    return resourceCommandArgumentInputTitle(commandTitle, getArgumentLabel(input));
 }
 
 function getArgumentLabel(input: ResourceCommandArgumentInputJson): string {

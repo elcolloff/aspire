@@ -62,6 +62,7 @@ export const resourcesGroupLabel = vscode.l10n.t('Resources');
 export const noCommandsAvailable = vscode.l10n.t('No commands available for this resource.');
 export const selectCommandPlaceholder = vscode.l10n.t('Select a command to execute');
 export const resourceCommandArgumentsTitle = (command: string) => vscode.l10n.t('Run {0}', command);
+export const resourceCommandArgumentInputTitle = (command: string, input: string) => vscode.l10n.t('{0}: {1}', command, input);
 export const resourceCommandCustomChoice = (value: string) => vscode.l10n.t('Use "{0}"', value);
 export const resourceCommandCustomChoiceDescription = vscode.l10n.t('Custom value');
 export const resourceCommandSecretWarning = vscode.l10n.t('This command has secret arguments. Values are masked while you enter them, but they are passed to the Aspire CLI terminal and may be visible in terminal history or scrollback.');

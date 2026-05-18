@@ -565,5 +565,8 @@
     <trans-unit id="aspire-vscode.strings.aspireRestoreFailed">
       <source xml:lang="en">aspire restore failed for {0}: {1}</source>
     </trans-unit>
+    <trans-unit id="aspire-vscode.strings.resourceCommandArgumentInputTitle">
+      <source xml:lang="en">{0}: {1}</source>
+    </trans-unit>
   </body></file>
 </xliff>
