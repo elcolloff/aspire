@@ -8,10 +8,12 @@ Aspire has two Kubernetes paths:
 
 | Target | Use when | Integration | Environment concept |
 |--------|----------|-------------|---------------------|
-| Existing Kubernetes cluster | The cluster already exists and current `kubectl` context should be used | Kubernetes hosting | Kubernetes environment |
+| Existing or externally-managed Kubernetes cluster | The cluster already exists, or the user explicitly wants a provider-managed cluster outside Aspire such as DigitalOcean Kubernetes (DOKS). Current `kubectl` context should point at the target cluster. | Kubernetes hosting | Kubernetes environment |
 | Azure Kubernetes Service (AKS) | Aspire should provision Azure Kubernetes Service (AKS), ACR, identity, and Azure dependencies | Azure Kubernetes hosting | Azure Kubernetes Service (AKS) environment |
 
-If the user says "Kubernetes" but not "Azure Kubernetes Service (AKS)", ask whether they want an existing cluster or a new Azure Kubernetes Service (AKS) cluster.
+If the user says "Kubernetes" but not "Azure Kubernetes Service (AKS)", ask whether they want an existing/external cluster or a new Azure Kubernetes Service (AKS) cluster.
+
+If the user names a non-Azure Kubernetes provider, such as DigitalOcean Kubernetes, use the existing/external Kubernetes path. Aspire will deploy into that cluster with Helm, but it does not own the provider's cluster or registry lifecycle unless a target-specific Aspire integration exists.
 
 If the user says "Azure Kubernetes Service (AKS)", do not ask the existing-cluster question; use the Azure Kubernetes Service (AKS) path and also load the Azure reference for shared Azure settings.
 
@@ -41,7 +43,7 @@ aspire docs api search "Kubernetes service customization" --language csharp
 aspire docs api search "Kubernetes service customization" --language typescript
 ```
 
-## Existing Kubernetes cluster setup
+## Existing or external Kubernetes cluster setup
 
 Expected package and AppHost environment:
 
@@ -51,13 +53,15 @@ aspire add kubernetes
 
 Add a Kubernetes environment resource using the C# or TypeScript API shape returned by Aspire docs.
 
-For vanilla Kubernetes, a container registry is required for project/container image deployment because Aspire has no local-registry fallback for Kubernetes. Cluster nodes must pull the built images.
+For vanilla Kubernetes and externally-managed clusters, a container registry is required for project/container image deployment because Aspire has no local-registry fallback for Kubernetes. Cluster nodes must pull the built images.
 
 Add a container registry resource to the AppHost using the language-specific API shape returned by Aspire docs. Aspire can use a single registry as the default target; use per-resource registry assignment only when different workloads must use different registries.
 
 Verify the registry is reachable from both the agent machine and cluster nodes.
 
-### Existing cluster code changes
+When the user asks to create a provider-managed cluster or registry outside Aspire, such as a DigitalOcean Kubernetes cluster and DigitalOcean Container Registry, confirm the billable resource choice first. After creation, configure `kubectl`, registry authentication, and any provider-specific registry-to-cluster integration before running `aspire deploy`.
+
+### Existing/external cluster code changes
 
 Make these changes in the AppHost:
 
@@ -80,7 +84,7 @@ Make these changes in the AppHost:
 4. Do not add explicit compute-environment assignment for the common single-environment case. Only if the AppHost has multiple compute environments, disambiguate each Kubernetes workload; in C#, add `.WithComputeEnvironment(k8s)` to each compute resource that should deploy to this cluster.
 5. For TypeScript AppHosts, verify the current language-specific docs before assuming an equivalent assignment API.
 6. Use `k8s.WithHelm(...)` / `k8s.withHelm(...)` only when the user needs chart name, release name, namespace, chart version, or other Helm settings.
-7. Use `k8s.AddGateway(...)`, `k8s.AddIngress(...)`, or the TypeScript equivalents when public exposure is required. Otherwise services remain internal by default.
+7. Use `k8s.AddGateway(...)`, `k8s.AddIngress(...)`, or the TypeScript equivalents when public exposure is required. Otherwise services remain internal by default. For a simple public web frontend on a cloud Kubernetes provider, a per-resource `LoadBalancer` Service can be the direct exposure model; keep backend/internal services as `ClusterIP`.
 8. Use `PublishAsKubernetesService(...)` / `publishAsKubernetesService(...)` only for per-resource Kubernetes manifest customization.
 
 ## Azure Kubernetes Service (AKS) setup
@@ -134,11 +138,13 @@ For all Kubernetes targets:
 - Helm is the default deployment engine; record any customized namespace, release name, chart name, or chart version.
 - Storage defaults are understood. Kubernetes defaults to `emptyDir`; persistent storage needs explicit storage type/class/size decisions.
 
-For existing clusters:
+For existing/external clusters:
 
 - `kubectl config current-context` points to the intended cluster.
 - Container registry is configured and reachable.
+- Registry authentication is configured for image push from the agent machine.
 - Image pull secret or registry auth is configured when the cluster cannot pull from the registry anonymously.
+- Provider-specific registry attachment is configured when required, for example attaching a provider registry to a managed cluster.
 - Namespace/release/chart settings are understood if Helm settings are customized.
 
 For Azure Kubernetes Service (AKS):
@@ -174,13 +180,13 @@ aspire deploy --list-steps
 
 ## Deploy
 
-Existing cluster:
+Existing/external cluster:
 
 ```bash
 aspire deploy
 ```
 
-Aspire uses current `kubectl` context and Helm.
+Aspire uses current `kubectl` context and Helm. It deploys application resources into the cluster; it does not create or delete an externally-managed Kubernetes cluster or provider registry.
 
 Azure Kubernetes Service (AKS):
 
@@ -200,7 +206,7 @@ Use Aspire to tear down Kubernetes or Azure Kubernetes Service (AKS) deployments
 aspire destroy --environment <name>
 ```
 
-For an existing Kubernetes cluster, confirm the current `kubectl` context, namespace, Helm release, and AppHost environment before running destroy. For Azure Kubernetes Service (AKS), also confirm the Azure subscription and resource group. Use `--yes` only after destructive intent is explicit. Use Helm/kubectl or Azure CLI delete commands only to diagnose failed teardown or remove leftovers that are not owned by the Aspire deployment.
+For an existing/external Kubernetes cluster, confirm the current `kubectl` context, namespace, Helm release, and AppHost environment before running destroy. `aspire destroy` removes the Aspire-owned Helm/app deployment from the cluster; it does not delete an externally-created Kubernetes cluster, node pool, load balancer account resource, or container registry. Delete provider infrastructure with the provider CLI only when the user explicitly asks to remove that infrastructure too. For Azure Kubernetes Service (AKS), also confirm the Azure subscription and resource group. Use `--yes` only after destructive intent is explicit. Use Helm/kubectl, cloud CLI, or provider delete commands only to diagnose failed teardown or remove leftovers that are not owned by the Aspire deployment.
 
 ## Native artifact handoff
 
@@ -215,7 +221,7 @@ Use values files or `--set` for environment-specific image tags and settings.
 
 ## Exposure and TLS
 
-By default, generated services use the Kubernetes environment's default service type, which is `ClusterIP`. Public access requires an explicit exposure mechanism such as Ingress, Gateway API, or service type customization. Verify exact APIs in docs before editing because C# and TypeScript AppHost shapes differ.
+By default, generated services use the Kubernetes environment's default service type, which is `ClusterIP`. Public access requires an explicit exposure mechanism such as Ingress, Gateway API, or service type customization. For cloud Kubernetes providers without an ingress controller configured, a frontend `LoadBalancer` Service is often the fastest public smoke-test path, while backend services should usually remain `ClusterIP`. Verify exact APIs in docs before editing because C# and TypeScript AppHost shapes differ.
 
 Gateway/Ingress TLS can add extra deployment steps for bootstrap secrets, FQDN discovery, and field ownership cleanup. If a deployment fails around TLS or Gateway resources, inspect the listed pipeline steps and the generated manifests before changing the AppHost.
 

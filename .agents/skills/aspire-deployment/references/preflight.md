@@ -101,6 +101,7 @@ aspire destroy --environment <name>
 Treat destroy as a destructive deployment operation:
 
 - Run it only when the user explicitly asks to tear down or clean up a deployment, or when a test workflow owns temporary infrastructure and teardown is part of that workflow.
+- Use `aspire destroy --list-steps` when practical to preview the teardown pipeline before applying it.
 - Confirm the AppHost, environment, target account/subscription/cluster, and resource group/namespace/stack context before applying.
 - Use the same `--apphost <path>` and `--environment <name>` values used for deployment when discovery or environment scope could be ambiguous.
 - Use `--yes` only for non-interactive teardown when destructive intent has already been approved, such as an explicit cleanup job.
