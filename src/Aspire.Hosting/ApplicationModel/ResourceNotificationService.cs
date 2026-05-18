@@ -735,6 +735,8 @@ public class ResourceNotificationService : IDisposable
 
             notificationState.LastSnapshot = newState;
 
+            RecordResourceLifecycleMilestones(resource, resourceId, notificationState, previousState, newState);
+
             OnResourceUpdated?.Invoke(new ResourceEvent(resource, resourceId, newState));
 
             if (_logger.IsEnabled(LogLevel.Debug) && newState.State?.Text is { Length: > 0 } newStateText && !string.IsNullOrWhiteSpace(newStateText))
@@ -799,6 +801,127 @@ public class ResourceNotificationService : IDisposable
         }
 
         return Task.CompletedTask;
+    }
+
+    private void RecordResourceLifecycleMilestones(
+        IResource resource,
+        string resourceId,
+        ResourceNotificationState notificationState,
+        CustomResourceSnapshot? previousSnapshot,
+        CustomResourceSnapshot snapshot)
+    {
+        var configuration = Configuration;
+        if (!ProfilingTelemetry.IsEnabled(configuration))
+        {
+            return;
+        }
+
+        var observedAt = DateTimeOffset.UtcNow;
+        if (notificationState.FirstObservedAt is null)
+        {
+            notificationState.FirstObservedAt = observedAt;
+            notificationState.StartupEvents.Add(new ResourceStartupEvent(
+                ResourceStartupEventKind.Observed,
+                observedAt,
+                snapshot,
+                PreviousState: null,
+                PreviousHealthStatus: null));
+        }
+
+        var firstObservedAt = notificationState.FirstObservedAt.Value;
+
+        var previousState = previousSnapshot?.State?.Text;
+        var newState = snapshot.State?.Text;
+        if (!string.IsNullOrWhiteSpace(newState) && !string.Equals(previousState, newState, StringComparison.Ordinal))
+        {
+            notificationState.StartupEvents.Add(new ResourceStartupEvent(
+                ResourceStartupEventKind.StateChanged,
+                observedAt,
+                snapshot,
+                PreviousState: previousState,
+                PreviousHealthStatus: null));
+        }
+
+        var previousHealthStatus = previousSnapshot?.HealthStatus?.ToString();
+        var newHealthStatus = snapshot.HealthStatus?.ToString();
+        if (newHealthStatus is not null && !string.Equals(previousHealthStatus, newHealthStatus, StringComparison.Ordinal))
+        {
+            notificationState.StartupEvents.Add(new ResourceStartupEvent(
+                ResourceStartupEventKind.HealthChanged,
+                observedAt,
+                snapshot,
+                PreviousState: null,
+                PreviousHealthStatus: previousHealthStatus));
+        }
+
+        if (notificationState.ReadyAt is null &&
+            snapshot.ResourceReadyEvent is { } resourceReadyEvent)
+        {
+            notificationState.ReadyAt = observedAt;
+            notificationState.ReadySnapshot = snapshot;
+            notificationState.StartupEvents.Add(new ResourceStartupEvent(
+                ResourceStartupEventKind.Ready,
+                observedAt,
+                snapshot,
+                PreviousState: null,
+                PreviousHealthStatus: null));
+            var startupEvents = notificationState.StartupEvents.ToArray();
+            _ = RecordResourceStartupAsync(
+                configuration,
+                resource,
+                resourceId,
+                firstObservedAt,
+                snapshot,
+                startupEvents,
+                resourceReadyEvent.EventTask);
+        }
+    }
+
+    private static async Task RecordResourceStartupAsync(
+        IConfiguration? configuration,
+        IResource resource,
+        string resourceId,
+        DateTimeOffset firstObservedAt,
+        CustomResourceSnapshot readySnapshot,
+        ResourceStartupEvent[] startupEvents,
+        Task readyEventTask)
+    {
+        try
+        {
+            await readyEventTask.ConfigureAwait(false);
+            using var activity = ProfilingTelemetry.StartResourceStartup(configuration, resource, resourceId, readySnapshot, firstObservedAt);
+            AddResourceStartupEvents(activity, startupEvents);
+        }
+        catch (Exception ex)
+        {
+            using var activity = ProfilingTelemetry.StartResourceStartup(configuration, resource, resourceId, readySnapshot, firstObservedAt);
+            AddResourceStartupEvents(activity, startupEvents);
+            activity.SetError(ex);
+        }
+    }
+
+    private static void AddResourceStartupEvents(
+        ProfilingTelemetry.ActivityScope activity,
+        ResourceStartupEvent[] startupEvents)
+    {
+        foreach (var startupEvent in startupEvents)
+        {
+            switch (startupEvent.Kind)
+            {
+                case ResourceStartupEventKind.Observed:
+                    activity.AddResourceStartupObserved(startupEvent.Snapshot, startupEvent.Timestamp);
+                    break;
+                case ResourceStartupEventKind.StateChanged:
+                    activity.AddResourceStartupStateChanged(startupEvent.Snapshot, startupEvent.Timestamp, startupEvent.PreviousState);
+                    break;
+                case ResourceStartupEventKind.HealthChanged:
+                    activity.AddResourceStartupHealthChanged(startupEvent.Snapshot, startupEvent.Timestamp, startupEvent.PreviousHealthStatus);
+                    break;
+                case ResourceStartupEventKind.Ready:
+                    activity.AddResourceStartupReady(startupEvent.Snapshot, startupEvent.Timestamp);
+                    break;
+            }
+        }
     }
 
     /// <summary>
@@ -1035,6 +1158,25 @@ public class ResourceNotificationService : IDisposable
         public long GetNextVersion() => _lastVersion++;
         public CustomResourceSnapshot? LastSnapshot { get; set; }
         public IResource Resource { get; } = resource;
+        public DateTimeOffset? FirstObservedAt { get; set; }
+        public DateTimeOffset? ReadyAt { get; set; }
+        public CustomResourceSnapshot? ReadySnapshot { get; set; }
+        public List<ResourceStartupEvent> StartupEvents { get; } = [];
+    }
+
+    private sealed record ResourceStartupEvent(
+        ResourceStartupEventKind Kind,
+        DateTimeOffset Timestamp,
+        CustomResourceSnapshot Snapshot,
+        string? PreviousState,
+        string? PreviousHealthStatus);
+
+    private enum ResourceStartupEventKind
+    {
+        Observed,
+        StateChanged,
+        HealthChanged,
+        Ready
     }
 
     internal static bool IsMicrosoftOpenType(Type type)

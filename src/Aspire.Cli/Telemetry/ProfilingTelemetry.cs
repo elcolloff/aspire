@@ -73,6 +73,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string AppHostBuild = "aspire/cli/apphost.build";
         public const string AppHostCheckCompatibility = "aspire/cli/apphost.check_compatibility";
         public const string AppHostRunDotnetLifetime = "aspire/cli/apphost.run_dotnet.lifetime";
+        public const string ProfileCaptureDelay = "aspire/cli/profile.capture_delay";
         public const string StopCommand = "aspire/cli/stop";
         public const string StopAppHost = "aspire/cli/stop_apphost";
     }
@@ -130,6 +131,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string AppHostWatch = "aspire.cli.apphost.watch";
         public const string AppHostStopAll = "aspire.cli.apphost.stop_all";
         public const string AppHostStopCount = "aspire.cli.apphost.stop_count";
+        public const string ProfileCaptureDelayMilliseconds = "aspire.cli.profile.capture_delay_ms";
         public const string DevCertificateEnvironmentVariableCount = "aspire.cli.dev_cert.env_var_count";
         public const string BackchannelSocketFile = "aspire.cli.backchannel.socket_file";
         public const string BackchannelAutoReconnect = "aspire.cli.backchannel.auto_reconnect";
@@ -360,6 +362,13 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
     {
         var activity = StartActivity(Activities.JsonRpcClientCall, ActivityKind.Client);
         activity.SetJsonRpcCall(connectionName, methodName, streaming);
+        return activity;
+    }
+
+    internal ActivityScope StartProfileCaptureDelay(TimeSpan delay)
+    {
+        var activity = StartActivity(Activities.ProfileCaptureDelay);
+        activity.SetProfileCaptureDelay(delay);
         return activity;
     }
 
@@ -961,6 +970,8 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         }
 
         public void SetJsonRpcStreamItemCount(int count) => SetTag(Tags.JsonRpcStreamItemCount, count);
+
+        public void SetProfileCaptureDelay(TimeSpan delay) => SetTag(Tags.ProfileCaptureDelayMilliseconds, delay.TotalMilliseconds);
 
         public BackchannelTraceContext? CreateBackchannelTraceContext()
         {

@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Diagnostics;
 
 namespace Aspire.Hosting.Eventing;
 
@@ -30,7 +31,7 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
                 var pendingSubscriptionCallbacks = new List<Task>(subscriptions.Count);
                 foreach (var subscription in subscriptions.ToArray())
                 {
-                    var pendingSubscriptionCallback = subscription.Callback(@event, cancellationToken);
+                    var pendingSubscriptionCallback = InvokeSubscriptionCallbackAsync(subscription, @event, dispatchBehavior, cancellationToken);
                     pendingSubscriptionCallbacks.Add(pendingSubscriptionCallback);
                 }
 
@@ -57,7 +58,7 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
                     {
                         foreach (var subscription in subscriptions.ToArray())
                         {
-                            await subscription.Callback(@event, cancellationToken).ConfigureAwait(false);
+                            await InvokeSubscriptionCallbackAsync(subscription, @event, dispatchBehavior, cancellationToken).ConfigureAwait(false);
                         }
                     }, default);
                 }
@@ -66,8 +67,50 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
                     // Blocking sequential.
                     foreach (var subscription in subscriptions.ToArray())
                     {
-                        await subscription.Callback(@event, cancellationToken).ConfigureAwait(false);
+                        await InvokeSubscriptionCallbackAsync(subscription, @event, dispatchBehavior, cancellationToken).ConfigureAwait(false);
                     }
+                }
+            }
+        }
+    }
+
+    private static Task InvokeSubscriptionCallbackAsync<T>(
+        DistributedApplicationEventSubscription subscription,
+        T @event,
+        EventDispatchBehavior dispatchBehavior,
+        CancellationToken cancellationToken) where T : IDistributedApplicationEvent
+    {
+        var activity = ProfilingTelemetry.StartAppHostEventCallback(typeof(T), dispatchBehavior.ToString(), subscription.CallbackDisplayName);
+        try
+        {
+            var callbackTask = subscription.Callback(@event, cancellationToken);
+            if (callbackTask.IsCompletedSuccessfully)
+            {
+                activity.Dispose();
+                return Task.CompletedTask;
+            }
+
+            return AwaitSubscriptionCallbackAsync(callbackTask, activity);
+        }
+        catch (Exception ex)
+        {
+            activity.SetError(ex);
+            activity.Dispose();
+            throw;
+        }
+
+        static async Task AwaitSubscriptionCallbackAsync(Task callbackTask, ProfilingTelemetry.ActivityScope activity)
+        {
+            using (activity)
+            {
+                try
+                {
+                    await callbackTask.ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    activity.SetError(ex);
+                    throw;
                 }
             }
         }
@@ -76,11 +119,16 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
     /// <inheritdoc cref="IDistributedApplicationEventing.Subscribe{T}(Func{T, CancellationToken, Task})" />
     public DistributedApplicationEventSubscription Subscribe<T>(Func<T, CancellationToken, Task> callback) where T : IDistributedApplicationEvent
     {
+        return Subscribe(callback, callback);
+    }
+
+    private DistributedApplicationEventSubscription Subscribe<T>(Func<T, CancellationToken, Task> callback, Delegate callbackForProfiling) where T : IDistributedApplicationEvent
+    {
         var subscription = new DistributedApplicationEventSubscription(async (@event, ct) =>
         {
             var typedEvent = (T)@event;
             await callback(typedEvent, ct).ConfigureAwait(false);
-        });
+        }, callbackForProfiling);
 
         if (_eventSubscriptionListLookup.TryGetValue(typeof(T), out var subscriptions))
         {
@@ -113,7 +161,7 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
             }
         };
 
-        return Subscribe(resourceFilteredCallback);
+        return Subscribe(resourceFilteredCallback, callback);
     }
 
     /// <inheritdoc cref="IDistributedApplicationEventing.Unsubscribe(DistributedApplicationEventSubscription)" />

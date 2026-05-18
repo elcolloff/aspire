@@ -351,7 +351,7 @@ internal sealed class RunCommand : BaseCommand
             var profileStopRequested = false;
             if (captureProfile)
             {
-                profileStopRequested = await RequestAppHostStopForProfileAsync(backchannel, pendingRun, captureProfileDelay, cancellationToken).ConfigureAwait(false);
+                profileStopRequested = await RequestAppHostStopForProfileAsync(backchannel, pendingRun, captureProfileDelay, _profilingTelemetry, cancellationToken).ConfigureAwait(false);
             }
             else if (!isRemoteEnvironment)
             {
@@ -547,6 +547,7 @@ internal sealed class RunCommand : BaseCommand
         IAppHostCliBackchannel backchannel,
         Task<int> pendingRun,
         TimeSpan delay,
+        ProfilingTelemetry profilingTelemetry,
         CancellationToken cancellationToken)
     {
         // The AppHost exports profiling spans through the batched OTLP exporter. Keep the process
@@ -554,14 +555,17 @@ internal sealed class RunCommand : BaseCommand
         // have time to flush before the CLI requests shutdown and exports the capture archive.
         if (delay > TimeSpan.Zero)
         {
-            var delayTask = Task.Delay(delay, cancellationToken);
-            var completedTask = await Task.WhenAny(delayTask, pendingRun).ConfigureAwait(false);
-            if (completedTask == pendingRun)
+            using (profilingTelemetry.StartProfileCaptureDelay(delay))
             {
-                return false;
-            }
+                var delayTask = Task.Delay(delay, cancellationToken);
+                var completedTask = await Task.WhenAny(delayTask, pendingRun).ConfigureAwait(false);
+                if (completedTask == pendingRun)
+                {
+                    return false;
+                }
 
-            await delayTask.ConfigureAwait(false);
+                await delayTask.ConfigureAwait(false);
+            }
         }
 
         if (!pendingRun.IsCompleted)
