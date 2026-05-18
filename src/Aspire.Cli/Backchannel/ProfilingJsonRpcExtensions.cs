@@ -17,9 +17,24 @@ namespace Aspire.Cli.Backchannel;
 /// </remarks>
 internal static class ProfilingJsonRpcExtensions
 {
+    /// <summary>
+    /// Controls when the client span for a streaming RPC call ends.
+    /// </summary>
     internal enum StreamingSpanLifetime
     {
+        /// <summary>
+        /// The span stays open for the entire enumeration and is disposed when the stream
+        /// completes (or faults). Use when the span is meant to represent the full streaming
+        /// lifetime - for example, a backchannel that streams resource updates for as long
+        /// as the AppHost runs.
+        /// </summary>
         Enumeration,
+
+        /// <summary>
+        /// The span ends when the first stream item arrives. Use for setup-style RPCs where
+        /// the meaningful work is producing the first response and the rest of the stream is
+        /// long-lived but not interesting for timing (otherwise it dominates duration views).
+        /// </summary>
         FirstItem
     }
 

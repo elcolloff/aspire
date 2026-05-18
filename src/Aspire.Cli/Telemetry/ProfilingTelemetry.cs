@@ -318,6 +318,12 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
 
     internal ActivityScope StartBackchannelConnect(string socketPath)
     {
+        // Backchannel connection has two entry points: callers like GuestAppHostProject and
+        // DotNetCliRunner that start a parent BackchannelConnect activity with explicit context
+        // (the overloads below), and the inner AppHostCliBackchannel.ConnectAsync, which is
+        // invoked from inside that parent and also wants to record the connection. To avoid a
+        // nested duplicate span when the parent is already current, reuse it (non-owning) and
+        // just decorate it with the socket path.
         if (IsCurrentActivity(Activities.BackchannelConnect))
         {
             var currentActivity = CurrentActivity;

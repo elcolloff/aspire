@@ -386,12 +386,22 @@ internal sealed class RemoteHostProfilingTelemetry(IConfiguration configuration)
 
         public void SetAssemblyRequestedNames(IReadOnlyList<string> assemblyNames)
         {
-            SetTag(Tags.AssemblyRequestedNames, SanitizeAssemblyNames(assemblyNames));
+            if (activity is null)
+            {
+                return;
+            }
+
+            activity.SetTag(Tags.AssemblyRequestedNames, SanitizeAssemblyNames(assemblyNames));
         }
 
         public void SetAssemblyLoadedNames(IReadOnlyList<Assembly> assemblies)
         {
-            SetTag(Tags.AssemblyLoadedNames, SanitizeAssemblyNames(assemblies.Select(assembly => assembly.GetName().Name)));
+            if (activity is null)
+            {
+                return;
+            }
+
+            activity.SetTag(Tags.AssemblyLoadedNames, SanitizeAssemblyNames(assemblies.Select(assembly => assembly.GetName().Name)));
         }
 
         public void SetAtsCounts(int capabilityCount, int handleTypeCount, int dtoTypeCount, int enumTypeCount, int exportedValueCount, int diagnosticCount)
@@ -413,10 +423,15 @@ internal sealed class RemoteHostProfilingTelemetry(IConfiguration configuration)
 
         public void SetCapabilityInvocation(string capabilityId, JsonObject? args)
         {
-            SetTag(Tags.CapabilityId, capabilityId);
-            SetTag(Tags.CapabilityPackage, GetCapabilityPackage(capabilityId));
-            SetTag(Tags.CapabilityArgumentCount, args?.Count ?? 0);
-            SetTag(Tags.CapabilityArgumentNames, SanitizeArgumentNames(args));
+            if (activity is null)
+            {
+                return;
+            }
+
+            activity.SetTag(Tags.CapabilityId, capabilityId);
+            activity.SetTag(Tags.CapabilityPackage, GetCapabilityPackage(capabilityId));
+            activity.SetTag(Tags.CapabilityArgumentCount, args?.Count ?? 0);
+            activity.SetTag(Tags.CapabilityArgumentNames, SanitizeArgumentNames(args));
         }
 
         public void SetCapabilityScanFirstScan(bool firstScan) => SetTag(Tags.CapabilityScanFirstScan, firstScan);

@@ -407,8 +407,8 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
 
             // Start the AppHost server process
             AppHostServerSession serverSession;
-            var appHostServerStartupActivity = _profilingTelemetry.StartRunAppHostStartAppHostServer();
-            try
+            IAppHostRpcClient rpcClient;
+            using (_profilingTelemetry.StartRunAppHostStartAppHostServer())
             {
                 serverSession = AppHostServerSession.Start(
                     appHostServerProject,
@@ -416,11 +416,44 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                     context.Debug,
                     _logger,
                     _profilingTelemetry);
-            }
-            catch
-            {
-                appHostServerStartupActivity.Dispose();
-                throw;
+                try
+                {
+                    // Give the server a moment to start
+                    await Task.Delay(500, cancellationToken);
+
+                    if (serverSession.ServerProcess.HasExited)
+                    {
+                        _interactionService.DisplayLines(serverSession.Output.GetLines());
+                        _interactionService.DisplayError("App host exited unexpectedly.");
+                        await serverSession.DisposeAsync();
+                        return CliExitCodes.FailedToDotnetRunAppHost;
+                    }
+
+                    // Step 5: Connect to server for RPC calls
+                    rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
+
+                    // Step 6: Generate SDK code via RPC if needed
+                    // This must happen before dependency installation because the generated
+                    // code directory (.modules) may not exist yet (e.g., freshly cloned project)
+                    // and dependency files (pylock.toml, requirements.txt) reference it.
+                    if (buildResult.NeedsCodeGen)
+                    {
+                        await GenerateCodeViaRpcAsync(
+                            directory.FullName,
+                            rpcClient,
+                            integrations,
+                            cancellationToken);
+                    }
+
+                    await EnsureRuntimeCreatedAsync(directory, rpcClient, cancellationToken);
+                }
+                catch
+                {
+                    // Once Start() succeeds we own the server process, so dispose it here when
+                    // post-start work fails - the `await using` below isn't in scope yet.
+                    await serverSession.DisposeAsync();
+                    throw;
+                }
             }
             await using var serverSessionScope = serverSession;
             var socketPath = serverSession.SocketPath;
@@ -431,42 +464,6 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             // The backchannel completion source is the contract with RunCommand
             // We signal this when the backchannel is ready, RunCommand uses it for UX
             var backchannelCompletionSource = context.BackchannelCompletionSource ?? new TaskCompletionSource<IAppHostCliBackchannel>();
-
-            IAppHostRpcClient rpcClient;
-            try
-            {
-                // Give the server a moment to start
-                await Task.Delay(500, cancellationToken);
-
-                if (appHostServerProcess.HasExited)
-                {
-                    _interactionService.DisplayLines(appHostServerOutputCollector.GetLines());
-                    _interactionService.DisplayError("App host exited unexpectedly.");
-                    return CliExitCodes.FailedToDotnetRunAppHost;
-                }
-
-                // Step 5: Connect to server for RPC calls
-                rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
-
-                // Step 6: Generate SDK code via RPC if needed
-                // This must happen before dependency installation because the generated
-                // code directory (.modules) may not exist yet (e.g., freshly cloned project)
-                // and dependency files (pylock.toml, requirements.txt) reference it.
-                if (buildResult.NeedsCodeGen)
-                {
-                    await GenerateCodeViaRpcAsync(
-                        directory.FullName,
-                        rpcClient,
-                        integrations,
-                        cancellationToken);
-                }
-
-                await EnsureRuntimeCreatedAsync(directory, rpcClient, cancellationToken);
-            }
-            finally
-            {
-                appHostServerStartupActivity.Dispose();
-            }
 
             int guestExitCode;
             OutputCollector? guestOutput;
@@ -916,8 +913,8 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
 
             // Step 2: Start the AppHost server process(it opens the backchannel for progress reporting)
             AppHostServerSession serverSession;
-            var appHostServerStartupActivity = _profilingTelemetry.StartRunAppHostStartAppHostServer();
-            try
+            IAppHostRpcClient rpcClient;
+            using (_profilingTelemetry.StartRunAppHostStartAppHostServer())
             {
                 serverSession = AppHostServerSession.Start(
                     appHostServerProject,
@@ -925,59 +922,58 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                     context.Debug,
                     _logger,
                     _profilingTelemetry);
-            }
-            catch
-            {
-                appHostServerStartupActivity.Dispose();
-                throw;
+
+                // Start connecting to the backchannel (fire-and-forget) so the caller is unblocked
+                // as soon as the server is reachable; the post-start work below races alongside it.
+                if (context.BackchannelCompletionSource is not null)
+                {
+                    _ = StartBackchannelConnectionAsync(serverSession.ServerProcess, backchannelSocketPath, context.BackchannelCompletionSource, enableHotReload: false, startProjectContext, cancellationToken);
+                }
+
+                try
+                {
+                    // Give the server a moment to start
+                    await Task.Delay(500, cancellationToken);
+
+                    if (serverSession.ServerProcess.HasExited)
+                    {
+                        _interactionService.DisplayLines(serverSession.Output.GetLines());
+                        _interactionService.DisplayError("App host exited unexpectedly.");
+                        await serverSession.DisposeAsync();
+                        return CliExitCodes.FailedToDotnetRunAppHost;
+                    }
+
+                    // Step 3: Connect to server for RPC calls
+                    rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
+
+                    // Step 4: Generate code via RPC if needed
+                    // This must happen before dependency installation because the generated
+                    // code directory (.modules) may not exist yet (e.g., freshly cloned project)
+                    // and dependency files (pylock.toml, requirements.txt) reference it.
+                    if (needsCodeGen)
+                    {
+                        await GenerateCodeViaRpcAsync(
+                            directory.FullName,
+                            rpcClient,
+                            integrations,
+                            cancellationToken);
+                    }
+
+                    await EnsureRuntimeCreatedAsync(directory, rpcClient, cancellationToken);
+                }
+                catch
+                {
+                    // Once Start() succeeds we own the server process, so dispose it here when
+                    // post-start work fails - the `await using` below isn't in scope yet.
+                    await serverSession.DisposeAsync();
+                    throw;
+                }
             }
             await using var serverSessionScope = serverSession;
             var jsonRpcSocketPath = serverSession.SocketPath;
             var appHostServerProcess = serverSession.ServerProcess;
             var appHostServerOutputCollector = serverSession.Output;
             var authenticationToken = serverSession.AuthenticationToken;
-
-            // Start connecting to the backchannel
-            if (context.BackchannelCompletionSource is not null)
-            {
-                _ = StartBackchannelConnectionAsync(appHostServerProcess, backchannelSocketPath, context.BackchannelCompletionSource, enableHotReload: false, startProjectContext, cancellationToken);
-            }
-
-            IAppHostRpcClient rpcClient;
-            try
-            {
-                // Give the server a moment to start
-                await Task.Delay(500, cancellationToken);
-
-                if (appHostServerProcess.HasExited)
-                {
-                    _interactionService.DisplayLines(appHostServerOutputCollector.GetLines());
-                    _interactionService.DisplayError("App host exited unexpectedly.");
-                    return CliExitCodes.FailedToDotnetRunAppHost;
-                }
-
-                // Step 3: Connect to server for RPC calls
-                rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
-
-                // Step 4: Generate code via RPC if needed
-                // This must happen before dependency installation because the generated
-                // code directory (.modules) may not exist yet (e.g., freshly cloned project)
-                // and dependency files (pylock.toml, requirements.txt) reference it.
-                if (needsCodeGen)
-                {
-                    await GenerateCodeViaRpcAsync(
-                        directory.FullName,
-                        rpcClient,
-                        integrations,
-                        cancellationToken);
-                }
-
-                await EnsureRuntimeCreatedAsync(directory, rpcClient, cancellationToken);
-            }
-            finally
-            {
-                appHostServerStartupActivity.Dispose();
-            }
 
             int guestExitCode;
             OutputCollector? guestOutput;

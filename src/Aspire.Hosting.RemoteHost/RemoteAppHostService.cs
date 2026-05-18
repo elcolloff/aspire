@@ -144,6 +144,10 @@ internal sealed class RemoteAppHostService
         }
         catch (InvalidOperationException ex) when (!_authenticationState.IsAuthenticated)
         {
+            // ThrowIfNotAuthenticated throws InvalidOperationException for unauthenticated callers.
+            // Let it propagate as a JSON-RPC error instead of wrapping it in a structured $error
+            // payload, so the client surfaces it as an authentication failure rather than a
+            // capability-level error.
             activity.SetError(ex);
             throw;
         }

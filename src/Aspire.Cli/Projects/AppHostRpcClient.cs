@@ -15,6 +15,11 @@ namespace Aspire.Cli.Projects;
 /// </summary>
 internal sealed class AppHostRpcClient : IAppHostRpcClient
 {
+    // Logical connection name attached to JSON-RPC profiling spans created via this client.
+    // The backchannel listener registers handlers without a connection name, so this value
+    // is purely for grouping client-side spans/metrics in the trace.
+    private const string ConnectionName = "remotehost";
+
     private readonly Stream _stream;
     private readonly JsonRpc _jsonRpc;
     private readonly ProfilingTelemetry? _profilingTelemetry;
@@ -24,14 +29,6 @@ internal sealed class AppHostRpcClient : IAppHostRpcClient
         _stream = stream;
         _jsonRpc = jsonRpc;
         _profilingTelemetry = profilingTelemetry;
-    }
-
-    /// <summary>
-    /// Creates and connects an RPC client to the specified socket path and authenticates the session.
-    /// </summary>
-    public static async Task<AppHostRpcClient> ConnectAsync(string socketPath, string authenticationToken, CancellationToken cancellationToken)
-    {
-        return await ConnectAsync(socketPath, authenticationToken, profilingTelemetry: null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -60,7 +57,7 @@ internal sealed class AppHostRpcClient : IAppHostRpcClient
 
             var authenticated = await jsonRpc.InvokeWithProfilingAsync<bool>(
                 profilingTelemetry,
-                "remotehost",
+                ConnectionName,
                 "authenticate",
                 [authenticationToken],
                 cancellationToken).ConfigureAwait(false);
@@ -81,19 +78,12 @@ internal sealed class AppHostRpcClient : IAppHostRpcClient
 
     /// <inheritdoc />
     public Task<RuntimeSpec> GetRuntimeSpecAsync(string languageId, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<RuntimeSpec>(
-            _profilingTelemetry,
-            "remotehost",
-            "getRuntimeSpec",
-            [languageId],
-            cancellationToken);
+        => InvokeAsync<RuntimeSpec>("getRuntimeSpec", [languageId], cancellationToken);
 
     /// <inheritdoc />
     public Task<Dictionary<string, string>> ScaffoldAppHostAsync(
         string languageId, string targetPath, string? projectName, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<Dictionary<string, string>>(
-            _profilingTelemetry,
-            "remotehost",
+        => InvokeAsync<Dictionary<string, string>>(
             "scaffoldAppHost",
             [languageId, targetPath, projectName],
             cancellationToken);
@@ -104,57 +94,27 @@ internal sealed class AppHostRpcClient : IAppHostRpcClient
 
     /// <inheritdoc />
     public Task<Dictionary<string, string>> GenerateCodeAsync(string languageId, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<Dictionary<string, string>>(
-            _profilingTelemetry,
-            "remotehost",
-            "generateCode",
-            [languageId, null],
-            cancellationToken);
+        => InvokeAsync<Dictionary<string, string>>("generateCode", [languageId, null], cancellationToken);
 
     /// <inheritdoc />
     public Task<Dictionary<string, string>> GenerateCodeForAssemblyAsync(string languageId, string assemblyName, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<Dictionary<string, string>>(
-            _profilingTelemetry,
-            "remotehost",
-            "generateCode",
-            [languageId, assemblyName],
-            cancellationToken);
+        => InvokeAsync<Dictionary<string, string>>("generateCode", [languageId, assemblyName], cancellationToken);
 
     /// <inheritdoc />
     public Task<Commands.Sdk.CapabilitiesInfo> GetCapabilitiesAsync(CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<Commands.Sdk.CapabilitiesInfo>(
-            _profilingTelemetry,
-            "remotehost",
-            "getCapabilities",
-            [null],
-            cancellationToken);
+        => InvokeAsync<Commands.Sdk.CapabilitiesInfo>("getCapabilities", [null], cancellationToken);
 
     /// <inheritdoc />
     public Task<Commands.Sdk.CapabilitiesInfo> GetCapabilitiesForAssembliesAsync(IReadOnlyList<string> assemblyNames, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<Commands.Sdk.CapabilitiesInfo>(
-            _profilingTelemetry,
-            "remotehost",
-            "getCapabilities",
-            [assemblyNames],
-            cancellationToken);
+        => InvokeAsync<Commands.Sdk.CapabilitiesInfo>("getCapabilities", [assemblyNames], cancellationToken);
 
     /// <inheritdoc />
     public Task<T> InvokeAsync<T>(string methodName, object?[] parameters, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync<T>(
-            _profilingTelemetry,
-            "remotehost",
-            methodName,
-            parameters,
-            cancellationToken);
+        => _jsonRpc.InvokeWithProfilingAsync<T>(_profilingTelemetry, ConnectionName, methodName, parameters, cancellationToken);
 
     /// <inheritdoc />
     public Task InvokeAsync(string methodName, object?[] parameters, CancellationToken cancellationToken)
-        => _jsonRpc.InvokeWithProfilingAsync(
-            _profilingTelemetry,
-            "remotehost",
-            methodName,
-            parameters,
-            cancellationToken);
+        => _jsonRpc.InvokeWithProfilingAsync(_profilingTelemetry, ConnectionName, methodName, parameters, cancellationToken);
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -240,6 +200,6 @@ internal sealed class AppHostRpcClientFactory : IAppHostRpcClientFactory
     /// <inheritdoc />
     public async Task<IAppHostRpcClient> ConnectAsync(string socketPath, string authenticationToken, CancellationToken cancellationToken)
     {
-        return await AppHostRpcClient.ConnectAsync(socketPath, authenticationToken, cancellationToken);
+        return await AppHostRpcClient.ConnectAsync(socketPath, authenticationToken, profilingTelemetry: null, cancellationToken).ConfigureAwait(false);
     }
 }

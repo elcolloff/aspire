@@ -35,7 +35,10 @@ internal sealed class CapabilityDispatcher
     private readonly ILogger _logger;
     private readonly RemoteHostProfilingTelemetry _profilingTelemetry;
     private AtsContext? _atsContext;
-    private static int s_scanCount;
+    // Tracks whether any CapabilityDispatcher in this process has scanned yet. Recorded as a
+    // profiling tag so traces can distinguish the cold first scan (full reflection cost) from
+    // subsequent scans (cached metadata).
+    private static int s_hasScanned;
 
     /// <summary>
     /// Represents a registered capability.
@@ -99,7 +102,7 @@ internal sealed class CapabilityDispatcher
     private void ScanAssemblies(IEnumerable<Assembly> assemblies)
     {
         var assemblyList = assemblies.ToList();
-        var firstScan = Interlocked.Increment(ref s_scanCount) == 1;
+        var firstScan = Interlocked.Exchange(ref s_hasScanned, 1) == 0;
         using var activity = _profilingTelemetry.StartCapabilityScan(assemblyList.Count, firstScan);
 
         _logger.LogDebug("Scanning {AssemblyCount} assemblies for capabilities...", assemblyList.Count);
