@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Text.Json;
+using Aspire.Hosting.Diagnostics;
 using Aspire.Hosting.Utils;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
@@ -18,54 +18,6 @@ namespace Aspire.Hosting.Backchannel;
 [Trait("Partition", "4")]
 public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 {
-    [Theory]
-    [InlineData("8.0.0-preview.1", "8.0.0-preview.1")]
-    [InlineData("8.0.0-preview.1+asdlkjfdijee", "8.0.0-preview.1")]
-    [InlineData("8.0.0-preview.1+asdlkjfdijee+someothersuffix", "8.0.0-preview.1")]
-    [InlineData("+asdlkjfdijee", "+asdlkjfdijee")]
-    [InlineData("Plain old text", "Plain old text")]
-    [InlineData("", "")]
-    public void GetDisplayVersionUsesDashboardDisplayVersionImplementation(string informationalVersion, string expectedDisplayVersion)
-    {
-        var assembly = CreateAssembly(CreateAttribute<AssemblyInformationalVersionAttribute>(informationalVersion));
-
-        var actualDisplayVersion = AuxiliaryBackchannelRpcTarget.GetDisplayVersion(assembly);
-
-        Assert.Equal(expectedDisplayVersion, actualDisplayVersion);
-    }
-
-    [Fact]
-    public void GetDisplayVersionUsesFileVersionWhenInformationalVersionIsMissing()
-    {
-        var assembly = CreateAssembly(
-            CreateAttribute<AssemblyFileVersionAttribute>("42.42.42.42424"),
-            CreateAttribute<AssemblyVersionAttribute>("8.0.0.0"));
-
-        var actualDisplayVersion = AuxiliaryBackchannelRpcTarget.GetDisplayVersion(assembly);
-
-        Assert.Equal("42.42.42.42424", actualDisplayVersion);
-    }
-
-    [Fact]
-    public void GetDisplayVersionUsesAssemblyVersionWhenInformationalAndFileVersionsAreMissing()
-    {
-        var assembly = CreateAssembly(CreateAttribute<AssemblyVersionAttribute>("8.0.0.0"));
-
-        var actualDisplayVersion = AuxiliaryBackchannelRpcTarget.GetDisplayVersion(assembly);
-
-        Assert.Equal("8.0.0.0", actualDisplayVersion);
-    }
-
-    [Fact]
-    public void GetDisplayVersionReturnsNullWhenVersionAttributesAreMissing()
-    {
-        var assembly = CreateAssembly();
-
-        var actualDisplayVersion = AuxiliaryBackchannelRpcTarget.GetDisplayVersion(assembly);
-
-        Assert.Null(actualDisplayVersion);
-    }
-
     [Fact]
     public async Task GetAppHostInfoAsync_ReturnsAssemblyDisplayVersion()
     {
@@ -78,10 +30,13 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         using var services = new ServiceCollection()
             .AddSingleton<IConfiguration>(configuration)
+            .AddSingleton<ProfilingTelemetry>()
             .BuildServiceProvider();
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            configuration,
+            services.GetRequiredService<ProfilingTelemetry>(),
             services);
 
         var result = await target.GetAppHostInfoAsync().DefaultTimeout();
@@ -97,27 +52,6 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
             ?? "unknown";
 
         Assert.Equal(expectedVersion, result.AspireHostVersion);
-    }
-
-    private static AssemblyBuilder CreateAssembly(params CustomAttributeBuilder[] attributes)
-    {
-        var assembly = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName($"TestAssembly{Guid.NewGuid():N}"), AssemblyBuilderAccess.Run);
-
-        foreach (var attribute in attributes)
-        {
-            assembly.SetCustomAttribute(attribute);
-        }
-
-        return assembly;
-    }
-
-    private static CustomAttributeBuilder CreateAttribute<TAttribute>(string value)
-        where TAttribute : Attribute
-    {
-        var constructor = typeof(TAttribute).GetConstructor([typeof(string)]);
-        Assert.NotNull(constructor);
-
-        return new CustomAttributeBuilder(constructor, [value]);
     }
 
     [Fact]
@@ -149,6 +83,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var result = await target.GetResourceSnapshotsAsync().DefaultTimeout();
@@ -245,6 +181,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var result = await target.GetResourceSnapshotsAsync().DefaultTimeout();
@@ -338,6 +276,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var notificationService = app.Services.GetRequiredService<ResourceNotificationService>();
@@ -375,6 +315,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var notificationService = app.Services.GetRequiredService<ResourceNotificationService>();
@@ -412,6 +354,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         using var cancellationTokenSource = new CancellationTokenSource();
@@ -445,6 +389,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         using var cancellationTokenSource = new CancellationTokenSource();
@@ -478,6 +424,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.WaitForResourceAsync(new WaitForResourceRequest
@@ -526,6 +474,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var logs = new List<ResourceLogLine>();
@@ -554,6 +504,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var logs = new List<ResourceLogLine>();
@@ -593,6 +545,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var logs = new List<ResourceLogLine>();
@@ -608,6 +562,238 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var log2 = Assert.Single(logs, l => l.ResourceName == "resource2");
         Assert.Equal($"{TestTimestamp} Log from resource2", log2.Content);
+
+        await app.StopAsync().DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task GetConsoleLogsAsync_AppliesSearchAndTailForSingleResource()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("myresource"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var logger = resourceLoggerService.GetLogger("myresource");
+        logger.LogInformation("needle first");
+        logger.LogInformation("haystack");
+        logger.LogInformation("needle second");
+        logger.LogInformation("needle third");
+        resourceLoggerService.Complete("myresource");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var logLine in target.GetConsoleLogsAsync(new GetConsoleLogsRequest
+        {
+            ResourceName = "myresource",
+            Search = "needle",
+            Tail = 2,
+            IncludeHidden = true
+        }))
+        {
+            logs.Add(logLine);
+        }
+
+        Assert.Collection(logs,
+            log => Assert.Equal($"{TestTimestamp} needle second", log.Content),
+            log => Assert.Equal($"{TestTimestamp} needle third", log.Content));
+
+        await app.StopAsync().DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task GetConsoleLogsAsync_AppliesSearchAfterStrippingAnsiControlSequences()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("myresource"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var logger = resourceLoggerService.GetLogger("myresource");
+        logger.LogInformation("Re\u001b[31mady");
+        logger.LogInformation("haystack");
+        resourceLoggerService.Complete("myresource");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var logLine in target.GetConsoleLogsAsync(new GetConsoleLogsRequest
+        {
+            ResourceName = "myresource",
+            Search = "Ready",
+            IncludeHidden = true
+        }))
+        {
+            logs.Add(logLine);
+        }
+
+        var log = Assert.Single(logs);
+        Assert.Equal($"{TestTimestamp} Re\u001b[31mady", log.Content);
+
+        await app.StopAsync().DefaultTimeout(TestConstants.LongTimeoutTimeSpan);
+    }
+
+    [Fact]
+    public async Task GetConsoleLogBatchesAsync_AppliesSearchAndTailForSingleResource()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("myresource"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var logger = resourceLoggerService.GetLogger("myresource");
+        logger.LogInformation("needle first");
+        logger.LogInformation("haystack");
+        logger.LogInformation("needle second");
+        logger.LogInformation("needle third");
+        resourceLoggerService.Complete("myresource");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var batch in target.GetConsoleLogBatchesAsync(new GetConsoleLogsRequest
+        {
+            ResourceName = "myresource",
+            Search = "needle",
+            Tail = 2,
+            IncludeHidden = true
+        }))
+        {
+            logs.AddRange(batch.Lines);
+        }
+
+        Assert.Collection(logs,
+            log => Assert.Equal($"{TestTimestamp} needle second", log.Content),
+            log => Assert.Equal($"{TestTimestamp} needle third", log.Content));
+
+        await app.StopAsync().DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task GetConsoleLogsAsync_DoesNotApplyTailAcrossMultipleResources()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("resource1"));
+        builder.AddResource(new CustomResource("resource2"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var logger1 = resourceLoggerService.GetLogger("resource1");
+        logger1.LogInformation("resource1 log");
+        resourceLoggerService.Complete("resource1");
+
+        var logger2 = resourceLoggerService.GetLogger("resource2");
+        logger2.LogInformation("resource2 log");
+        resourceLoggerService.Complete("resource2");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var logLine in target.GetConsoleLogsAsync(new GetConsoleLogsRequest
+        {
+            Tail = 1,
+            IncludeHidden = true
+        }))
+        {
+            logs.Add(logLine);
+        }
+
+        Assert.Equal(2, logs.Count);
+        Assert.Contains(logs, log => log.ResourceName == "resource1");
+        Assert.Contains(logs, log => log.ResourceName == "resource2");
+
+        await app.StopAsync().DefaultTimeout(TestConstants.LongTimeoutTimeSpan);
+    }
+
+    [Fact]
+    public async Task GetConsoleLogsAsync_ExcludesHiddenResourcesWhenRequested()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(outputHelper);
+
+        builder.AddResource(new CustomResource("visible"));
+        var hidden = builder.AddResource(new CustomResource("hidden"));
+
+        using var app = builder.Build();
+
+        var resourceLoggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        resourceLoggerService.TimeProvider = new FixedTimeProvider();
+
+        await app.StartAsync().DefaultTimeout();
+
+        var notificationService = app.Services.GetRequiredService<ResourceNotificationService>();
+        await notificationService.PublishUpdateAsync(hidden.Resource, snapshot => snapshot with
+        {
+            IsHidden = true
+        }).DefaultTimeout();
+
+        var visibleLogger = resourceLoggerService.GetLogger("visible");
+        visibleLogger.LogInformation("needle visible");
+        resourceLoggerService.Complete("visible");
+
+        var hiddenLogger = resourceLoggerService.GetLogger("hidden");
+        hiddenLogger.LogInformation("needle hidden");
+        resourceLoggerService.Complete("hidden");
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
+            app.Services);
+
+        var logs = new List<ResourceLogLine>();
+        await foreach (var logLine in target.GetConsoleLogsAsync(new GetConsoleLogsRequest
+        {
+            Search = "needle",
+            IncludeHidden = false
+        }))
+        {
+            logs.Add(logLine);
+        }
+
+        var log = Assert.Single(logs);
+        Assert.Equal("visible", log.ResourceName);
+        Assert.Equal($"{TestTimestamp} needle visible", log.Content);
 
         await app.StopAsync().DefaultTimeout();
     }
@@ -649,6 +835,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var logs = new List<ResourceLogLine>();
@@ -698,6 +886,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var logs = new List<ResourceLogLine>();
@@ -736,6 +926,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         using var cts = new CancellationTokenSource();
@@ -798,6 +990,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var result = await target.GetDashboardUrlsAsync().DefaultTimeout();
@@ -849,6 +1043,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -902,6 +1098,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -961,6 +1159,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -1011,6 +1211,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -1064,6 +1266,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -1094,6 +1298,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -1119,6 +1325,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var response = await target.ExecuteResourceCommandAsync(new ExecuteResourceCommandRequest
@@ -1143,6 +1351,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var result = await target.WaitForResourceAsync(new WaitForResourceRequest
@@ -1174,6 +1384,8 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
 
         var target = new AuxiliaryBackchannelRpcTarget(
             NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            app.Services.GetRequiredService<IConfiguration>(),
+            app.Services.GetRequiredService<ProfilingTelemetry>(),
             app.Services);
 
         var result = await target.WaitForResourceAsync(new WaitForResourceRequest
@@ -1187,6 +1399,62 @@ public class AuxiliaryBackchannelRpcTargetTests(ITestOutputHelper outputHelper)
         Assert.True(result.ResourceNotFound);
 
         await app.StopAsync().DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task GetAppHostInformationAsync_ReturnsCliLogFilePath_WhenConfigured()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AppHost:Path"] = "/path/to/apphost.csproj",
+                [KnownConfigNames.CliProcessId] = "5678",
+                [KnownConfigNames.CliLogFilePath] = "/logs/cli_20260516T120000_abcd1234.log"
+            })
+            .Build();
+
+        using var services = new ServiceCollection()
+            .AddSingleton<IConfiguration>(configuration)
+            .AddSingleton<ProfilingTelemetry>()
+            .BuildServiceProvider();
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            configuration,
+            services.GetRequiredService<ProfilingTelemetry>(),
+            services);
+
+        var result = await target.GetAppHostInformationAsync().DefaultTimeout();
+
+        Assert.Equal("/logs/cli_20260516T120000_abcd1234.log", result.CliLogFilePath);
+        Assert.Equal(5678, result.CliProcessId);
+    }
+
+    [Fact]
+    public async Task GetAppHostInfoAsync_IncludesCliLogFilePath()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AppHost:Path"] = "/path/to/apphost.csproj",
+                [KnownConfigNames.CliLogFilePath] = "/logs/cli_session.log"
+            })
+            .Build();
+
+        using var services = new ServiceCollection()
+            .AddSingleton<IConfiguration>(configuration)
+            .AddSingleton<ProfilingTelemetry>()
+            .BuildServiceProvider();
+
+        var target = new AuxiliaryBackchannelRpcTarget(
+            NullLogger<AuxiliaryBackchannelRpcTarget>.Instance,
+            configuration,
+            services.GetRequiredService<ProfilingTelemetry>(),
+            services);
+
+        var result = await target.GetAppHostInfoAsync().DefaultTimeout();
+
+        Assert.Equal("/logs/cli_session.log", result.CliLogFilePath);
     }
 }
 

@@ -30,7 +30,7 @@ internal sealed class IntegrationPackageSearchService(
             allChannels = allChannels.Where(c => string.Equals(c.Name, configuredChannel, StringComparison.OrdinalIgnoreCase));
         }
 
-        var hasHives = executionContext.GetPrHiveCount() > 0;
+        var hasHives = executionContext.GetHiveCount() > 0;
         var channels = hasHives || !string.IsNullOrEmpty(configuredChannel)
             ? allChannels
             : allChannels.Where(c => c.Type is PackageChannelType.Implicit);
@@ -107,7 +107,7 @@ internal sealed class IntegrationPackageSearchService(
         catch (JsonException ex)
         {
             interactionService.DisplayError(ex.Message);
-            return (ConfiguredChannel: null, ExitCode: ExitCodeConstants.FailedToLoadConfiguration);
+            return (ConfiguredChannel: null, ExitCode: CliExitCodes.FailedToLoadConfiguration);
         }
     }
 

@@ -367,6 +367,56 @@ public class AtsCapabilityScannerTests
                 && d.Message.Contains("has collisions", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void ScanAssembly_DtoNullableScalarProperties_SetTypeRefNullability()
+    {
+        var result = AtsCapabilityScanner.ScanAssembly(typeof(AtsCapabilityScannerTests).Assembly);
+
+        var dto = Assert.Single(result.DtoTypes, d => d.ClrType == typeof(NullableScalarDto));
+
+        var nullableString = Assert.Single(dto.Properties, p => p.Name == nameof(NullableScalarDto.NullableString));
+        Assert.Equal(AtsConstants.String, nullableString.Type.TypeId);
+        Assert.True(nullableString.Type.IsNullable);
+        Assert.False(nullableString.IsOptional);
+
+        var requiredString = Assert.Single(dto.Properties, p => p.Name == nameof(NullableScalarDto.RequiredString));
+        Assert.Equal(AtsConstants.String, requiredString.Type.TypeId);
+        Assert.NotEqual(true, requiredString.Type.IsNullable);
+        Assert.False(requiredString.IsOptional);
+
+        var nullableNumber = Assert.Single(dto.Properties, p => p.Name == nameof(NullableScalarDto.NullableNumber));
+        Assert.Equal(AtsConstants.Number, nullableNumber.Type.TypeId);
+        Assert.True(nullableNumber.Type.IsNullable);
+        Assert.True(nullableNumber.IsOptional);
+
+        var requiredNumber = Assert.Single(dto.Properties, p => p.Name == nameof(NullableScalarDto.RequiredNumber));
+        Assert.Equal(AtsConstants.Number, requiredNumber.Type.TypeId);
+        Assert.NotEqual(true, requiredNumber.Type.IsNullable);
+        Assert.False(requiredNumber.IsOptional);
+    }
+
+    [Fact]
+    public void ScanAssembly_TargetSpecificMethodShadowsGenericExpandedMethodOnlyForThatTarget()
+    {
+        var result = AtsCapabilityScanner.ScanAssembly(typeof(AtsCapabilityScannerTests).Assembly);
+        var shadowedTypeId = AtsTypeMapping.DeriveTypeId(typeof(ShadowedEnvironmentResource));
+        var otherTypeId = AtsTypeMapping.DeriveTypeId(typeof(OtherEnvironmentResource));
+
+        var genericCapability = Assert.Single(result.Capabilities,
+            c => c.CapabilityId.EndsWith("/shadowedExporter", StringComparison.Ordinal));
+        var specificCapability = Assert.Single(result.Capabilities,
+            c => c.CapabilityId.EndsWith("/specificShadowedExporter", StringComparison.Ordinal));
+
+        Assert.Equal("shadowedExporter", genericCapability.MethodName);
+        Assert.Equal("shadowedExporter", specificCapability.MethodName);
+        Assert.DoesNotContain(genericCapability.ExpandedTargetTypes, t => t.TypeId == shadowedTypeId);
+        Assert.Contains(genericCapability.ExpandedTargetTypes, t => t.TypeId == otherTypeId);
+        Assert.Contains(specificCapability.ExpandedTargetTypes, t => t.TypeId == shadowedTypeId);
+        Assert.DoesNotContain(result.Diagnostics,
+            d => d.Message.Contains("shadowedExporter", StringComparison.Ordinal)
+                && d.Message.Contains("has collisions", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region Callback Parameter Type Resolution Tests
@@ -552,6 +602,22 @@ public class AtsCapabilityScannerTests
         }
     }
 
+    private sealed class ShadowedEnvironmentResource(string name) : Resource(name), IResourceWithEnvironment;
+
+    private sealed class OtherEnvironmentResource(string name) : Resource(name), IResourceWithEnvironment;
+
+    [AspireDto]
+    private sealed class NullableScalarDto
+    {
+        public string? NullableString { get; set; }
+
+        public string RequiredString { get; set; } = "";
+
+        public int? NullableNumber { get; set; }
+
+        public int RequiredNumber { get; set; }
+    }
+
     [AspireExport(ExposeProperties = true)]
     private class BaseExportedProperties
     {
@@ -590,6 +656,25 @@ public class AtsCapabilityScannerTests
             Func<ContainerResource, ProjectResource, Task> callback)
         {
             _ = callback;
+            return builder;
+        }
+
+        [AspireExport("shadowedExporter")]
+        public static IResourceBuilder<T> ShadowedExporter<T>(IResourceBuilder<T> builder)
+            where T : IResourceWithEnvironment
+        {
+            return builder;
+        }
+
+        [AspireExport("specificShadowedExporter", MethodName = "shadowedExporter")]
+        public static IResourceBuilder<ShadowedEnvironmentResource> SpecificShadowedExporter(IResourceBuilder<ShadowedEnvironmentResource> builder)
+        {
+            return builder;
+        }
+
+        [AspireExport("otherEnvironmentProbe")]
+        public static IResourceBuilder<OtherEnvironmentResource> OtherEnvironmentProbe(IResourceBuilder<OtherEnvironmentResource> builder)
+        {
             return builder;
         }
     }

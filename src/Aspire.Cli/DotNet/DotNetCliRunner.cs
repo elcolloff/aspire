@@ -107,11 +107,11 @@ internal sealed class DotNetCliRunner(
 
         // Resolve the dotnet executable path, preferring the private SDK installation if available.
         var dotnetPath = ResolveDotNetPath(finalEnv);
+        var effectiveArgs = AddBinlogArgumentIfConfigured(args, dotnetCommand, projectFile, workingDirectory, processActivity);
         processActivity.SetDotNetResolvedExecutable(
             dotnetPath,
+            effectiveArgs,
             finalEnv.TryGetValue("DOTNET_CLI_USE_MSBUILD_SERVER", out var msBuildServerValue) ? msBuildServerValue : null);
-
-        var effectiveArgs = AddBinlogArgumentIfConfigured(args, dotnetCommand, projectFile, workingDirectory, processActivity);
         processActivity.SetDotNetArgsCount(effectiveArgs.Length);
 
         var outputCounters = new ProcessOutputCounters();
@@ -142,7 +142,7 @@ internal sealed class DotNetCliRunner(
 
                 _ = StartBackchannelAsync(null, socketPath!, backchannelCompletionSource, cancellationToken);
 
-                return ExitCodeConstants.Success;
+                return CliExitCodes.Success;
             }
         }
 
@@ -152,7 +152,7 @@ internal sealed class DotNetCliRunner(
         if (!started)
         {
             processActivity.SetError("Process failed to start.");
-            return ExitCodeConstants.FailedToDotnetRunAppHost;
+            return CliExitCodes.FailedToDotnetRunAppHost;
         }
 
         if (backchannelCompletionSource is not null && socketPath is not null)
@@ -290,6 +290,10 @@ internal sealed class DotNetCliRunner(
         // The AppHost will verify both PID and start time to ensure it's monitoring the correct process.
         env[KnownConfigNames.CliProcessStarted] = GetCurrentProcessStartTimeUnixSeconds().ToString(CultureInfo.InvariantCulture);
 
+        // Pass the CLI log file path so that querying CLI processes (e.g., aspire resource, aspire stop)
+        // can surface it to help users diagnose issues in the managing CLI process.
+        env[KnownConfigNames.CliLogFilePath] = executionContext.LogFilePath;
+
         // Always set MSBUILDTERMINALLOGGER=false for all dotnet command executions to ensure consistent terminal logger behavior
         env[KnownConfigNames.MsBuildTerminalLogger] = "false";
 
@@ -350,6 +354,7 @@ internal sealed class DotNetCliRunner(
         logger.LogDebug("Starting backchannel connection to AppHost at {SocketPath}", socketPath);
 
         var startTime = DateTimeOffset.UtcNow;
+        var connectionTimeout = GetBackchannelConnectionTimeout();
 
         do
         {
@@ -372,11 +377,14 @@ internal sealed class DotNetCliRunner(
                 logger.LogDebug("Connected to AppHost backchannel at {SocketPath}", socketPath);
                 return;
             }
-            catch (Exception ex) when (ex is SocketException or RemoteRpcException && execution is { HasExited: true, ExitCode: not 0 })
+            catch (Exception ex) when ((ex is SocketException or RemoteRpcException) && execution is { HasExited: true })
             {
                 // Log at Debug level - this is expected when AppHost crashes, the real error is in AppHost output
-                logger.LogDebug(ex, "AppHost process has exited. Unable to connect to backchannel at {SocketPath}", socketPath);
-                var backchannelException = new FailedToConnectBackchannelConnection("AppHost process has exited unexpectedly.", ex);
+                logger.LogDebug(ex, "AppHost process has exited with code {ExitCode}. Unable to connect to backchannel at {SocketPath}", execution.ExitCode, socketPath);
+                var message = execution.ExitCode == CliExitCodes.Success
+                    ? "AppHost process has exited"
+                    : "AppHost process has exited unexpectedly";
+                var backchannelException = new FailedToConnectBackchannelConnection(message, ex);
                 backchannelCompletionSource.SetException(backchannelException);
                 return;
             }
@@ -388,6 +396,14 @@ internal sealed class DotNetCliRunner(
                 // In that case, after 30 seconds we just slow down the polling to
                 // once per second.
                 var waitingFor = DateTimeOffset.UtcNow - startTime;
+                if (execution is null && waitingFor >= connectionTimeout)
+                {
+                    logger.LogError("Timed out waiting for AppHost backchannel after {Timeout} seconds", connectionTimeout.TotalSeconds);
+                    var timeoutException = new TimeoutException($"Timed out waiting for AppHost backchannel after {connectionTimeout.TotalSeconds} seconds. Check the debug logs for more details.");
+                    backchannelCompletionSource.SetException(timeoutException);
+                    return;
+                }
+
                 if (waitingFor > TimeSpan.FromSeconds(10))
                 {
                     logger.LogTrace(ex, "Slow polling for backchannel connection (attempt {Attempt})", connectionAttempts);
@@ -426,6 +442,17 @@ internal sealed class DotNetCliRunner(
             }
 
         } while (await timer.WaitForNextTickAsync(cancellationToken));
+    }
+
+    private TimeSpan GetBackchannelConnectionTimeout()
+    {
+        var configuredValue = configuration[KnownConfigNames.CliBackchannelConnectTimeoutSeconds];
+        if (double.TryParse(configuredValue, CultureInfo.InvariantCulture, out var seconds) && seconds >= 0)
+        {
+            return TimeSpan.FromSeconds(seconds);
+        }
+
+        return TimeSpan.FromSeconds(60);
     }
 
     // Cache expiry/max age handled inside DiskCache implementation.
@@ -793,7 +820,7 @@ internal sealed class DotNetCliRunner(
             if (stdout is null)
             {
                 logger.LogError("Failed to read stdout from the process. This should never happen.");
-                return (ExitCodeConstants.FailedToInstallTemplates, null);
+                return (CliExitCodes.FailedToInstallTemplates, null);
             }
 
             // NOTE: This parsing logic is hopefully temporary and in the future we'll
@@ -1276,7 +1303,7 @@ internal sealed class DotNetCliRunner(
             if (stdout is null)
             {
                 logger.LogError("Failed to read stdout from the process. This should never happen.");
-                return (ExitCodeConstants.FailedToAddPackage, null);
+                return (CliExitCodes.FailedToAddPackage, null);
             }
 
             try
@@ -1294,7 +1321,7 @@ internal sealed class DotNetCliRunner(
             catch (JsonException ex)
             {
                 logger.LogError($"Failed to read JSON returned by the package search. {ex.Message}");
-                return (ExitCodeConstants.FailedToAddPackage, null);
+                return (CliExitCodes.FailedToAddPackage, null);
             }
 
         }

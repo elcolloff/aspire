@@ -3,6 +3,7 @@
 
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Aspire.Cli.Backchannel;
 using Aspire.Cli.Commands;
@@ -22,6 +23,8 @@ using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Spectre.Console;
 
 namespace Aspire.Cli.Tests.Commands;
 
@@ -55,7 +58,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var result = command.Parse("run");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
-        Assert.Equal(ExitCodeConstants.FailedToFindProject, exitCode);
+        Assert.Equal(CliExitCodes.FailedToFindProject, exitCode);
     }
 
     [Fact]
@@ -86,7 +89,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.FailedToFindProject, exitCode);
+        Assert.Equal(CliExitCodes.FailedToFindProject, exitCode);
     }
 
     [Fact]
@@ -103,7 +106,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var result = command.Parse("run");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
-        Assert.Equal(ExitCodeConstants.FailedToFindProject, exitCode);
+        Assert.Equal(CliExitCodes.FailedToFindProject, exitCode);
     }
 
     [Fact]
@@ -121,7 +124,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.FailedToFindProject, exitCode);
+        Assert.Equal(CliExitCodes.FailedToFindProject, exitCode);
     }
 
     [Fact]
@@ -169,7 +172,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
     [Fact]
     public void GetDetachedFailureMessage_ReturnsBuildSpecificMessage_ForBuildFailureExitCode()
     {
-        var message = AppHostLauncher.GetDetachedFailureMessage(ExitCodeConstants.FailedToBuildArtifacts);
+        var message = AppHostLauncher.GetDetachedFailureMessage(CliExitCodes.FailedToBuildArtifacts);
 
         Assert.Equal(RunCommandStrings.AppHostFailedToBuild, message);
     }
@@ -252,7 +255,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var result = command.Parse("run");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
-        Assert.Equal(ExitCodeConstants.FailedToTrustCertificates, exitCode);
+        Assert.Equal(CliExitCodes.FailedToTrustCertificates, exitCode);
     }
 
     private sealed class ThrowingCertificateService : Aspire.Cli.Certificates.ICertificateService
@@ -337,6 +340,12 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         }
     }
 
+    private static async IAsyncEnumerable<BackchannelLogEntry> EmptyLogEntriesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        yield break;
+    }
+
     [Fact]
     public async Task RunCommand_CompletesSuccessfully()
     {
@@ -398,7 +407,193 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         cts.Cancel();
 
         var exitCode = await pendingRun.DefaultTimeout();
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
+    }
+
+    [Fact]
+    public async Task RunCommand_WhenAppHostReturnsCancelled_CompletesSuccessfully()
+    {
+        var runnerFactory = (IServiceProvider sp) =>
+        {
+            var runner = new TestDotNetCliRunner();
+            runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+            runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+            runner.RunAsyncCallback = (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
+            {
+                var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                backchannelCompletionSource!.SetResult(backchannel);
+
+                return Task.FromResult(CliExitCodes.Cancelled);
+            };
+
+            return runner;
+        };
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.ProjectLocatorFactory = _ => new TestProjectLocator();
+            options.AppHostBackchannelFactory = _ => new TestAppHostBackchannel
+            {
+                GetDashboardUrlsAsyncCallback = _ => Task.FromResult(new DashboardUrlsState
+                {
+                    DashboardHealthy = true,
+                    BaseUrlWithLoginToken = "http://localhost:5000/login?t=abcd"
+                })
+            };
+            options.DotNetCliRunnerFactory = runnerFactory;
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("run");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout(TestConstants.LongTimeoutDuration);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+    }
+
+    [Fact]
+    public async Task RunCommand_WithCaptureProfile_TreatsRequestedStopAsSuccess()
+    {
+        var appHostExitCode = new TaskCompletionSource<int>();
+        var requestStopCalled = new TaskCompletionSource();
+
+        var runnerFactory = (IServiceProvider sp) =>
+        {
+            var runner = new TestDotNetCliRunner();
+            runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+            runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+            runner.RunAsyncCallback = async (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
+            {
+                var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                backchannelCompletionSource!.SetResult(backchannel);
+
+                return await appHostExitCode.Task.WaitAsync(ct);
+            };
+
+            return runner;
+        };
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.ProjectLocatorFactory = _ => new TestProjectLocator();
+            options.AppHostBackchannelFactory = _ => new TestAppHostBackchannel
+            {
+                RequestStopAsyncCalled = requestStopCalled,
+                RequestStopAsyncCallback = () =>
+                {
+                    appHostExitCode.SetResult(137);
+                    return Task.CompletedTask;
+                },
+                GetAppHostLogEntriesAsyncCallback = EmptyLogEntriesAsync
+            };
+            options.DotNetCliRunnerFactory = runnerFactory;
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("run --capture-profile");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout(TestConstants.LongTimeoutDuration);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.True(requestStopCalled.Task.IsCompleted, "Capture mode should stop the AppHost after startup.");
+    }
+
+    [Fact]
+    public async Task RunCommand_WithCaptureProfile_PreservesExitCodeWhenRunCompletesBeforeStop()
+    {
+        var requestStopCalled = new TaskCompletionSource();
+
+        var runnerFactory = (IServiceProvider sp) =>
+        {
+            var runner = new TestDotNetCliRunner();
+            runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+            runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+            runner.RunAsyncCallback = (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
+            {
+                var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                backchannelCompletionSource!.SetResult(backchannel);
+
+                return Task.FromResult(123);
+            };
+
+            return runner;
+        };
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.ProjectLocatorFactory = _ => new TestProjectLocator();
+            options.AppHostBackchannelFactory = _ => new TestAppHostBackchannel
+            {
+                RequestStopAsyncCalled = requestStopCalled,
+                GetAppHostLogEntriesAsyncCallback = EmptyLogEntriesAsync
+            };
+            options.DotNetCliRunnerFactory = runnerFactory;
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("run --capture-profile");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout(TestConstants.LongTimeoutDuration);
+
+        Assert.Equal(123, exitCode);
+        Assert.False(requestStopCalled.Task.IsCompleted, "Capture mode should not mask an AppHost exit before the stop request.");
+    }
+
+    [Fact]
+    public async Task RunCommand_WithCaptureProfile_PropagatesFailureExitCodeAfterStop()
+    {
+        var appHostExitCode = new TaskCompletionSource<int>();
+        var requestStopCalled = new TaskCompletionSource();
+
+        var runnerFactory = (IServiceProvider sp) =>
+        {
+            var runner = new TestDotNetCliRunner();
+            runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+            runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+            runner.RunAsyncCallback = async (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
+            {
+                var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                backchannelCompletionSource!.SetResult(backchannel);
+
+                return await appHostExitCode.Task.WaitAsync(ct);
+            };
+
+            return runner;
+        };
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.ProjectLocatorFactory = _ => new TestProjectLocator();
+            options.AppHostBackchannelFactory = _ => new TestAppHostBackchannel
+            {
+                RequestStopAsyncCalled = requestStopCalled,
+                RequestStopAsyncCallback = () =>
+                {
+                    // Simulate an AppHost that crashes during shutdown rather than terminating
+                    // via a known teardown signal. Capture mode must surface that failure.
+                    appHostExitCode.SetResult(CliExitCodes.FailedToDotnetRunAppHost);
+                    return Task.CompletedTask;
+                },
+                GetAppHostLogEntriesAsyncCallback = EmptyLogEntriesAsync
+            };
+            options.DotNetCliRunnerFactory = runnerFactory;
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("run --capture-profile");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout(TestConstants.LongTimeoutDuration);
+
+        Assert.Equal(CliExitCodes.FailedToDotnetRunAppHost, exitCode);
+        Assert.True(requestStopCalled.Task.IsCompleted, "Capture mode should stop the AppHost after startup.");
     }
 
     [Fact]
@@ -453,7 +648,45 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         cts.Cancel();
 
         var exitCode = await pendingRun.DefaultTimeout(TestConstants.LongTimeoutDuration);
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
+    }
+
+    [Fact]
+    public void RenderAppHostSummary_RendersLogsPathAsClickableFileLink()
+    {
+        var output = new StringBuilder();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.TrueColor,
+            Out = new AnsiConsoleOutput(new StringWriter(output)),
+            Enrichment = new ProfileEnrichment { UseDefaultEnrichers = false }
+        });
+        console.Profile.Width = int.MaxValue;
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var logFilePath = Path.Combine(workspace.WorkspaceRoot.FullName, "cli [run].log");
+        var executionContext = workspace.CreateExecutionContext(logFilePath: logFilePath);
+
+        var interactionService = new ConsoleInteractionService(
+            new ConsoleEnvironment(console, console),
+            executionContext,
+            TestHelpers.CreateInteractiveHostEnvironment(),
+            NullLoggerFactory.Instance);
+
+        RunCommand.RenderAppHostSummary(
+            interactionService,
+            "AppHost.csproj",
+            dashboardUrl: "http://localhost:1234",
+            codespacesUrl: null,
+            logFilePath,
+            isExtensionHost: false);
+
+        var outputString = output.ToString();
+        var fileUri = new Uri(Path.GetFullPath(logFilePath)).AbsoluteUri;
+
+        Assert.Contains("Logs", outputString);
+        TerminalLinkAssert.ContainsLink(outputString, fileUri, logFilePath);
     }
 
     [Fact]
@@ -525,8 +758,9 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await pendingRun.DefaultTimeout(TestConstants.LongTimeoutDuration);
 
-        // The command should succeed even when the dashboard is unhealthy
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        // The command should handle cancellation gracefully
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.Equal(1, testInteractionService.DisplayCancellationMessageCount);
 
         // Verify a warning was displayed (not an error)
         var m = Assert.Single(testInteractionService.DisplayedMessages);
@@ -627,7 +861,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         cts.Cancel();
         var exitCode = await pendingRun.DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         Assert.False(buildCalled, "Build should be skipped when extension DevKit capability is available.");
     }
 
@@ -697,7 +931,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         cts.Cancel();
         var exitCode = await pendingRun.DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         Assert.False(buildCalled, "Build should be skipped when running in extension.");
     }
 
@@ -770,7 +1004,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await pendingRun.DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         Assert.True(buildCalled, "Build should be called when extension has build-dotnet-using-cli capability.");
     }
 
@@ -823,7 +1057,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.FailedToBuildArtifacts, exitCode);
+        Assert.Equal(CliExitCodes.FailedToBuildArtifacts, exitCode);
         Assert.True(buildCalled, "Build should be called before launching the AppHost in extension no-debug mode.");
         Assert.False(runCalled, "AppHost should not be launched when the pre-build fails.");
     }
@@ -993,7 +1227,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.FailedToBuildArtifacts, exitCode);
+        Assert.Equal(CliExitCodes.FailedToBuildArtifacts, exitCode);
         Assert.False(runCalled, "The AppHost should not be started when the initial build fails in watch mode.");
     }
 
@@ -1128,9 +1362,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions();
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1178,9 +1410,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions();
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1224,9 +1454,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions { Debug = true };
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1274,9 +1502,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions { Debug = false };
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1319,9 +1545,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions { Debug = true };
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1365,9 +1589,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions();
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1411,9 +1633,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var options = new ProcessInvocationOptions();
 
-        var executionContext = new CliExecutionContext(
-            workingDirectory: workspace.WorkspaceRoot, hivesDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("hives"), cacheDirectory: workspace.WorkspaceRoot.CreateSubdirectory(".aspire").CreateSubdirectory("cache"), sdksDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-sdks")), logsDirectory: new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), logFilePath: "test.log"
-        );
+        var executionContext = workspace.CreateExecutionContext();
 
         var runner = DotNetCliRunnerTestHelper.Create(
             provider,
@@ -1605,7 +1825,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
             cts.Cancel();
 
             var exitCode = await pendingRun.DefaultTimeout();
-            Assert.Equal(ExitCodeConstants.Success, exitCode);
+            Assert.Equal(CliExitCodes.Success, exitCode);
 
             // Verify DcpPublisher__RandomizePorts is set to true for isolated mode
             Assert.True(capturedEnv.ContainsKey("DcpPublisher__RandomizePorts"), "DcpPublisher__RandomizePorts should be set in isolated mode");
@@ -1659,7 +1879,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         // Should return InvalidCommand error because --no-build is not supported with watch mode enabled
-        Assert.Equal(ExitCodeConstants.InvalidCommand, exitCode);
+        Assert.Equal(CliExitCodes.InvalidCommand, exitCode);
     }
 
     [Fact]
@@ -1812,7 +2032,7 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
 
         var exitCode = await pendingRun.DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         Assert.False(startDebugSessionCalled, "StartDebugSessionAsync should not be called in non-interactive mode.");
     }
 
@@ -1839,17 +2059,54 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         using var source = new ActivitySource("test-detached-child-environment");
         using var activity = source.StartActivity("parent");
         Assert.NotNull(activity);
-        activity.SetBaggage(ProfilingTelemetry.SessionIdBaggageName, "session-1");
+        activity.SetBaggage(ProfilingTelemetry.Baggage.SessionId, "session-1");
         activity.TraceStateString = "state-1";
 
         var environment = AppHostLauncher.CreateDetachedChildEnvironment(activity);
 
         Assert.Equal("true", environment[KnownConfigNames.CliRunDetached]);
-        Assert.Equal("true", environment[ProfilingTelemetry.EnabledEnvironmentVariable]);
-        Assert.Equal("session-1", environment[ProfilingTelemetry.SessionIdEnvironmentVariable]);
+        Assert.Equal("true", environment[ProfilingTelemetry.EnvironmentVariables.Enabled]);
+        Assert.Equal("session-1", environment[ProfilingTelemetry.EnvironmentVariables.SessionId]);
         Assert.Equal("session-1", environment[KnownConfigNames.Legacy.StartupOperationId]);
-        Assert.Equal(activity.Id, environment[ProfilingTelemetry.TraceParentEnvironmentVariable]);
-        Assert.Equal("state-1", environment[ProfilingTelemetry.TraceStateEnvironmentVariable]);
+        Assert.Equal(activity.Id, environment[ProfilingTelemetry.EnvironmentVariables.TraceParent]);
+        Assert.Equal("state-1", environment[ProfilingTelemetry.EnvironmentVariables.TraceState]);
+    }
+
+    [Fact]
+    public void DetachedChildEnvironment_IncludesProfilingTelemetryContextFromActiveProfilingSpan()
+    {
+        using var listener = CreateActivityListener(ProfilingTelemetry.ActivitySourceName);
+        using var profilingTelemetry = new ProfilingTelemetry(CreateConfiguration(
+            (ProfilingTelemetry.EnvironmentVariables.Enabled, "true")));
+
+        using var activity = profilingTelemetry.StartDetachedSpawnChild("aspire", ["run"], childCommand: "run");
+        Assert.True(activity.IsRunning);
+
+        var environment = AppHostLauncher.CreateDetachedChildEnvironment(Activity.Current);
+
+        Assert.Equal("true", environment[KnownConfigNames.CliRunDetached]);
+        Assert.Equal("true", environment[ProfilingTelemetry.EnvironmentVariables.Enabled]);
+        var sessionId = environment[ProfilingTelemetry.EnvironmentVariables.SessionId];
+        Assert.False(string.IsNullOrWhiteSpace(sessionId));
+        Assert.Equal(sessionId, environment[KnownConfigNames.Legacy.StartupOperationId]);
+        Assert.Equal(Activity.Current?.Id, environment[ProfilingTelemetry.EnvironmentVariables.TraceParent]);
+    }
+
+    [Fact]
+    public void DetachedChildEnvironment_DoesNotEnableProfilingForNonProfilingActivity()
+    {
+        using var listener = CreateActivityListener("test-detached-child-environment");
+        using var source = new ActivitySource("test-detached-child-environment");
+        using var activity = source.StartActivity("parent");
+        Assert.NotNull(activity);
+
+        var environment = AppHostLauncher.CreateDetachedChildEnvironment(activity);
+
+        Assert.Equal("true", environment[KnownConfigNames.CliRunDetached]);
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.Enabled));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.SessionId));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceParent));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceState));
     }
 
     [Fact]
@@ -1858,10 +2115,10 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         var environment = AppHostLauncher.CreateDetachedChildEnvironment(null);
 
         Assert.Equal("true", environment[KnownConfigNames.CliRunDetached]);
-        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnabledEnvironmentVariable));
-        Assert.False(environment.ContainsKey(ProfilingTelemetry.SessionIdEnvironmentVariable));
-        Assert.False(environment.ContainsKey(ProfilingTelemetry.TraceParentEnvironmentVariable));
-        Assert.False(environment.ContainsKey(ProfilingTelemetry.TraceStateEnvironmentVariable));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.Enabled));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.SessionId));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceParent));
+        Assert.False(environment.ContainsKey(ProfilingTelemetry.EnvironmentVariables.TraceState));
     }
 
     [Theory]
@@ -1925,5 +2182,12 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         };
         ActivitySource.AddActivityListener(listener);
         return listener;
+    }
+
+    private static IConfiguration CreateConfiguration(params (string Key, string? Value)[] values)
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values.Select(value => new KeyValuePair<string, string?>(value.Key, value.Value)))
+            .Build();
     }
 }

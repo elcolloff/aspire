@@ -33,8 +33,13 @@ internal static class KnownConfigNames
     public const string RemoteAppHostToken = "ASPIRE_REMOTE_APPHOST_TOKEN";
     public const string CliProcessId = "ASPIRE_CLI_PID";
     public const string CliProcessStarted = "ASPIRE_CLI_STARTED";
+    public const string CliLogFilePath = "ASPIRE_CLI_LOG_FILE";
     public const string CliRunDetached = "ASPIRE_CLI_RUN_DETACHED";
+    public const string IntegrationLibsPath = "ASPIRE_INTEGRATION_LIBS_PATH";
+    public const string IntegrationProbeManifestPath = "ASPIRE_INTEGRATION_PROBE_MANIFEST_PATH";
     public const string ForceRichConsole = "ASPIRE_FORCE_RICH_CONSOLE";
+    public const string AppHostLogLevel = "ASPIRE_APPHOST_LOGLEVEL";
+    public const string AspireLogLevel = "ASPIRE_LOGLEVEL";
     public const string TestingDisableHttpClient = "ASPIRE_TESTING_DISABLE_HTTP_CLIENT";
     public const string InteractivityEnabled = "ASPIRE_INTERACTIVITY_ENABLED";
     public const string EnableContainerTunnel = "ASPIRE_ENABLE_CONTAINER_TUNNEL";
@@ -63,6 +68,7 @@ internal static class KnownConfigNames
     // When set, the CLI adds MSBuild binary log arguments to supported dotnet commands and records
     // the emitted binlog path on the profiling span.
     public const string CliDotnetBinlogDirectory = "ASPIRE_CLI_DOTNET_BINLOG_DIR";
+    public const string CliBackchannelConnectTimeoutSeconds = "ASPIRE_CLI_BACKCHANNEL_CONNECT_TIMEOUT_SECONDS";
 
     public const string ExtensionEndpoint = "ASPIRE_EXTENSION_ENDPOINT";
     public const string ExtensionPromptEnabled = "ASPIRE_EXTENSION_PROMPT_ENABLED";

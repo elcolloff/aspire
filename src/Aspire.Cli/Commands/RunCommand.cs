@@ -12,6 +12,7 @@ using Aspire.Cli.Configuration;
 using Aspire.Cli.Diagnostics;
 using Aspire.Cli.DotNet;
 using Aspire.Cli.Interaction;
+using Aspire.Cli.Profiling;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
@@ -132,7 +133,7 @@ internal sealed class RunCommand : BaseCommand
         TreatUnmatchedTokensAsErrors = false;
     }
 
-    protected override async Task<int> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    protected override async Task<CommandResult> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var passedAppHostProjectFile = parseResult.GetValue(AppHostLauncher.s_appHostOption);
         var detach = parseResult.GetValue(s_detachOption);
@@ -141,6 +142,8 @@ internal sealed class RunCommand : BaseCommand
         var format = parseResult.GetValue(AppHostLauncher.s_formatOption);
         var isolated = parseResult.GetValue(AppHostLauncher.s_isolatedOption);
         var isExtensionHost = ExtensionHelper.IsExtensionHost(InteractionService, out _, out _);
+        var captureProfile = parseResult.GetValue(RootCommand.CaptureProfileOption);
+        var captureProfileDelay = TimeSpan.FromSeconds(parseResult.GetValue(RootCommand.CaptureProfileDelayOption));
         var startDebugSession = false;
         if (isExtensionHost)
         {
@@ -151,8 +154,7 @@ internal sealed class RunCommand : BaseCommand
         // Validate that --format is only used with --detach
         if (format == OutputFormat.Json && !detach)
         {
-            InteractionService.DisplayError(RunCommandStrings.FormatRequiresDetach);
-            return ExitCodeConstants.InvalidCommand;
+            return CommandResult.Failure(CliExitCodes.InvalidCommand, RunCommandStrings.FormatRequiresDetach);
         }
 
         // Validate that --no-build is not used when watch mode would be enabled
@@ -160,8 +162,7 @@ internal sealed class RunCommand : BaseCommand
         var watchModeEnabled = _features.IsFeatureEnabled(KnownFeatures.DefaultWatchEnabled, defaultValue: false) || (isExtensionHost && !startDebugSession);
         if (noBuild && watchModeEnabled)
         {
-            InteractionService.DisplayError(RunCommandStrings.NoBuildNotSupportedWithWatchMode);
-            return ExitCodeConstants.InvalidCommand;
+            return CommandResult.Failure(CliExitCodes.InvalidCommand, RunCommandStrings.NoBuildNotSupportedWithWatchMode);
         }
 
         // Handle detached mode - spawn child process and exit
@@ -181,7 +182,7 @@ internal sealed class RunCommand : BaseCommand
         {
             extensionInteractionService.DisplayConsolePlainText(RunCommandStrings.StartingDebugSessionInExtension);
             await extensionInteractionService.StartDebugSessionAsync(ExecutionContext.WorkingDirectory.FullName, passedAppHostProjectFile?.FullName, startDebugSession, new DebugSessionOptions { Command = "run" });
-            return ExitCodeConstants.Success;
+            return CommandResult.Success();
         }
 
         AppHostProjectContext? context = null;
@@ -215,7 +216,7 @@ internal sealed class RunCommand : BaseCommand
             if (effectiveAppHostFile is null)
             {
                 runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "project_not_found");
-                return ExitCodeConstants.FailedToFindProject;
+                return CommandResult.Failure(CliExitCodes.FailedToFindProject);
             }
 
             // Resolve the language for this file and get the appropriate handler
@@ -223,8 +224,7 @@ internal sealed class RunCommand : BaseCommand
             if (project is null)
             {
                 runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "project_not_found");
-                InteractionService.DisplayError("Unrecognized app host type.");
-                return ExitCodeConstants.FailedToFindProject;
+                return CommandResult.Failure(CliExitCodes.FailedToFindProject, "Unrecognized app host type.");
             }
 
             runActivity?.SetTag(TelemetryConstants.Tags.AppHostLanguage, project.LanguageId);
@@ -267,6 +267,10 @@ internal sealed class RunCommand : BaseCommand
                 BackchannelCompletionSource = backchannelCompletionSource,
             };
             ProfilingTelemetry.AddCurrentContextToEnvironment(context.EnvironmentVariables);
+            if (captureProfile)
+            {
+                ProfileCaptureEnvironment.AddCurrentToEnvironment(context.EnvironmentVariables);
+            }
 
             // Start the project run as a pending task - we'll handle UX while it runs
             Task<int> pendingRun;
@@ -290,8 +294,7 @@ internal sealed class RunCommand : BaseCommand
                 {
                     InteractionService.DisplayLines(outputCollector.GetLines());
                 }
-                InteractionService.DisplayError(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ProjectCouldNotBeBuilt, ExecutionContext.LogFilePath));
-                return await pendingRun;
+                return CommandResult.Failure(await pendingRun, InteractionServiceStrings.ProjectCouldNotBeBuilt);
             }
 
             // If --wait-for-debugger, display a message so the user knows the AppHost is paused.
@@ -345,7 +348,12 @@ internal sealed class RunCommand : BaseCommand
                               && _configuration["SSH_CONNECTION"] is not null;
             var isRemoteEnvironment = isCodespaces || isRemoteContainers || isSshRemote;
 
-            if (!isRemoteEnvironment)
+            var profileStopRequested = false;
+            if (captureProfile)
+            {
+                profileStopRequested = await RequestAppHostStopForProfileAsync(backchannel, pendingRun, captureProfileDelay, cancellationToken).ConfigureAwait(false);
+            }
+            else if (!isRemoteEnvironment)
             {
                 AppendCtrlCMessage(longestLocalizedLengthWithColon);
             }
@@ -426,17 +434,48 @@ internal sealed class RunCommand : BaseCommand
             using (var lifetimeActivity = _profilingTelemetry.StartRunAppHostLifetime())
             {
                 runActivity?.Stop();
-                await pendingLogCapture;
+
+                try
+                {
+                    await pendingLogCapture;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to capture logs from AppHost");
+                    InteractionService.DisplayMessage(KnownEmojis.Warning, "No longer receiving logs from AppHost.");
+                }
+
                 var exitCode = await pendingRun;
                 lifetimeActivity.SetProcessExitCode(exitCode);
-                return exitCode;
+
+                // Capture mode intentionally turns a long-running AppHost startup into a finite command.
+                // Some AppHost implementations, including guest AppHosts, report the teardown exit code
+                // from a helper process that the CLI stops after the AppHost has already started; on
+                // Unix-like systems that surfaces as 128 + signal (e.g., 130 SIGINT, 137 SIGKILL, 143
+                // SIGTERM). These are AppHost process exit codes (not CLI exit codes), so use the raw
+                // signal-based literals here instead of CLI exit-code constants. Treat the known teardown
+                // codes as a successful capture, but propagate any other non-zero exit code so a
+                // genuine AppHost crash during shutdown is not masked.
+                if (profileStopRequested)
+                {
+                    return exitCode is 0 or 130 or 137 or 143
+                        ? CommandResult.Success()
+                        : CommandResult.FromExitCode(exitCode);
+                }
+
+                // Cancelled by user (e.g., Ctrl+C) - treat as successful exit since the user intentionally stopped the AppHost.
+                return exitCode == CliExitCodes.Cancelled
+                    ? CommandResult.Cancelled(CliExitCodes.Success)
+                    : CommandResult.FromExitCode(exitCode);
             }
         }
         catch (OperationCanceledException ex) when (ex.CancellationToken == cancellationToken || ex is ExtensionOperationCanceledException)
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "canceled");
-            InteractionService.DisplayCancellationMessage();
-            return ExitCodeConstants.Success;
+
+            // Command is designed to be cancellable by the user (e.g. Ctrl+C) at any time.
+            // Treat cancellation as a successful exit since the user intentionally stopped the AppHost.
+            return CommandResult.Cancelled(CliExitCodes.Success);
         }
         catch (ProjectLocatorException ex)
         {
@@ -447,41 +486,34 @@ internal sealed class RunCommand : BaseCommand
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "incompatible_version");
             Telemetry.RecordError(ex.Message, ex);
-            return InteractionService.DisplayIncompatibleVersionError(ex, ex.AspireHostingVersion ?? ex.RequiredCapability);
+            return CommandResult.FromExitCode(InteractionService.DisplayIncompatibleVersionError(ex, ex.AspireHostingVersion ?? ex.RequiredCapability));
         }
         catch (CertificateServiceException ex)
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "certificate_trust_failed");
             var errorMessage = string.Format(CultureInfo.CurrentCulture, TemplatingStrings.CertificateTrustError, ex.Message);
             Telemetry.RecordError(errorMessage, ex);
-            InteractionService.DisplayError(errorMessage);
-            return ExitCodeConstants.FailedToTrustCertificates;
+            return CommandResult.Failure(CliExitCodes.FailedToTrustCertificates, errorMessage);
         }
         catch (FailedToConnectBackchannelConnection ex)
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "backchannel_connection_failed");
             var errorMessage = string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ErrorConnectingToAppHost, ex.Message);
             Telemetry.RecordError(errorMessage, ex);
-            InteractionService.DisplayError(errorMessage);
-            // Don't display raw output - it's already in the log file
-            InteractionService.DisplayMessage(KnownEmojis.PageFacingUp, string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.SeeLogsAt, ExecutionContext.LogFilePath));
-            return ExitCodeConstants.FailedToDotnetRunAppHost;
+            return CommandResult.Failure(CliExitCodes.FailedToDotnetRunAppHost, errorMessage);
         }
         catch (ConnectionLostException) when (isExtensionHost)
         {
             // When the extension manages the AppHost lifecycle (e.g., VS Code debug session),
             // it terminates the process on stop/restart, causing the backchannel to drop.
-            return ExitCodeConstants.Success;
+            return CommandResult.Success();
         }
         catch (Exception ex)
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, ex.GetType().FullName);
             var errorMessage = string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.UnexpectedErrorOccurred, ex.Message);
             Telemetry.RecordError(errorMessage, ex);
-            InteractionService.DisplayError(errorMessage);
-            // Don't display raw output - it's already in the log file
-            InteractionService.DisplayMessage(KnownEmojis.PageFacingUp, string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.SeeLogsAt, ExecutionContext.LogFilePath));
-            return ExitCodeConstants.FailedToDotnetRunAppHost;
+            return CommandResult.Failure(CliExitCodes.FailedToDotnetRunAppHost, errorMessage);
         }
         finally
         {
@@ -509,6 +541,36 @@ internal sealed class RunCommand : BaseCommand
         }
 
         InteractionService.DisplayRenderable(BuildCtrlCRenderable(longestLocalizedLengthWithColon));
+    }
+
+    private static async Task<bool> RequestAppHostStopForProfileAsync(
+        IAppHostCliBackchannel backchannel,
+        Task<int> pendingRun,
+        TimeSpan delay,
+        CancellationToken cancellationToken)
+    {
+        // The backchannel has already connected before this method is called, so startup spans have
+        // been produced. The optional delay is only a warmup window for scenarios that want extra
+        // post-start resource activity, not a telemetry flush mechanism.
+        if (delay > TimeSpan.Zero)
+        {
+            var delayTask = Task.Delay(delay, cancellationToken);
+            var completedTask = await Task.WhenAny(delayTask, pendingRun).ConfigureAwait(false);
+            if (completedTask == pendingRun)
+            {
+                return false;
+            }
+
+            await delayTask.ConfigureAwait(false);
+        }
+
+        if (!pendingRun.IsCompleted)
+        {
+            await backchannel.RequestStopAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -597,7 +659,7 @@ internal sealed class RunCommand : BaseCommand
         }
 
         // Logs row
-        grid.AddRow(LabelMarkup(logsLabel), new Text(logFilePath));
+        grid.AddRow(LabelMarkup(logsLabel), new Markup(MarkupHelpers.SafeFileLink(console, logFilePath)));
 
         // PID row (if provided)
         if (pid.HasValue)
@@ -690,20 +752,20 @@ internal sealed class RunCommand : BaseCommand
     /// <para><b>Failure Modes:</b></para>
     /// <list type="number">
     /// <item><b>Project not found</b>: No AppHost project found in the current directory or specified path.
-    /// Returns <see cref="ExitCodeConstants.FailedToFindProject"/>.</item>
+    /// Returns <see cref="CliExitCodes.FailedToFindProject"/>.</item>
     /// <item><b>Failed to spawn child process</b>: Process.Start fails (e.g., executable not found).
-    /// Returns <see cref="ExitCodeConstants.FailedToDotnetRunAppHost"/>.</item>
+    /// Returns <see cref="CliExitCodes.FailedToDotnetRunAppHost"/>.</item>
     /// <item><b>Child process exits early</b>: The child 'aspire run' process exits before the backchannel
     /// is established (e.g., build failure, configuration error). Detected via WaitForExitAsync racing
     /// with the poll delay. Shows exit code and log file path.
-    /// Returns <see cref="ExitCodeConstants.FailedToDotnetRunAppHost"/>.</item>
+    /// Returns <see cref="CliExitCodes.FailedToDotnetRunAppHost"/>.</item>
     /// <item><b>Timeout waiting for backchannel</b>: The auxiliary backchannel socket doesn't appear
     /// within 120 seconds. The child process is killed. Shows timeout message and log file path.
-    /// Returns <see cref="ExitCodeConstants.FailedToDotnetRunAppHost"/>.</item>
+    /// Returns <see cref="CliExitCodes.FailedToDotnetRunAppHost"/>.</item>
     /// </list>
     /// <para>On any failure, the log file path is displayed so the user can investigate.</para>
     /// </remarks>
-    private Task<int> ExecuteDetachedAsync(ParseResult parseResult, FileInfo? passedAppHostProjectFile, bool isExtensionHost, CancellationToken cancellationToken)
+    private Task<CommandResult> ExecuteDetachedAsync(ParseResult parseResult, FileInfo? passedAppHostProjectFile, bool isExtensionHost, CancellationToken cancellationToken)
     {
         var format = parseResult.GetValue(AppHostLauncher.s_formatOption);
         var isolated = parseResult.GetValue(AppHostLauncher.s_isolatedOption);
@@ -711,6 +773,10 @@ internal sealed class RunCommand : BaseCommand
         var waitForDebugger = parseResult.GetValue(RootCommand.WaitForDebuggerOption);
         var globalArgs = RootCommand.GetChildProcessArgs(parseResult);
         var additionalArgs = parseResult.UnmatchedTokens.Where(t => t != "--detach").ToList();
+        var captureProfile = parseResult.GetValue(RootCommand.CaptureProfileOption);
+        var stopAfterLaunchDelay = captureProfile
+            ? TimeSpan.FromSeconds(parseResult.GetValue(RootCommand.CaptureProfileDelayOption))
+            : (TimeSpan?)null;
 
         if (noBuild)
         {
@@ -725,6 +791,7 @@ internal sealed class RunCommand : BaseCommand
             waitForDebugger,
             globalArgs,
             additionalArgs,
+            stopAfterLaunchDelay,
             cancellationToken);
     }
 
