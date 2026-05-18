@@ -64,7 +64,6 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
         public const string AppHostEntryPoint = "aspire.apphost.entry_point";
         public const string AppHostEventType = "aspire.apphost.event.type";
         public const string AppHostEventDispatchBehavior = "aspire.apphost.event.dispatch_behavior";
-        public const string AppHostEventCallback = "aspire.apphost.event.callback";
         public const string AppHostEventSubscriberCount = "aspire.apphost.event.subscriber_count";
         public const string AppHostLifecycleHookCount = "aspire.apphost.lifecycle_hook_count";
         public const string AppHostComponentType = "aspire.apphost.component.type";
@@ -288,7 +287,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
         return activity;
     }
 
-    public static ActivityScope StartAppHostEventCallback(Type eventType, string dispatchBehavior, string callbackName)
+    public static ActivityScope StartAppHostEventCallback(Type eventType, string dispatchBehavior)
     {
         var parentActivity = Activity.Current;
         if (parentActivity?.Source.Name != ActivitySourceName ||
@@ -301,18 +300,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
         AddProfilingSessionId(activity, parentActivity.GetBaggageItem(Tags.ProfilingSessionId));
         var scope = new ActivityScope(activity);
         scope.SetAppHostEvent(eventType, dispatchBehavior);
-        scope.SetAppHostEventCallback(callbackName);
         return scope;
-    }
-
-    internal static string GetCallbackDisplayName(Delegate callback)
-    {
-        // The eventing pipeline wraps callbacks to normalize signatures, so the original delegate
-        // metadata is the only cheap name we have for identifying callback cost in startup profiles.
-        // This runs once at subscription time, not on every event dispatch.
-        var method = callback.Method;
-        var typeName = method.DeclaringType?.FullName ?? callback.Target?.GetType().FullName;
-        return string.IsNullOrEmpty(typeName) ? method.Name : $"{typeName}.{method.Name}";
     }
 
     public static ActivityScope StartAppHostLifecycleHooks(IConfiguration? configuration, int lifecycleHookCount)
@@ -743,6 +731,9 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
 
     private static AppHostStartupEvent[] DrainAppHostStartupEvents()
     {
+        // Move the pre-DI startup timestamps into the process-start activity exactly once. The
+        // queue is static because the earliest records happen before DI is available, but draining
+        // here prevents the same milestones from leaking into later AppHost instances in this process.
         if (s_startupEvents.IsEmpty)
         {
             return [];
@@ -909,8 +900,6 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration)
             SetTag(Tags.AppHostEventType, eventType.FullName);
             SetTag(Tags.AppHostEventDispatchBehavior, dispatchBehavior);
         }
-
-        public void SetAppHostEventCallback(string callbackName) => SetTag(Tags.AppHostEventCallback, callbackName);
 
         public void SetDcpKubernetesClientAlreadyInitialized() => SetTag(Tags.DcpKubernetesClientAlreadyInitialized, true);
 

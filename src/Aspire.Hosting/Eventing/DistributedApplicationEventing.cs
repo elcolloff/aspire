@@ -80,7 +80,7 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
         EventDispatchBehavior dispatchBehavior,
         CancellationToken cancellationToken) where T : IDistributedApplicationEvent
     {
-        var activity = ProfilingTelemetry.StartAppHostEventCallback(typeof(T), dispatchBehavior.ToString(), subscription.CallbackDisplayName);
+        var activity = ProfilingTelemetry.StartAppHostEventCallback(typeof(T), dispatchBehavior.ToString());
         try
         {
             var callbackTask = subscription.Callback(@event, cancellationToken);
@@ -119,16 +119,11 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
     /// <inheritdoc cref="IDistributedApplicationEventing.Subscribe{T}(Func{T, CancellationToken, Task})" />
     public DistributedApplicationEventSubscription Subscribe<T>(Func<T, CancellationToken, Task> callback) where T : IDistributedApplicationEvent
     {
-        return Subscribe(callback, callback);
-    }
-
-    private DistributedApplicationEventSubscription Subscribe<T>(Func<T, CancellationToken, Task> callback, Delegate callbackForProfiling) where T : IDistributedApplicationEvent
-    {
         var subscription = new DistributedApplicationEventSubscription(async (@event, ct) =>
         {
             var typedEvent = (T)@event;
             await callback(typedEvent, ct).ConfigureAwait(false);
-        }, callbackForProfiling);
+        });
 
         if (_eventSubscriptionListLookup.TryGetValue(typeof(T), out var subscriptions))
         {
@@ -161,7 +156,7 @@ public class DistributedApplicationEventing : IDistributedApplicationEventing
             }
         };
 
-        return Subscribe(resourceFilteredCallback, callback);
+        return Subscribe(resourceFilteredCallback);
     }
 
     /// <inheritdoc cref="IDistributedApplicationEventing.Unsubscribe(DistributedApplicationEventSubscription)" />
