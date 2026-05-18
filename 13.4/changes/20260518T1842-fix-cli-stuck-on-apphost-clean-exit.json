@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The CLI no longer hangs at 'Connecting to apphost...' when an AppHost exits cleanly (exit code 0) before opening the backchannel. Both .NET and polyglot AppHost backchannel startup now treat any exited process as terminal.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔌",
+  "firstMergedAt": "2026-05-18T18:42:32Z",
+  "lastMergedAt": "2026-05-18T18:42:32Z",
+  "name": "Fix CLI hang when AppHost exits before backchannel opens",
+  "owner": "adamint",
+  "prs": [
+    17097
+  ]
+}

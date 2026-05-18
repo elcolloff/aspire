@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "CSS/sidebar UI fix for aspire.dev docs website (mobile TOC bar toggle positioning) - not related to any product changelog entry",
+  "mergedAt": "2026-05-18T20:26:22Z",
+  "number": 995,
+  "runDate": "2026-05-18T20:36:23Z",
+  "status": "excluded",
+  "title": "Inline sidebar toggle with mobile TOC bar at 72rem-99.999rem"
+}

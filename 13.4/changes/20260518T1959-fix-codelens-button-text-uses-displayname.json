@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "VS Code CodeLens buttons for custom resource commands now display the short displayName instead of the full description. Empty or whitespace-only display names fall back to the command name, preventing blank labels.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🏷️",
+  "firstMergedAt": "2026-05-18T19:59:20Z",
+  "lastMergedAt": "2026-05-18T19:59:20Z",
+  "name": "Fix CodeLens button text to use command displayName",
+  "owner": "JamesNK",
+  "prs": [
+    16909
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "New feature: nullable C# scalar properties now emit nullable types in generated TypeScript and Python SDKs",
+  "mergedAt": "2026-05-18T18:50:27Z",
+  "number": 17153,
+  "runDate": "2026-05-18T20:36:23Z",
+  "status": "included",
+  "title": "Add ATS nullable scalar support"
+}

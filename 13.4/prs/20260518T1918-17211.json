@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Test-only change adding TypeScript polyglot AppHost test coverage for Foundry role assignment API",
+  "mergedAt": "2026-05-18T19:18:34Z",
+  "number": 17211,
+  "runDate": "2026-05-18T20:36:23Z",
+  "status": "excluded",
+  "title": "Validate Foundry role assignments in TS apphost"
+}

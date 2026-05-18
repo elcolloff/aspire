@@ -1,0 +1,9 @@
+{
+  "author": "app/copilot-swe-agent",
+  "comment": "Improvement: CodeLens buttons now use displayName instead of long description; blank names fall back to command name",
+  "mergedAt": "2026-05-18T19:59:20Z",
+  "number": 16909,
+  "runDate": "2026-05-18T20:36:23Z",
+  "status": "included",
+  "title": "Use command displayName for CodeLens button text with blank-name fallback"
+}

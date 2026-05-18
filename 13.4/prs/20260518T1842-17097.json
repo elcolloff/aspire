@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Bug fix: CLI hung at 'Connecting to apphost...' when AppHost exited cleanly before opening backchannel",
+  "mergedAt": "2026-05-18T18:42:32Z",
+  "number": 17097,
+  "runDate": "2026-05-18T20:36:23Z",
+  "status": "included",
+  "title": "Stop retrying AppHost backchannel after process exits"
+}

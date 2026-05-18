@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Nullable C# scalar properties (e.g. string?) are now correctly emitted as nullable types in generated TypeScript (| null) and Python (| None) polyglot SDKs. Go, Java, and Rust behavior is unchanged.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔢",
+  "firstMergedAt": "2026-05-18T18:50:27Z",
+  "lastMergedAt": "2026-05-18T18:50:27Z",
+  "name": "Nullable scalar support in polyglot SDK code generation",
+  "owner": "sebastienros",
+  "prs": [
+    17153
+  ]
+}
