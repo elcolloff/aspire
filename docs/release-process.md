@@ -25,7 +25,7 @@ The Aspire release process involves two main automation components:
 
 Before starting a release:
 
-1. **Signed Build**: Have a successful signed build from the official `dotnet-aspire` pipeline
+1. **Signed Build**: Have a successful signed build from the official `microsoft-aspire` pipeline
    - The build will be selected from a dropdown when running the release pipeline
    - The build should have a `BAR ID - NNNNNN` tag (auto-extracted by the pipeline)
 
