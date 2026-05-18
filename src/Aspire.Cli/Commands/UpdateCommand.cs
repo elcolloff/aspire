@@ -146,7 +146,23 @@ internal sealed class UpdateCommand : BaseCommand
         try
         {
             var passedAppHostProjectFile = parseResult.GetValue(s_appHostOption);
-            var projectFile = await _projectLocator.UseOrFindAppHostProjectFileAsync(passedAppHostProjectFile, createSettingsFile: true, cancellationToken);
+
+            // `aspire update` is a recovery tool: when the AppHost's pinned Aspire.AppHost.Sdk
+            // can no longer be resolved (e.g. updating from one PR build to another after the
+            // hive was refreshed) the configured AppHost path must still be locatable, because
+            // rewriting that pin is precisely what this command does. Prefer the settings
+            // lookup, which does not MSBuild-validate the path, and only fall through to the
+            // strict discovery path when no AppHost is recorded in settings.
+            FileInfo? projectFile;
+            if (passedAppHostProjectFile is not null)
+            {
+                projectFile = await _projectLocator.UseOrFindAppHostProjectFileAsync(passedAppHostProjectFile, createSettingsFile: true, cancellationToken);
+            }
+            else
+            {
+                projectFile = await _projectLocator.GetAppHostFromSettingsAsync(cancellationToken)
+                    ?? await _projectLocator.UseOrFindAppHostProjectFileAsync(null, createSettingsFile: true, cancellationToken);
+            }
             if (projectFile is null)
             {
                 return CommandResult.Failure(CliExitCodes.FailedToFindProject);
@@ -206,26 +222,58 @@ internal sealed class UpdateCommand : BaseCommand
             }
             else
             {
-                // If there are hives (PR build directories), prompt for channel selection.
-                // Otherwise, use the implicit/default channel automatically.
-                var hasHives = ExecutionContext.GetHiveCount() > 0;
-
-                if (hasHives)
+                // Before falling through to the hives prompt, default to the running CLI's
+                // identity channel when it matches a registered channel. This restores the
+                // pre-#16820 behavior where a `pr-<N>` / `daily` / `stable` CLI implicitly
+                // pinned an existing AppHost to the same channel (previously achieved via a
+                // global "channel" config write from the acquisition scripts and
+                // `aspire update --self`; those writes were removed when the channel was
+                // baked into the assembly). Without this, a PR-built CLI updating an AppHost
+                // that has no per-project `channel` and no global config silently defaulted
+                // to the implicit ("default") channel — which resolves Aspire packages from
+                // public NuGet, effectively moving the project to daily.
+                //
+                // We intentionally skip `local` here: a developer-built CLI must not silently
+                // pin a real project to a hive that only exists on that machine. We also
+                // require the identity to match an entry in `allChannels`, so a stale
+                // `pr-<N>` identity (e.g. the matching hive was deleted) falls through to the
+                // existing prompt/implicit logic instead of failing.
+                var identityChannel = ExecutionContext.IdentityChannel;
+                PackageChannel? identityMatch = null;
+                if (!string.IsNullOrWhiteSpace(identityChannel)
+                    && !string.Equals(identityChannel, PackageChannelNames.Local, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Prompt for channel selection
-                    var channelBinding = PromptBinding.Create(parseResult, _channelOption);
-                    channel = await InteractionService.PromptForSelectionAsync(
-                        UpdateCommandStrings.SelectChannelPrompt,
-                        allChannels,
-                        (c) => $"{c.Name.EscapeMarkup()} ({c.SourceDetails.EscapeMarkup()})",
-                        binding: channelBinding,
-                        cancellationToken: cancellationToken);
+                    identityMatch = allChannels.FirstOrDefault(c => string.Equals(c.Name, identityChannel, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (identityMatch is not null)
+                {
+                    _logger.LogDebug("Defaulting to identity channel '{ChannelName}'.", identityMatch.Name);
+                    channel = identityMatch;
                 }
                 else
                 {
-                    // Use the default (implicit) channel
-                    channel = allChannels.FirstOrDefault(c => c.Type is PackageChannelType.Implicit)
-                        ?? allChannels.First();
+                    // If there are hives (PR build directories), prompt for channel selection.
+                    // Otherwise, use the implicit/default channel automatically.
+                    var hasHives = ExecutionContext.GetHiveCount() > 0;
+
+                    if (hasHives)
+                    {
+                        // Prompt for channel selection
+                        var channelBinding = PromptBinding.Create(parseResult, _channelOption);
+                        channel = await InteractionService.PromptForSelectionAsync(
+                            UpdateCommandStrings.SelectChannelPrompt,
+                            allChannels,
+                            (c) => $"{c.Name.EscapeMarkup()} ({c.SourceDetails.EscapeMarkup()})",
+                            binding: channelBinding,
+                            cancellationToken: cancellationToken);
+                    }
+                    else
+                    {
+                        // Use the default (implicit) channel
+                        channel = allChannels.FirstOrDefault(c => c.Type is PackageChannelType.Implicit)
+                            ?? allChannels.First();
+                    }
                 }
             }
 

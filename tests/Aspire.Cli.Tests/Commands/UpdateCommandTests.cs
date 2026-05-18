@@ -1549,6 +1549,204 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
         }
     }
 
+    // ------------------------------------------------------------------
+    // Regression: `aspire update` crash when the AppHost's pinned
+    // Aspire.AppHost.Sdk version no longer resolves (e.g. updating from
+    // one PR build to another after the hive was refreshed).
+    //
+    // PR #16653 added MSBuild validation in ProjectLocator
+    // (GetValidatedAppHostProjectFileFromSettingsAsync → ValidateAppHostAsync
+    // → DotNetCliRunner.GetAppHostInformationAsync). When the SDK version
+    // can't be resolved, validation fails, the configured path is dropped,
+    // discovery also marks the project unbuildable, and the user gets
+    // "No buildable AppHosts were found" — from the very command whose job
+    // is to repair that state.
+    //
+    // The fix is for `aspire update` to prefer GetAppHostFromSettingsAsync
+    // (which does not MSBuild-validate the configured path) before falling
+    // back to the strict discovery path. This test asserts the settings
+    // lookup is consulted and that its result short-circuits the discovery
+    // path so a real MSBuild SDK-resolution failure would not crash here.
+    // ------------------------------------------------------------------
+    [Fact]
+    public async Task UpdateCommand_WhenAppHostSdkVersionUnresolvable_UsesSettingsLookup()
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var settingsLookupCalled = false;
+        var discoveryPathCalled = false;
+        var resolved = new FileInfo(Path.Combine(workspace.WorkspaceRoot.FullName, "AppHost.csproj"));
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.ProjectLocatorFactory = _ => new TestProjectLocator()
+            {
+                GetAppHostFromSettingsAsyncCallback = _ =>
+                {
+                    settingsLookupCalled = true;
+                    return Task.FromResult<FileInfo?>(resolved);
+                },
+                // Discovery path would invoke MSBuild validation in production; it
+                // must not be reached when settings lookup already returned a path.
+                UseOrFindAppHostProjectFileAsyncCallback = (_, _, _) =>
+                {
+                    discoveryPathCalled = true;
+                    return Task.FromResult<FileInfo?>(null);
+                }
+            };
+
+            options.InteractionServiceFactory = _ => new TestInteractionService();
+            options.DotNetCliRunnerFactory = _ => new TestDotNetCliRunner();
+            options.ProjectUpdaterFactory = _ => new TestProjectUpdater();
+            options.PackagingServiceFactory = _ => new TestPackagingService();
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("update");
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.True(settingsLookupCalled, "Expected UpdateCommand to consult GetAppHostFromSettingsAsync before the strict discovery path.");
+        Assert.False(discoveryPathCalled, "Expected UpdateCommand to short-circuit discovery when settings lookup returns a path.");
+    }
+
+    // ------------------------------------------------------------------
+    // Regression: `aspire update` defaults to "daily" (Implicit) instead
+    // of the running CLI's identity channel.
+    //
+    // PR #16820 baked the channel into the CLI assembly via
+    // AssemblyMetadata("AspireCliChannel", ...) and removed two writes of
+    // the global "channel" config:
+    //   * acquisition scripts (get-aspire-cli-pr.{sh,ps1}) no longer seed
+    //     `channel: pr-<N>` into the user's global aspire.config.json;
+    //   * `aspire update --self` no longer seeds it either.
+    //
+    // With both removals, a user who installed an AppHost before #16820
+    // has nothing pinning the channel: --channel/per-project/global all
+    // miss, and the fallback path picks the Implicit ("default") channel
+    // which resolves Aspire packages from public NuGet — effectively
+    // moving the AppHost to daily even when the running CLI knows it is
+    // a PR-built CLI with a matching hive on disk.
+    //
+    // UpdateCommand now consults ExecutionContext.IdentityChannel after
+    // the explicit/per-project/global lookups fail. The tests below pin
+    // down the matrix: identity-match wins for daily / pr-<N>; local is
+    // skipped; unmatched identity falls through; explicit --channel and
+    // per-project config still override identity.
+    // ------------------------------------------------------------------
+    [Theory]
+    [InlineData("pr-12345", "pr-12345")]
+    [InlineData("daily", "daily")]
+    [InlineData("DAILY", "daily")] // case-insensitive match against allChannels
+    public async Task UpdateCommand_WhenIdentityChannelMatchesRegisteredChannel_UsesItWithoutPrompting(string identityChannel, string expectedChannelName)
+    {
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        // Create a hive so we hit the would-prompt branch — that's the path
+        // the regression broke. Without a hive, the implicit fallback already
+        // fired and the user wouldn't see "daily".
+        var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
+        hivesDir.CreateSubdirectory("pr-12345");
+
+        var (exitCode, updatedWithChannel, promptInvoked) = await RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs: "update",
+            identityChannel: identityChannel);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.False(promptInvoked, "Identity-channel match should bypass the channel prompt.");
+        Assert.Equal(expectedChannelName, updatedWithChannel);
+    }
+
+    [Fact]
+    public async Task UpdateCommand_WhenIdentityChannelIsLocal_StillPromptsWhenHivesExist()
+    {
+        // A developer-built CLI must NOT silently pin a real project to a
+        // hive that only exists on that machine. Even though "local" is
+        // technically a registered channel name, identity-match deliberately
+        // skips it and lets the prompt run.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
+        hivesDir.CreateSubdirectory("pr-12345");
+
+        var (exitCode, _, promptInvoked) = await RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs: "update",
+            identityChannel: PackageChannelNames.Local,
+            includeLocalInChannels: true);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.True(promptInvoked, "Local-identity CLI must still prompt for channel selection when hives exist.");
+    }
+
+    [Fact]
+    public async Task UpdateCommand_WhenIdentityChannelHasNoMatchingChannel_FallsThroughToPrompt()
+    {
+        // A stale PR identity (e.g. the matching hive was removed) must not
+        // crash — it falls through to the prompt/implicit logic the user
+        // already gets when no identity-match exists.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
+        hivesDir.CreateSubdirectory("pr-12345");
+
+        var (exitCode, _, promptInvoked) = await RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs: "update",
+            identityChannel: "pr-99999");
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.True(promptInvoked, "Unregistered identity channel must fall through to the existing prompt.");
+    }
+
+    [Fact]
+    public async Task UpdateCommand_ExplicitChannelFlagOverridesIdentityChannel()
+    {
+        // Identity is daily; --channel staging wins because --channel is
+        // step 1 in the resolution precedence and identity-match only runs
+        // when steps 1-3 have all missed.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
+        hivesDir.CreateSubdirectory("pr-12345");
+
+        var (exitCode, updatedWithChannel, promptInvoked) = await RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs: "update --channel staging",
+            identityChannel: PackageChannelNames.Daily);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.False(promptInvoked);
+        Assert.Equal("staging", updatedWithChannel);
+    }
+
+    [Fact]
+    public async Task UpdateCommand_PerProjectConfigChannelOverridesIdentityChannel()
+    {
+        // Identity is daily; per-project aspire.config.json#channel=staging
+        // wins because step 2 takes precedence over identity-match.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var hivesDir = workspace.CreateDirectory(".aspire").CreateSubdirectory("hives");
+        hivesDir.CreateSubdirectory("pr-12345");
+
+        File.WriteAllText(
+            Path.Combine(workspace.WorkspaceRoot.FullName, AspireConfigFile.FileName),
+            """{ "channel": "staging" }""");
+
+        var (exitCode, updatedWithChannel, promptInvoked) = await RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs: "update",
+            identityChannel: PackageChannelNames.Daily);
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+        Assert.False(promptInvoked);
+        Assert.Equal("staging", updatedWithChannel);
+    }
+
     private Task<(int ExitCode, string UpdatedWithChannel, bool PromptInvoked)> RunUpdateAndCaptureChannelAsync(
         TemporaryWorkspace workspace,
         string updateArgs)
@@ -1556,16 +1754,34 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
         return RunUpdateAndCaptureChannelAsync(workspace, updateArgs, projectDirectory: workspace.WorkspaceRoot);
     }
 
+    private Task<(int ExitCode, string UpdatedWithChannel, bool PromptInvoked)> RunUpdateAndCaptureChannelAsync(
+        TemporaryWorkspace workspace,
+        string updateArgs,
+        string identityChannel,
+        bool includeLocalInChannels = false)
+    {
+        return RunUpdateAndCaptureChannelAsync(
+            workspace,
+            updateArgs,
+            projectDirectory: workspace.WorkspaceRoot,
+            identityChannel: identityChannel,
+            includeLocalInChannels: includeLocalInChannels);
+    }
+
     private async Task<(int ExitCode, string UpdatedWithChannel, bool PromptInvoked)> RunUpdateAndCaptureChannelAsync(
         TemporaryWorkspace workspace,
         string updateArgs,
-        DirectoryInfo projectDirectory)
+        DirectoryInfo projectDirectory,
+        string identityChannel = "local",
+        bool includeLocalInChannels = false)
     {
         var promptForSelectionInvoked = false;
         var updatedWithChannel = string.Empty;
 
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
         {
+            options.CliExecutionContextFactory = _ => workspace.CreateExecutionContext(identityChannel: identityChannel);
+
             options.ProjectLocatorFactory = _ => new TestProjectLocator()
             {
                 UseOrFindAppHostProjectFileAsyncCallback = (projectFile, _, _) =>
@@ -1602,7 +1818,29 @@ public class UpdateCommandTests(ITestOutputHelper outputHelper)
                     var implicitChannel = PackageChannel.CreateImplicitChannel(fakeCache);
                     var stagingChannel = PackageChannel.CreateExplicitChannel("staging", PackageChannelQuality.Stable, mappings: null, fakeCache);
                     var dailyChannel = PackageChannel.CreateExplicitChannel("daily", PackageChannelQuality.Both, mappings: null, fakeCache);
-                    return Task.FromResult<IEnumerable<PackageChannel>>(new[] { implicitChannel, stagingChannel, dailyChannel });
+                    var channels = new List<PackageChannel> { implicitChannel, stagingChannel, dailyChannel };
+
+                    // Optional pr-* and local channels for identity-channel tests. Production
+                    // PackagingService enumerates pr-* hives from disk; we register them here
+                    // so the identity-match lookup in UpdateCommand has something to match.
+                    var hivesDirectory = new DirectoryInfo(Path.Combine(workspace.WorkspaceRoot.FullName, ".aspire", "hives"));
+                    if (hivesDirectory.Exists)
+                    {
+                        foreach (var hive in hivesDirectory.GetDirectories())
+                        {
+                            if (hive.Name.StartsWith("pr-", StringComparison.OrdinalIgnoreCase))
+                            {
+                                channels.Add(PackageChannel.CreateExplicitChannel(hive.Name, PackageChannelQuality.Both, mappings: null, fakeCache));
+                            }
+                        }
+                    }
+
+                    if (includeLocalInChannels)
+                    {
+                        channels.Add(PackageChannel.CreateExplicitChannel(PackageChannelNames.Local, PackageChannelQuality.Both, mappings: null, fakeCache));
+                    }
+
+                    return Task.FromResult<IEnumerable<PackageChannel>>(channels);
                 }
             };
         });
