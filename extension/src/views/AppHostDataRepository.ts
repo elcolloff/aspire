@@ -15,7 +15,7 @@ export interface ResourceUrlJson {
 }
 
 export interface ResourceCommandJson {
-    displayName: string | null;
+    displayName?: string | null;
     description: string | null;
 }
 

@@ -465,4 +465,35 @@ suite('AspireCodeLensProvider resource lens anchoring', () => {
         assert.strictEqual(customLens!.command?.tooltip, 'reset-db');
         harness.dispose();
     });
+
+    test('custom command lens falls back to command name when displayName is omitted', () => {
+        const docPath = p('repo', 'AppHost', 'apphost.ts');
+        const hostPath = p('repo', 'AppHost', 'apphost.ts');
+        const content = [
+            'const builder = await createBuilder();',
+            'builder.addRedis("cache");',
+        ].join('\n');
+
+        const harness = createHarness({
+            workspaceAppHostPath: hostPath,
+            workspaceResources: [makeResource('cache', {
+                commands: {
+                    'reset-db': {
+                        description: null,
+                    },
+                },
+            })],
+        });
+
+        const doc = createMockDocument(content, docPath);
+        const lenses = harness.provider.provideCodeLenses(doc, cancellationToken) as vscode.CodeLens[];
+        const customLens = lenses.find(l =>
+            l.command?.command === 'aspire-vscode.codeLensResourceAction'
+            && l.command?.arguments?.[1] === 'reset-db');
+
+        assert.ok(customLens);
+        assert.strictEqual(customLens!.command?.title, codeLensCommand('reset-db'));
+        assert.strictEqual(customLens!.command?.tooltip, 'reset-db');
+        harness.dispose();
+    });
 });
