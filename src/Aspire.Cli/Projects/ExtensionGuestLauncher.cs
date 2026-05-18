@@ -33,7 +33,8 @@ internal sealed class ExtensionGuestLauncher : IGuestProcessLauncher
         string[] args,
         DirectoryInfo workingDirectory,
         IDictionary<string, string> environmentVariables,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task>? afterLaunchAsync = null)
     {
         // Prepend the runtime command (e.g., "npx") as the first argument so the
         // extension can extract it as the runtimeExecutable for the debug session.
@@ -47,6 +48,11 @@ internal sealed class ExtensionGuestLauncher : IGuestProcessLauncher
             allArgs,
             effectiveEnvironmentVariables.Select(kvp => new EnvVar { Name = kvp.Key, Value = kvp.Value }).ToList(),
             _debug);
+
+        if (afterLaunchAsync is not null)
+        {
+            await afterLaunchAsync().ConfigureAwait(false);
+        }
 
         return (0, null);
     }

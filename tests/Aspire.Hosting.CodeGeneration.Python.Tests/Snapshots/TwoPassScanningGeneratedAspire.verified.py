@@ -1,4 +1,4 @@
-#   -------------------------------------------------------------
+﻿#   -------------------------------------------------------------
 #   Copyright (c) Microsoft Corporation. All rights reserved.
 #   Licensed under the MIT License. See LICENSE in project root for information.
 #
@@ -1501,6 +1501,8 @@ CommandResultFormat = typing.Literal["Text", "Json", "Markdown"]
 
 ContainerLifetime = typing.Literal["Session", "Persistent"]
 
+ContainerMountType = typing.Literal["BindMount", "Volume"]
+
 DistributedApplicationOperation = typing.Literal["Run", "Publish"]
 
 EndpointProperty = typing.Literal["Url", "Host", "IPV4Host", "Port", "Scheme", "TargetPort", "HostAndPort", "TlsEnabled"]
@@ -1952,6 +1954,15 @@ class AbstractAspireStore:
         """The underlying object reference handle."""
         return self._handle
 
+    @_cached_property
+    def base_path(self) -> str:
+        """Gets the BasePath property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/IAspireStore.basePath',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
     def get_file_name_with_content(self, filename_template: str, source_filename: str) -> str:
         """Gets a deterministic file path for the specified file contents"""
         rpc_args: dict[str, typing.Any] = {'aspireStore': self._handle}
@@ -2029,8 +2040,56 @@ class AbstractConfiguration:
         return result
 
 
-class AbstractConfigurationSection(abc.ABC):
-    """Abstract base class for AbstractConfigurationSection."""
+class AbstractConfigurationSection:
+    """Type class for AbstractConfigurationSection."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"AbstractConfigurationSection(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def key(self) -> str:
+        """Gets the Key property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Configuration/IConfigurationSection.key',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @_cached_property
+    def path(self) -> str:
+        """Gets the Path property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Configuration/IConfigurationSection.path',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @_uncached_property
+    def value(self) -> str:
+        """Gets the Value property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Configuration/IConfigurationSection.value',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @value.setter
+    def value(self, value: str) -> None:
+        """Sets the Value property"""
+        self._client.invoke_capability(
+            'Microsoft.Extensions.Configuration/IConfigurationSection.setValue',
+            {'context': self._handle, 'value': value}
+        )
+
 
 class AbstractContainerRegistry(abc.ABC):
     """Abstract base class for AbstractContainerRegistry."""
@@ -2329,6 +2388,26 @@ class DistributedApplicationBuilder:
         )
         return typing.cast(DistributedApplicationEventSubscription, result)
 
+    def subscribe_before_publish(self, callback: typing.Callable[[BeforePublishEvent], None]) -> DistributedApplicationEventSubscription:
+        """Subscribes to the BeforePublish event"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['callback'] = self._client.register_callback(callback)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/subscribeBeforePublish',
+            rpc_args,
+        )
+        return typing.cast(DistributedApplicationEventSubscription, result)
+
+    def subscribe_after_publish(self, callback: typing.Callable[[AfterPublishEvent], None]) -> DistributedApplicationEventSubscription:
+        """Subscribes to the AfterPublish event"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['callback'] = self._client.register_callback(callback)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/subscribeAfterPublish',
+            rpc_args,
+        )
+        return typing.cast(DistributedApplicationEventSubscription, result)
+
     def subscribe_after_resources_created(self, callback: typing.Callable[[AfterResourcesCreatedEvent], None]) -> DistributedApplicationEventSubscription:
         """Subscribes to the AfterResourcesCreated event"""
         rpc_args: dict[str, typing.Any] = {'builder': self._handle}
@@ -2592,6 +2671,57 @@ class AbstractHostEnvironment:
     def handle(self) -> Handle:
         """The underlying object reference handle."""
         return self._handle
+
+    @_uncached_property
+    def env_name(self) -> str:
+        """Gets the EnvironmentName property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.environmentName',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @env_name.setter
+    def env_name(self, value: str) -> None:
+        """Sets the EnvironmentName property"""
+        self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.setEnvironmentName',
+            {'context': self._handle, 'value': value}
+        )
+
+    @_uncached_property
+    def app_name(self) -> str:
+        """Gets the ApplicationName property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.applicationName',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @app_name.setter
+    def app_name(self, value: str) -> None:
+        """Sets the ApplicationName property"""
+        self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.setApplicationName',
+            {'context': self._handle, 'value': value}
+        )
+
+    @_uncached_property
+    def content_root_path(self) -> str:
+        """Gets the ContentRootPath property"""
+        result = self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.contentRootPath',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @content_root_path.setter
+    def content_root_path(self, value: str) -> None:
+        """Sets the ContentRootPath property"""
+        self._client.invoke_capability(
+            'Microsoft.Extensions.Hosting/IHostEnvironment.setContentRootPath',
+            {'context': self._handle, 'value': value}
+        )
 
     def is_development(self) -> bool:
         """Checks if running in Development environment"""
@@ -2876,6 +3006,9 @@ class AbstractReportingTask:
         )
 
 
+class AbstractResourceAnnotation(abc.ABC):
+    """Abstract base class for AbstractResourceAnnotation."""
+
 class AbstractValueWithReferences(abc.ABC):
     """Abstract base class for AbstractValueWithReferences."""
 
@@ -3035,6 +3168,40 @@ class AbstractUserSecretsManager:
         )
 
 
+class AfterPublishEvent:
+    """Type class for AfterPublishEvent."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"AfterPublishEvent(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def services(self) -> AbstractServiceProvider:
+        """Gets the Services property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Publishing/AfterPublishEvent.services',
+            {'context': self._handle}
+        )
+        return typing.cast(AbstractServiceProvider, result)
+
+    @_cached_property
+    def model(self) -> DistributedApplicationModel:
+        """Gets the Model property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Publishing/AfterPublishEvent.model',
+            {'context': self._handle}
+        )
+        return typing.cast(DistributedApplicationModel, result)
+
+
 class AfterResourcesCreatedEvent:
     """Type class for AfterResourcesCreatedEvent."""
 
@@ -3064,6 +3231,40 @@ class AfterResourcesCreatedEvent:
         """Gets the Model property"""
         result = self._client.invoke_capability(
             'Aspire.Hosting.ApplicationModel/AfterResourcesCreatedEvent.model',
+            {'context': self._handle}
+        )
+        return typing.cast(DistributedApplicationModel, result)
+
+
+class BeforePublishEvent:
+    """Type class for BeforePublishEvent."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"BeforePublishEvent(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def services(self) -> AbstractServiceProvider:
+        """Gets the Services property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Publishing/BeforePublishEvent.services',
+            {'context': self._handle}
+        )
+        return typing.cast(AbstractServiceProvider, result)
+
+    @_cached_property
+    def model(self) -> DistributedApplicationModel:
+        """Gets the Model property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Publishing/BeforePublishEvent.model',
             {'context': self._handle}
         )
         return typing.cast(DistributedApplicationModel, result)
@@ -3338,6 +3539,126 @@ class ContainerImagePushOptionsCallbackContext:
             {'context': self._handle}
         )
         return typing.cast(ContainerImagePushOptions, result)
+
+
+class ContainerImageReference:
+    """Type class for ContainerImageReference."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"ContainerImageReference(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def resource(self) -> AbstractResource:
+        """Gets the Resource property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerImageReference.resource',
+            {'context': self._handle}
+        )
+        return typing.cast(AbstractResource, result)
+
+    @_cached_property
+    def value_expression(self) -> str:
+        """Gets the ValueExpression property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerImageReference.valueExpression',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+
+class ContainerMountAnnotation:
+    """Type class for ContainerMountAnnotation."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"ContainerMountAnnotation(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def source(self) -> str:
+        """Gets the Source property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerMountAnnotation.source',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @_cached_property
+    def target(self) -> str:
+        """Gets the Target property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerMountAnnotation.target',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
+
+    @_cached_property
+    def type(self) -> ContainerMountType:
+        """Gets the Type property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerMountAnnotation.type',
+            {'context': self._handle}
+        )
+        return typing.cast(ContainerMountType, result)
+
+    @_cached_property
+    def is_read_only(self) -> bool:
+        """Gets the IsReadOnly property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerMountAnnotation.isReadOnly',
+            {'context': self._handle}
+        )
+        return typing.cast(bool, result)
+
+
+class ContainerPortReference:
+    """Type class for ContainerPortReference."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"ContainerPortReference(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def resource(self) -> AbstractResource:
+        """Gets the Resource property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerPortReference.resource',
+            {'context': self._handle}
+        )
+        return typing.cast(AbstractResource, result)
+
+    @_cached_property
+    def value_expression(self) -> str:
+        """Gets the ValueExpression property"""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ContainerPortReference.valueExpression',
+            {'context': self._handle}
+        )
+        return typing.cast(str, result)
 
 
 class DistributedApplication:
@@ -4295,6 +4616,26 @@ class EventingSubscriberRegistrationContext:
         rpc_args['callback'] = self._client.register_callback(callback)
         result = self._client.invoke_capability(
             'Aspire.Hosting/eventingSubscriberOnBeforeStart',
+            rpc_args,
+        )
+        return typing.cast(DistributedApplicationEventSubscription, result)
+
+    def on_before_publish(self, callback: typing.Callable[[BeforePublishEvent], None]) -> DistributedApplicationEventSubscription:
+        """Subscribes an eventing subscriber to the BeforePublish event"""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['callback'] = self._client.register_callback(callback)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/eventingSubscriberOnBeforePublish',
+            rpc_args,
+        )
+        return typing.cast(DistributedApplicationEventSubscription, result)
+
+    def on_after_publish(self, callback: typing.Callable[[AfterPublishEvent], None]) -> DistributedApplicationEventSubscription:
+        """Subscribes an eventing subscriber to the AfterPublish event"""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['callback'] = self._client.register_callback(callback)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/eventingSubscriberOnAfterPublish',
             rpc_args,
         )
         return typing.cast(DistributedApplicationEventSubscription, result)
@@ -5866,8 +6207,16 @@ class AbstractResource(abc.ABC):
         """Configures a route"""
 
 
+class AbstractComputeEnvironmentResource(AbstractResource):
+    """Abstract base class for AbstractComputeEnvironmentResource interface."""
+
+
 class AbstractComputeResource(AbstractResource):
     """Abstract base class for AbstractComputeResource interface."""
+
+    @abc.abstractmethod
+    def with_compute_env(self, compute_env_resource: AbstractComputeEnvironmentResource) -> typing.Self:
+        """Configures the compute environment for the compute resource"""
 
     @abc.abstractmethod
     def with_image_push_options(self, callback: typing.Callable[[ContainerImagePushOptionsCallbackContext], None]) -> typing.Self:
@@ -7096,6 +7445,7 @@ class ContainerResourceKwargs(_BaseResourceKwargs, total=False):
     certificate_trust_scope: CertificateTrustScope
     https_developer_certificate: ParameterResource | typing.Literal[True]
     without_https_certificate: typing.Literal[True]
+    compute_env: AbstractComputeEnvironmentResource
     http_probe: ProbeType | HttpProbeParameters
     image_push_options: typing.Callable[[ContainerImagePushOptionsCallbackContext], None]
     remote_image_name: str
@@ -7689,6 +8039,17 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
         self._handle = self._wrap_builder(result)
         return self
 
+    def with_compute_env(self, compute_env_resource: AbstractComputeEnvironmentResource) -> typing.Self:
+        """Configures the compute environment for the compute resource"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['computeEnvironmentResource'] = compute_env_resource
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withComputeEnvironment',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
+
     def with_http_probe(self, probe_type: ProbeType, *, path: str | None = None, initial_delay_seconds: int | None = None, period_seconds: int | None = None, timeout_seconds: int | None = None, failure_threshold: int | None = None, success_threshold: int | None = None, endpoint_name: str | None = None) -> typing.Self:
         """Adds an HTTP health probe to the resource"""
         rpc_args: dict[str, typing.Any] = {'builder': self._handle}
@@ -8219,6 +8580,13 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withoutHttpsCertificate', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'without_https_certificate'. Expected: Literal[True]")
+        if _compute_env := kwargs.pop("compute_env", None):
+            if _validate_type(_compute_env, AbstractComputeEnvironmentResource):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["computeEnvironmentResource"] = typing.cast(AbstractComputeEnvironmentResource, _compute_env)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withComputeEnvironment', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'compute_env'. Expected: AbstractComputeEnvironmentResource")
         if _http_probe := kwargs.pop("http_probe", None):
             if _validate_type(_http_probe, ProbeType):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -8327,6 +8695,7 @@ class ProjectResourceKwargs(_BaseResourceKwargs, total=False):
     certificate_trust_scope: CertificateTrustScope
     https_developer_certificate: ParameterResource | typing.Literal[True]
     without_https_certificate: typing.Literal[True]
+    compute_env: AbstractComputeEnvironmentResource
     http_probe: ProbeType | HttpProbeParameters
     image_push_options: typing.Callable[[ContainerImagePushOptionsCallbackContext], None]
     remote_image_name: str
@@ -8738,6 +9107,17 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
         self._handle = self._wrap_builder(result)
         return self
 
+    def with_compute_env(self, compute_env_resource: AbstractComputeEnvironmentResource) -> typing.Self:
+        """Configures the compute environment for the compute resource"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['computeEnvironmentResource'] = compute_env_resource
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withComputeEnvironment',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
+
     def with_http_probe(self, probe_type: ProbeType, *, path: str | None = None, initial_delay_seconds: int | None = None, period_seconds: int | None = None, timeout_seconds: int | None = None, failure_threshold: int | None = None, success_threshold: int | None = None, endpoint_name: str | None = None) -> typing.Self:
         """Adds an HTTP health probe to the resource"""
         rpc_args: dict[str, typing.Any] = {'builder': self._handle}
@@ -9121,6 +9501,13 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withoutHttpsCertificate', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'without_https_certificate'. Expected: Literal[True]")
+        if _compute_env := kwargs.pop("compute_env", None):
+            if _validate_type(_compute_env, AbstractComputeEnvironmentResource):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["computeEnvironmentResource"] = typing.cast(AbstractComputeEnvironmentResource, _compute_env)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withComputeEnvironment', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'compute_env'. Expected: AbstractComputeEnvironmentResource")
         if _http_probe := kwargs.pop("http_probe", None):
             if _validate_type(_http_probe, ProbeType):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -9229,6 +9616,7 @@ class ExecutableResourceKwargs(_BaseResourceKwargs, total=False):
     certificate_trust_scope: CertificateTrustScope
     https_developer_certificate: ParameterResource | typing.Literal[True]
     without_https_certificate: typing.Literal[True]
+    compute_env: AbstractComputeEnvironmentResource
     http_probe: ProbeType | HttpProbeParameters
     image_push_options: typing.Callable[[ContainerImagePushOptionsCallbackContext], None]
     remote_image_name: str
@@ -9628,6 +10016,17 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
         self._handle = self._wrap_builder(result)
         return self
 
+    def with_compute_env(self, compute_env_resource: AbstractComputeEnvironmentResource) -> typing.Self:
+        """Configures the compute environment for the compute resource"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['computeEnvironmentResource'] = compute_env_resource
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withComputeEnvironment',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
+
     def with_http_probe(self, probe_type: ProbeType, *, path: str | None = None, initial_delay_seconds: int | None = None, period_seconds: int | None = None, timeout_seconds: int | None = None, failure_threshold: int | None = None, success_threshold: int | None = None, endpoint_name: str | None = None) -> typing.Self:
         """Adds an HTTP health probe to the resource"""
         rpc_args: dict[str, typing.Any] = {'builder': self._handle}
@@ -10001,6 +10400,13 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withoutHttpsCertificate', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'without_https_certificate'. Expected: Literal[True]")
+        if _compute_env := kwargs.pop("compute_env", None):
+            if _validate_type(_compute_env, AbstractComputeEnvironmentResource):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["computeEnvironmentResource"] = typing.cast(AbstractComputeEnvironmentResource, _compute_env)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withComputeEnvironment', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'compute_env'. Expected: AbstractComputeEnvironmentResource")
         if _http_probe := kwargs.pop("http_probe", None):
             if _validate_type(_http_probe, ProbeType):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -10680,6 +11086,7 @@ _register_handle_wrapper("Aspire.Hosting/Dict<string,string>", AspireDict)
 _register_handle_wrapper("Aspire.Hosting/Dict<string,number>", AspireDict)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.IAspireStore", AbstractAspireStore)
 _register_handle_wrapper("Microsoft.Extensions.Configuration.Abstractions/Microsoft.Extensions.Configuration.IConfiguration", AbstractConfiguration)
+_register_handle_wrapper("Microsoft.Extensions.Configuration.Abstractions/Microsoft.Extensions.Configuration.IConfigurationSection", AbstractConfigurationSection)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationEventing", AbstractDistributedApplicationEventing)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.IDistributedApplicationPipeline", AbstractDistributedApplicationPipeline)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExecutionConfigurationBuilder", AbstractExecutionConfigurationBuilder)
@@ -10691,7 +11098,9 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.IReportingStep
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.IReportingTask", AbstractReportingTask)
 _register_handle_wrapper("System.ComponentModel/System.IServiceProvider", AbstractServiceProvider)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.IUserSecretsManager", AbstractUserSecretsManager)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Publishing.AfterPublishEvent", AfterPublishEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.AfterResourcesCreatedEvent", AfterResourcesCreatedEvent)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Publishing.BeforePublishEvent", BeforePublishEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeResourceStartedEvent", BeforeResourceStartedEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeStartEvent", BeforeStartEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.CommandLineArgsCallbackContext", CommandLineArgsCallbackContext)
@@ -10699,6 +11108,9 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.Command
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ConnectionStringAvailableEvent", ConnectionStringAvailableEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerImagePushOptions", ContainerImagePushOptions)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerImagePushOptionsCallbackContext", ContainerImagePushOptionsCallbackContext)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerImageReference", ContainerImageReference)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerMountAnnotation", ContainerMountAnnotation)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerPortReference", ContainerPortReference)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.DistributedApplication", DistributedApplication)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Eventing.DistributedApplicationEventSubscription", DistributedApplicationEventSubscription)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.DistributedApplicationExecutionContext", DistributedApplicationExecutionContext)
