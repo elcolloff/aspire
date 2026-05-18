@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "CI/infrastructure change in docs repo (raise max-patch-files cap for Integration Data Updater workflow), not a product feature documentation PR",
+  "mergedAt": "2026-05-18T14:45:10Z",
+  "number": 993,
+  "runDate": "2026-05-18T15:07:32Z",
+  "status": "excluded",
+  "title": "chore: raise max-patch-files cap for Integration Data Updater"
+}
