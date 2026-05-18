@@ -31,6 +31,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
     private readonly ILogger _logger;
     private readonly IConfiguration _configuration;
     private readonly Func<IResource, CancellationToken, Task> _publishEndpointsAllocatedEventAsync;
+    private readonly ProfilingTelemetry _profilingTelemetry;
     private readonly CancellationToken _shutdownToken;
 
     private readonly DcpResourceState _resourceState;
@@ -57,6 +58,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
         DcpAppResourceStore appResources,
         IConfiguration configuration,
         Func<IResource, CancellationToken, Task> publishEndpointsAllocatedEventAsync,
+        ProfilingTelemetry profilingTelemetry,
         CancellationToken shutdownToken)
     {
         _kubernetesService = kubernetesService;
@@ -65,6 +67,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
         _logger = logger;
         _configuration = configuration;
         _publishEndpointsAllocatedEventAsync = publishEndpointsAllocatedEventAsync;
+        _profilingTelemetry = profilingTelemetry;
         _shutdownToken = shutdownToken;
 
         _resourceState = new(model.Resources.ToDictionary(r => r.Name), appResources.Get());
@@ -343,8 +346,7 @@ internal sealed class DcpResourceWatcher : IConsoleLogsService, IAsyncDisposable
 
     private void AddDcpResourceObservedEvent(CustomResource resource, IResource appModelResource, string resourceKind, ResourceStatus status)
     {
-        using var activity = ProfilingTelemetry.StartDcpResourceObserved(
-            _configuration,
+        using var activity = _profilingTelemetry.StartDcpResourceObserved(
             appModelResource,
             resourceKind,
             resource.Metadata.Name,
