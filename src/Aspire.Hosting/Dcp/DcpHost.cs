@@ -310,6 +310,11 @@ internal sealed class DcpHost
             }
         }
 
+        // DCP intentionally owns DCP_OTEL_* names instead of reading Aspire's ASPIRE_* profiling
+        // names. Apply the mapping after copying the AppHost environment so this capture's
+        // profiling settings win over any inherited DCP_OTEL_* values.
+        SetDcpProfilingEnvironment(dcpProcessSpec.EnvironmentVariables);
+
         // Set diagnostic log folder if configured (takes precedence over environment variable)
         if (!string.IsNullOrEmpty(_dcpOptions.DiagnosticsLogFolder))
         {
@@ -329,6 +334,43 @@ internal sealed class DcpHost
         }
 
         return dcpProcessSpec;
+    }
+
+    private void SetDcpProfilingEnvironment(IDictionary<string, string> environmentVariables)
+    {
+        if (_configuration.GetBool(KnownConfigNames.ProfilingEnabled, KnownConfigNames.Legacy.StartupProfilingEnabled) is { } profilingEnabled)
+        {
+            environmentVariables[KnownConfigNames.DcpOtelStartupProfilingEnabled] = profilingEnabled ? "true" : "false";
+        }
+
+        SetDcpProfilingEnvironmentValue(
+            environmentVariables,
+            KnownConfigNames.DcpOtelStartupTraceParent,
+            KnownConfigNames.ProfilingTraceParent,
+            KnownConfigNames.Legacy.StartupTraceParent);
+        SetDcpProfilingEnvironmentValue(
+            environmentVariables,
+            KnownConfigNames.DcpOtelStartupTraceState,
+            KnownConfigNames.ProfilingTraceState,
+            KnownConfigNames.Legacy.StartupTraceState);
+        SetDcpProfilingEnvironmentValue(
+            environmentVariables,
+            KnownConfigNames.DcpOtelProfilingSessionId,
+            KnownConfigNames.ProfilingSessionId,
+            KnownConfigNames.Legacy.StartupOperationId);
+    }
+
+    private void SetDcpProfilingEnvironmentValue(
+        IDictionary<string, string> environmentVariables,
+        string dcpKey,
+        string primaryKey,
+        string secondaryKey)
+    {
+        var value = _configuration.GetString(primaryKey, secondaryKey, fallbackOnEmpty: true);
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            environmentVariables[dcpKey] = value;
+        }
     }
 
     private static bool IsExcludedEnvironmentVariable(string key)
