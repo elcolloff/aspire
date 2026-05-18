@@ -229,7 +229,7 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         {
             // Signal build failure so RunCommand doesn't wait forever
             context.BuildCompletionSource?.TrySetResult(false);
-            return ExitCodeConstants.SdkNotInstalled;
+            return CliExitCodes.SdkNotInstalled;
         }
 
         var effectiveAppHostFile = context.AppHostFile;
@@ -413,7 +413,7 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             if (!compatibilityCheck.IsCompatibleAppHost)
             {
                 context.BuildCompletionSource?.TrySetResult(false);
-                return ExitCodeConstants.FailedToDotnetRunAppHost;
+                return CliExitCodes.FailedToDotnetRunAppHost;
             }
 
             return null;
@@ -471,7 +471,7 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         // generic "project could not be built" message.
         context.OutputCollector = buildOutputCollector;
         context.BuildCompletionSource?.TrySetResult(false);
-        return ExitCodeConstants.FailedToBuildArtifacts;
+        return CliExitCodes.FailedToBuildArtifacts;
     }
 
     private async Task<(bool IsCompatibleAppHost, bool SupportsBackchannel, string? AspireHostingVersion)> CheckAppHostCompatibilityAsync(
@@ -708,7 +708,7 @@ internal sealed class DotNetAppHostProject : IAppHostProject
                 // Signal the backchannel completion source so the caller doesn't wait forever
                 context.BackchannelCompletionSource?.TrySetException(
                     new InvalidOperationException("The app host build failed."));
-                return ExitCodeConstants.FailedToBuildArtifacts;
+                return CliExitCodes.FailedToBuildArtifacts;
             }
         }
 

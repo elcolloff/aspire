@@ -110,7 +110,8 @@ internal sealed class TestAppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackcha
             AspireHostVersion = "unknown",
             AppHostPath = AppHostInfo.AppHostPath,
             CliProcessId = AppHostInfo.CliProcessId,
-            StartedAt = AppHostInfo.StartedAt
+            StartedAt = AppHostInfo.StartedAt,
+            CliLogFilePath = AppHostInfo.CliLogFilePath
         });
     }
 

@@ -24,7 +24,7 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
     [Fact]
     public void GetDetachedFailureMessage_ReturnsBuildSpecificMessage_ForBuildFailureExitCode()
     {
-        var message = AppHostLauncher.GetDetachedFailureMessage(ExitCodeConstants.FailedToBuildArtifacts);
+        var message = AppHostLauncher.GetDetachedFailureMessage(CliExitCodes.FailedToBuildArtifacts);
 
         Assert.Equal(RunCommandStrings.AppHostFailedToBuild, message);
     }
@@ -38,8 +38,8 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
     }
 
     [Theory]
-    [InlineData(ExitCodeConstants.Success, true)]
-    [InlineData(ExitCodeConstants.FailedToDotnetRunAppHost, false)]
+    [InlineData(CliExitCodes.Success, true)]
+    [InlineData(CliExitCodes.FailedToDotnetRunAppHost, false)]
     public void IsSuccessfulDetachedEarlyExit_OnlyTreatsZeroAsSuccess(int exitCode, bool expected)
     {
         var result = AppHostLauncher.IsSuccessfulDetachedEarlyExit(exitCode);
@@ -135,6 +135,7 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
             waitForDebugger: false,
             globalArgs: [],
             additionalArgs: [],
+            stopAfterLaunchDelay: null,
             CancellationToken.None);
 
         await harness.ProcessLauncher.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -144,7 +145,7 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
 
         var result = await launchTask.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(ExitCodeConstants.Success, result.ExitCode);
+        Assert.Equal(CliExitCodes.Success, result.ExitCode);
         Assert.Contains(RunCommandStrings.StartingAppHostInBackground, harness.InteractionService.ShownStatuses);
         Assert.Empty(harness.InteractionService.DisplayedErrors);
     }
@@ -178,9 +179,10 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
             waitForDebugger: false,
             globalArgs: [],
             additionalArgs: [],
+            stopAfterLaunchDelay: null,
             CancellationToken.None);
 
-        Assert.Equal(ExitCodeConstants.FailedToDotnetRunAppHost, result.ExitCode);
+        Assert.Equal(CliExitCodes.FailedToDotnetRunAppHost, result.ExitCode);
         Assert.Contains(RunCommandStrings.FailedToStartAppHost, harness.InteractionService.DisplayedErrors);
         Assert.Contains(RunCommandStrings.AppHostFailedToBuild, harness.InteractionService.DisplayedErrors);
         Assert.Contains(harness.InteractionService.DisplayedMessages, m => m.Message == $"{RunCommandStrings.RecentAppHostStartupOutput}:");
@@ -265,9 +267,10 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
             waitForDebugger: false,
             globalArgs: [],
             additionalArgs: [],
+            stopAfterLaunchDelay: null,
             CancellationToken.None);
 
-        Assert.Equal(ExitCodeConstants.Success, result.ExitCode);
+        Assert.Equal(CliExitCodes.Success, result.ExitCode);
         Assert.Empty(harness.InteractionService.DisplayedErrors);
         Assert.False(harness.ProcessLauncher.StartedProcess?.HasExited);
         Assert.Equal(1, probeCount);
@@ -299,9 +302,10 @@ public class AppHostLauncherTests(ITestOutputHelper outputHelper)
             waitForDebugger: false,
             globalArgs: [],
             additionalArgs: [],
+            stopAfterLaunchDelay: null,
             CancellationToken.None);
 
-        Assert.Equal(ExitCodeConstants.FailedToDotnetRunAppHost, result.ExitCode);
+        Assert.Equal(CliExitCodes.FailedToDotnetRunAppHost, result.ExitCode);
         Assert.Contains(RunCommandStrings.FailedToStartAppHost, harness.InteractionService.DisplayedErrors);
         Assert.Contains(RunCommandStrings.AppHostFailedToBuild, harness.InteractionService.DisplayedErrors);
         Assert.Contains(harness.InteractionService.DisplayedLines, line => line.Line.Contains("error CS1002", StringComparison.Ordinal));

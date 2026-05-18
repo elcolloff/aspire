@@ -485,7 +485,8 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
                 AspireHostVersion = "unknown",
                 AppHostPath = legacyInfo.AppHostPath,
                 CliProcessId = legacyInfo.CliProcessId,
-                StartedAt = legacyInfo.StartedAt
+                StartedAt = legacyInfo.StartedAt,
+                CliLogFilePath = legacyInfo.CliLogFilePath
             };
         }
 
