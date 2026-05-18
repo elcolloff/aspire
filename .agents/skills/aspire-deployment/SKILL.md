@@ -145,7 +145,7 @@ The Azure deployment path in this skill is `aspire add <azure-target>`, AppHost 
    - Run a named step with `aspire do <step>` only when the user asked for a specific pipeline step.
    - For published artifacts, explain the target-native apply step.
 9. **Destroy only when explicitly requested.**
-   - Run `aspire destroy` to tear down a deployment that Aspire created for the selected AppHost and environment.
+   - Run `aspire destroy` to execute the selected AppHost/environment's target destroy pipeline.
    - Confirm the AppHost, environment, target account/subscription/cluster, and destructive intent before running it.
    - Use `--yes` only when the user or CI workflow already made teardown intent explicit.
    - Prefer `aspire destroy` over target-native delete commands unless you are troubleshooting failed teardown or cleaning up unmanaged leftovers.

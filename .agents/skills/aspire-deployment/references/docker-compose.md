@@ -108,11 +108,13 @@ aspire deploy
 
 Aspire generates Compose output, builds images, writes environment-specific `.env` files, and runs Compose.
 
-Clean up only when requested:
+Run the Docker Compose target's destroy pipeline only when requested:
 
 ```bash
 aspire destroy
 ```
+
+For Docker Compose, `aspire destroy` delegates to the Compose deployment target for the selected AppHost/environment. Use Docker or Compose commands after destroy only to verify cleanup or investigate leftover containers, networks, volumes, or generated files.
 
 ## Common decisions
 

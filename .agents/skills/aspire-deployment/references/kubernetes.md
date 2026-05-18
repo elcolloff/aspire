@@ -200,13 +200,13 @@ External Helm charts added to a Kubernetes environment install after the main ap
 
 ## Destroy
 
-Use Aspire to tear down Kubernetes or Azure Kubernetes Service (AKS) deployments it created:
+Run the destroy pipeline for this AppHost/environment:
 
 ```bash
 aspire destroy --environment <name>
 ```
 
-For an existing/external Kubernetes cluster, confirm the current `kubectl` context, namespace, Helm release, and AppHost environment before running destroy. `aspire destroy` removes the Aspire-owned Helm/app deployment from the cluster; it does not delete an externally-created Kubernetes cluster, node pool, load balancer account resource, or container registry. Delete provider infrastructure with the provider CLI only when the user explicitly asks to remove that infrastructure too. For Azure Kubernetes Service (AKS), also confirm the Azure subscription and resource group. Use `--yes` only after destructive intent is explicit. Use Helm/kubectl, cloud CLI, or provider delete commands only to diagnose failed teardown or remove leftovers that are not owned by the Aspire deployment.
+For an existing/external cluster, the destroy step runs against the configured cluster context for the selected AppHost/environment. Confirm the current `kubectl` context, namespace/release settings, and AppHost environment before running destroy. It does not delete an externally-created Kubernetes cluster, node pool, provider load balancer account resource, or container registry. Delete provider infrastructure with the provider CLI only when the user explicitly asks to remove that infrastructure too. For Azure Kubernetes Service (AKS), also confirm the Azure subscription and resource group because that target can own Azure infrastructure as well as cluster resources. Use `--yes` only after destructive intent is explicit. Use kubectl, cloud CLI, provider delete commands, or Helm only to diagnose failed teardown or remove leftovers that are not managed by the Aspire deployment target.
 
 ## Native artifact handoff
 

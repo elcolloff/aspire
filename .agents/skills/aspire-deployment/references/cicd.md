@@ -194,7 +194,7 @@ Never route Azure deployment through a separate Azure deployment tool from this 
 
 ## Destroy from CI/CD
 
-Use `aspire destroy` for teardown workflows that intentionally remove Aspire-owned resources:
+Use `aspire destroy` for teardown workflows that intentionally run the AppHost deployment target's destroy pipeline:
 
 ```yaml
 - name: Destroy with Aspire
@@ -206,7 +206,7 @@ Use `aspire destroy` for teardown workflows that intentionally remove Aspire-own
   run: aspire destroy --environment production --yes --non-interactive
 ```
 
-Keep destroy jobs manually triggered or gated by a protected GitHub Environment. Reuse the same target authentication, AppHost path, environment, and parameter conventions as deploy. Do not put destroy into normal validation or deploy jobs unless the workflow owns temporary infrastructure and teardown is part of the tested lifecycle.
+Keep destroy jobs manually triggered or gated by a protected GitHub Environment. Reuse the same target authentication, AppHost path, environment, and parameter conventions as deploy. Do not put destroy into normal validation or deploy jobs unless the workflow owns temporary infrastructure and teardown is part of the tested lifecycle. If CI also created external infrastructure that is outside the Aspire deployment target, such as a temporary Kubernetes cluster or registry, clean that up in separate explicit provider-specific steps after the Aspire destroy step.
 
 ## Azure GitHub Actions auth
 

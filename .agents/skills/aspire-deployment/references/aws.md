@@ -115,13 +115,13 @@ Use `aspire deploy --list-steps` before applying changes when the user asked for
 
 ## Destroy
 
-Use Aspire to tear down AWS deployments it created:
+Use Aspire to run the AWS target's destroy pipeline:
 
 ```bash
 aspire destroy --environment <name>
 ```
 
-Confirm the AWS account, region, CDK stack name, AppHost, and environment before running destroy. Use `--yes` only after destructive intent is explicit. Use AWS CLI or CDK destroy commands only to investigate failed teardown or clean up resources that the Aspire deployment did not own.
+For AWS, `aspire destroy` delegates to the AWS deployment target for the selected AppHost/environment. Confirm the AWS account, region, CDK stack name, AppHost, and environment before running destroy. Use `--yes` only after destructive intent is explicit. Use AWS CLI or CDK destroy commands only to investigate failed teardown or clean up resources that the Aspire AWS target did not manage.
 
 ## Resource mapping and customization
 

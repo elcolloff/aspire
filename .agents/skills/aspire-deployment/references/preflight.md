@@ -92,7 +92,7 @@ Use `--environment <name>` when the user wants a staging/production context othe
 
 ## Destroying deployments
 
-Use `aspire destroy` to tear down resources from a previous Aspire deployment:
+Use `aspire destroy` to run the AppHost deployment environment's destroy pipeline:
 
 ```bash
 aspire destroy --environment <name>
@@ -105,7 +105,8 @@ Treat destroy as a destructive deployment operation:
 - Confirm the AppHost, environment, target account/subscription/cluster, and resource group/namespace/stack context before applying.
 - Use the same `--apphost <path>` and `--environment <name>` values used for deployment when discovery or environment scope could be ambiguous.
 - Use `--yes` only for non-interactive teardown when destructive intent has already been approved, such as an explicit cleanup job.
-- Keep target-native delete commands as troubleshooting or manual-leftover cleanup, not the primary teardown path for Aspire-owned deployments.
+- Do not describe destroy as a Helm, Kubernetes, Docker, Azure, or AWS command. It is an Aspire command that delegates to the selected deployment target's destroy step.
+- Keep target-native delete commands as troubleshooting or manual-leftover cleanup, not the primary teardown path for resources managed by the Aspire deployment target.
 
 ## Parameters and secrets
 

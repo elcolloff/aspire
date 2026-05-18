@@ -261,13 +261,13 @@ Published Azure artifacts are for preview or handoff. `aspire deploy` resolves p
 
 ## Destroy
 
-Use Aspire to tear down Azure deployments it created:
+Use Aspire to run the Azure target's destroy pipeline:
 
 ```bash
 aspire destroy --environment <name>
 ```
 
-Confirm the Azure subscription, resource group, environment name, and AppHost before running destroy. Use `--yes` only after the user has explicitly approved teardown or in an environment-protected cleanup workflow. Use Azure CLI after destroy to verify resource removal or investigate leftovers; do not start with `az group delete` or target-specific delete commands for Aspire-owned deployments unless `aspire destroy` cannot complete.
+For Azure, `aspire destroy` delegates to the Azure deployment target for the selected AppHost/environment. Confirm the Azure subscription, resource group, environment name, and AppHost before running destroy. Use `--yes` only after the user has explicitly approved teardown or in an environment-protected cleanup workflow. Use Azure CLI after destroy to verify resource removal or investigate leftovers; do not start with `az group delete` or target-specific delete commands for resources managed by the Aspire Azure target unless `aspire destroy` cannot complete.
 
 ## Common troubleshooting
 
