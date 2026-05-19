@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The Aspire Dashboard now always logs a startup summary including the dashboard URL and OTLP endpoint details, regardless of the frontend authentication mode. Previously, access details were only logged in BrowserToken auth mode, leaving other auth configurations without visible startup output.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📋",
+  "firstMergedAt": "2026-05-19T02:07:41Z",
+  "lastMergedAt": "2026-05-19T02:07:41Z",
+  "name": "Dashboard startup URL always logged regardless of auth mode",
+  "owner": "JamesNK",
+  "prs": [
+    17206
+  ]
+}

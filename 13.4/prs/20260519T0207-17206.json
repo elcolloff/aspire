@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Improvement: dashboard startup summary now logged in all auth modes.",
+  "mergedAt": "2026-05-19T02:07:41Z",
+  "number": 17206,
+  "runDate": "2026-05-19T03:07:37Z",
+  "status": "included",
+  "title": "Always log dashboard startup summary across auth modes"
+}

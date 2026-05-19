@@ -1,0 +1,9 @@
+{
+  "author": "ellahathaway",
+  "comment": "Bug fix: CLI DisplayError now always writes to stderr instead of stdout.",
+  "mergedAt": "2026-05-19T01:06:35Z",
+  "number": 17230,
+  "runDate": "2026-05-19T03:07:37Z",
+  "status": "included",
+  "title": "Route DisplayError output to stderr consistently"
+}

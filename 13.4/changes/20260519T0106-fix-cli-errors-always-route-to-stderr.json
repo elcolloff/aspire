@@ -1,0 +1,21 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [
+    "@ellahathaway"
+  ],
+  "description": "Error messages from the Aspire CLI now consistently write to stderr instead of stdout. Previously, errors only appeared on stderr in `--output json` mode, causing them to be silently discarded when redirecting stdout.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔊",
+  "firstMergedAt": "2026-05-19T01:06:35Z",
+  "lastMergedAt": "2026-05-19T01:06:35Z",
+  "name": "Fix CLI error messages always route to stderr",
+  "owner": "davidfowl",
+  "prs": [
+    17230
+  ]
+}
