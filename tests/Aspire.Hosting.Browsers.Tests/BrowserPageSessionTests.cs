@@ -307,18 +307,25 @@ public class BrowserPageSessionTests
 
         Assert.Equal("target-1", session.TargetId);
 
-        // Enable auto-advance AFTER startup so the reconnect deadline computation uses a time that is
-        // immediately exceeded by the next GetUtcNow() call in the while-loop condition check.
-        // This causes the recovery window to expire on the first iteration without needing to pump timers.
-        timeProvider.AutoAdvanceAmount = TimeSpan.FromSeconds(6);
-
         // Trigger connection loss to start the reconnect loop.
         firstConnection.FailCompletion(new InvalidOperationException("Socket reset."));
+
+        // Advance time in a concurrent task so that each Task.Delay timer in the reconnect loop fires,
+        // allowing the loop to iterate and eventually exceed the 5-second recovery deadline.
+        _ = Task.Run(async () =>
+        {
+            while (!session.Completion.IsCompleted)
+            {
+                await Task.Delay(10);
+                timeProvider.Advance(TimeSpan.FromSeconds(1));
+            }
+        });
 
         var result = await session.Completion.DefaultTimeout();
         Assert.Equal(BrowserPageSessionCompletionKind.ConnectionLost, result.CompletionKind);
         Assert.NotNull(result.Error);
         Assert.True(firstConnection.Disposed);
+        Assert.True(reconnectAttempts > 1, $"Expected multiple reconnect attempts but got {reconnectAttempts}.");
 
         await session.DisposeAsync();
     }
