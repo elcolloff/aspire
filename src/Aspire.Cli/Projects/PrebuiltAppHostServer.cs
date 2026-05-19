@@ -459,10 +459,40 @@ internal sealed class PrebuiltAppHostServer : IAppHostServerProject
     }
 
     /// <summary>
+    /// Throws when the caller asked for the staging channel but the running CLI's packaging
+    /// service refuses to synthesize one (daily/local/pr-<c>N</c> identity without
+    /// <c>overrideStagingFeed</c> or the <c>StagingChannelEnabled</c> feature flag). Surfaces
+    /// the same actionable reason the <c>update</c> and <c>new</c> commands display so the
+    /// bundled AppHost restore path doesn't silently downgrade to the daily feed.
+    /// </summary>
+    private void ThrowIfStagingUnavailable(string? requestedChannel)
+    {
+        if (!string.Equals(requestedChannel, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var reason = _packagingService.GetStagingChannelUnavailableReason();
+        if (reason is not null)
+        {
+            throw new InvalidOperationException(reason);
+        }
+    }
+
+    /// <summary>
     /// Gets NuGet sources from the resolved channel for bundled restore.
     /// </summary>
-    private async Task<IEnumerable<string>?> GetNuGetSourcesAsync(string? requestedChannel, CancellationToken cancellationToken)
+    internal async Task<IEnumerable<string>?> GetNuGetSourcesAsync(string? requestedChannel, CancellationToken cancellationToken)
     {
+        // Refuse to silently downgrade staging restores to the shared daily feed when the running
+        // CLI cannot synthesize a real staging channel (daily/local/pr-<N>). PackagingService omits
+        // the staging channel in that case; without this check the lookup below falls through to
+        // "all explicit channels" — which on a daily CLI is the shared daily feed — and restore
+        // silently succeeds against the wrong feed. Surfacing the actionable
+        // GetStagingChannelUnavailableReason() mirrors UpdateCommand/NewCommand and closes the
+        // bundled-AppHost arm of https://github.com/microsoft/aspire/issues/16652.
+        ThrowIfStagingUnavailable(requestedChannel);
+
         var sources = new List<string>();
 
         try
@@ -504,12 +534,17 @@ internal sealed class PrebuiltAppHostServer : IAppHostServerProject
         return sources.Count > 0 ? sources : null;
     }
 
-    private async Task<TemporaryNuGetConfig?> TryCreateTemporaryNuGetConfigAsync(string? requestedChannel, CancellationToken cancellationToken)
+    internal async Task<TemporaryNuGetConfig?> TryCreateTemporaryNuGetConfigAsync(string? requestedChannel, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(requestedChannel))
         {
             return null;
         }
+
+        // Same staging refusal as GetNuGetSourcesAsync: if the CLI cannot synthesize staging,
+        // surface the actionable reason instead of returning null and letting restore proceed
+        // against whichever sources the caller resolved separately.
+        ThrowIfStagingUnavailable(requestedChannel);
 
         var channels = await _packagingService.GetChannelsAsync(cancellationToken, requestedChannel);
         var channel = channels.FirstOrDefault(c =>
