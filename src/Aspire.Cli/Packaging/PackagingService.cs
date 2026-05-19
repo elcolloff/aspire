@@ -99,9 +99,9 @@ internal class PackagingService(CliExecutionContext executionContext, INuGetPack
         // dogfood staging packages even before a project-level channel pin exists, and
         // callers that already resolved a staging channel from another project directory
         // need the channel materialized before they can match it below.
-        var stagingChannelConfigured = string.Equals(configuration["channel"], PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase);
-        var stagingChannelRequested = string.Equals(requestedChannelName, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase);
-        var stagingIdentityChannel = string.Equals(executionContext.IdentityChannel, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase);
+        var stagingChannelConfigured = string.Equals(configuration["channel"], PackageChannelNames.Staging, StringComparisons.ChannelName);
+        var stagingChannelRequested = string.Equals(requestedChannelName, PackageChannelNames.Staging, StringComparisons.ChannelName);
+        var stagingIdentityChannel = string.Equals(executionContext.IdentityChannel, PackageChannelNames.Staging, StringComparisons.ChannelName);
         var stagingFeatureEnabled = features.IsFeatureEnabled(KnownFeatures.StagingChannelEnabled, false);
         if (stagingFeatureEnabled || stagingChannelConfigured || stagingChannelRequested || stagingIdentityChannel)
         {
@@ -231,8 +231,8 @@ internal class PackagingService(CliExecutionContext executionContext, INuGetPack
         // For daily, local, and pr-<N> identities, falling back to either the SHA feed (no real
         // darc feed exists) or the shared daily feed silently resolves daily packages — the
         // exact bug tracked by https://github.com/microsoft/aspire/issues/16652.
-        return string.Equals(executionContext.IdentityChannel, PackageChannelNames.Stable, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(executionContext.IdentityChannel, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(executionContext.IdentityChannel, PackageChannelNames.Stable, StringComparisons.ChannelName)
+            || string.Equals(executionContext.IdentityChannel, PackageChannelNames.Staging, StringComparisons.ChannelName);
     }
 
     private string? GetStagingFeedUrl(bool useSharedFeed)
