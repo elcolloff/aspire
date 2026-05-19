@@ -33,6 +33,11 @@ export const ResourceCommandInputType = {
 
 export type ResourceCommandInputType = typeof ResourceCommandInputType[keyof typeof ResourceCommandInputType];
 
+export interface ResourceCommandArgumentDynamicLoadingJson {
+    alwaysLoadOnStart?: boolean;
+    dependsOnInputs?: string[] | null;
+}
+
 // Mirrors the CLI JSON contract in src/Shared/Model/Serialization/ResourceJson.cs
 // (`ResourceCommandArgumentJson`), populated by Aspire.Cli's ResourceSnapshotMapper.
 export interface ResourceCommandArgumentInputJson {
@@ -48,6 +53,7 @@ export interface ResourceCommandArgumentInputJson {
     allowCustomChoice?: boolean;
     disabled?: boolean;
     maxLength: number | null;
+    dynamicLoading?: ResourceCommandArgumentDynamicLoadingJson | null;
 }
 
 export interface ResourceHealthReportJson {
