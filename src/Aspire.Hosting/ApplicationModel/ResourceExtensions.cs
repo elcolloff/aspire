@@ -1069,8 +1069,10 @@ public static class ResourceExtensions
             throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
         }
 
-        foreach (var annotation in resource.Annotations.Reverse())
+        var annotations = GetAnnotationsSnapshot(resource);
+        for (var i = annotations.Length - 1; i >= 0; i--)
         {
+            var annotation = annotations[i];
             switch (annotation)
             {
                 case LifetimeAnnotation lifetimeAnnotation:
@@ -1125,8 +1127,10 @@ public static class ResourceExtensions
             throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
         }
 
-        foreach (var resourceAnnotation in resource.Annotations.Reverse())
+        var annotations = GetAnnotationsSnapshot(resource);
+        for (var i = annotations.Length - 1; i >= 0; i--)
         {
+            var resourceAnnotation = annotations[i];
             switch (resourceAnnotation)
             {
                 case ParentProcessLifetimeAnnotation parentProcessLifetimeAnnotation:
@@ -1142,6 +1146,14 @@ public static class ResourceExtensions
 
         annotation = null;
         return false;
+    }
+
+    private static IResourceAnnotation[] GetAnnotationsSnapshot(IResource resource)
+    {
+        lock (resource.Annotations)
+        {
+            return resource.Annotations.ToArray();
+        }
     }
 
     /// <summary>
