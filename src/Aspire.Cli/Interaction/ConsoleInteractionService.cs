@@ -104,6 +104,49 @@ internal class ConsoleInteractionService : IInteractionService
         }
     }
 
+    public async Task<T> ShowDynamicStatusAsync<T>(string initialStatusText, Func<Action<string>, Task<T>> action, KnownEmoji? emoji = null)
+    {
+        var emojiPrefix = emoji is { } e ? ConsoleHelpers.FormatEmojiPrefix(e, MessageConsole) : string.Empty;
+        var initialDisplayText = emojiPrefix + initialStatusText.EscapeMarkup();
+
+        // Mirrors ShowStatusAsync: prevent nested Spectre.Console Status operations, skip when debug/non-interactive,
+        // and treat empty text as "no status UI". The fallback path still drives the action so progress logic runs;
+        // we just hand it an updater that emits subtle messages instead of mutating a live spinner.
+        if (Interlocked.CompareExchange(ref _inStatus, 1, 0) != 0 ||
+            _executionContext.DebugMode ||
+            !_hostEnvironment.SupportsInteractiveOutput ||
+            string.IsNullOrEmpty(initialStatusText))
+        {
+            if (!string.IsNullOrEmpty(initialStatusText))
+            {
+                DisplaySubtleMessage(initialDisplayText, allowMarkup: true);
+            }
+            else
+            {
+                MessageLogger.LogInformation("Status: {StatusText}", initialStatusText);
+            }
+
+            return await action(text =>
+            {
+                if (!string.IsNullOrEmpty(text))
+                {
+                    DisplaySubtleMessage(emojiPrefix + text.EscapeMarkup(), allowMarkup: true);
+                }
+            });
+        }
+
+        try
+        {
+            return await MessageConsole.Status()
+                .Spinner(Spinner.Known.Dots3)
+                .StartAsync(initialDisplayText, context => action(text => context.Status = emojiPrefix + text.EscapeMarkup()));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _inStatus, 0);
+        }
+    }
+
     public void ShowStatus(string statusText, Action action, KnownEmoji? emoji = null, bool allowMarkup = false)
     {
         MessageLogger.LogInformation("Status: {StatusText}", statusText);

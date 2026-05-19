@@ -17,7 +17,7 @@ internal sealed class TestProjectLocator : IProjectLocator
 
     public Func<DirectoryInfo, AppHostDiscoveryScope, CancellationToken, Task<List<AppHostProjectCandidate>>>? FindAppHostProjectsAsyncCallback { get; set; }
 
-    public Func<DirectoryInfo, AppHostDiscoveryScope, CancellationToken, IAsyncEnumerable<AppHostProjectCandidate>>? FindAppHostProjectsStreamAsyncCallback { get; set; }
+    public Func<DirectoryInfo, AppHostDiscoveryScope, CancellationToken, Action<int>?, IAsyncEnumerable<AppHostProjectCandidate>>? FindAppHostProjectsStreamAsyncCallback { get; set; }
 
     public Func<DirectoryInfo, AppHostDiscoveryScope, CancellationToken, Task<List<FileInfo>>>? FindAppHostProjectFilesAsyncCallback { get; set; }
 
@@ -39,11 +39,12 @@ internal sealed class TestProjectLocator : IProjectLocator
     public async IAsyncEnumerable<AppHostProjectCandidate> FindAppHostProjectsStreamAsync(
         DirectoryInfo searchDirectory,
         AppHostDiscoveryScope scope,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        Action<int>? onDirectoryEnumerated = null)
     {
         if (FindAppHostProjectsStreamAsyncCallback is not null)
         {
-            await foreach (var candidate in FindAppHostProjectsStreamAsyncCallback(searchDirectory, scope, cancellationToken).WithCancellation(cancellationToken))
+            await foreach (var candidate in FindAppHostProjectsStreamAsyncCallback(searchDirectory, scope, cancellationToken, onDirectoryEnumerated).WithCancellation(cancellationToken))
             {
                 yield return candidate;
             }

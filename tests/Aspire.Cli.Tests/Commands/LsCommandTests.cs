@@ -7,7 +7,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Aspire.Cli.Commands;
 using Aspire.Cli.Projects;
-using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
@@ -170,7 +169,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         var appHost2 = new AppHostProjectCandidate(new FileInfo(appHostPath2), KnownLanguageId.TypeScript, AppHostProjectCandidateStatus.PossiblyUnbuildable);
         var projectLocator = new TestProjectLocator
         {
-            FindAppHostProjectsStreamAsyncCallback = (_, _, _) => ToAsyncEnumerable(appHost1, appHost2)
+            FindAppHostProjectsStreamAsyncCallback = (_, _, _, _) => ToAsyncEnumerable(appHost1, appHost2)
         };
 
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
@@ -264,7 +263,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         var appHost = new AppHostProjectCandidate(new FileInfo(appHostPath), KnownLanguageId.CSharp);
         var projectLocator = new TestProjectLocator
         {
-            FindAppHostProjectsStreamAsyncCallback = (_, _, cancellationToken) => GetCandidatesAsync(cancellationToken)
+            FindAppHostProjectsStreamAsyncCallback = (_, _, cancellationToken, _) => GetCandidatesAsync(cancellationToken)
         };
 
         async IAsyncEnumerable<AppHostProjectCandidate> GetCandidatesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -309,7 +308,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         var textWriter = new TestOutputTextWriter(outputHelper);
         var projectLocator = new TestProjectLocator
         {
-            FindAppHostProjectsStreamAsyncCallback = (_, _, cancellationToken) => CancelDiscoveryAsync(cancellationToken)
+            FindAppHostProjectsStreamAsyncCallback = (_, _, cancellationToken, _) => CancelDiscoveryAsync(cancellationToken)
         };
 
         async IAsyncEnumerable<AppHostProjectCandidate> CancelDiscoveryAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -400,7 +399,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task LsCommand_TableFormat_InteractiveMode_StreamsCandidateAppHosts()
+    public async Task LsCommand_TableFormat_InteractiveMode_ShowsSearchStatusAndFinalTable()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var interactionService = new TestInteractionService();
@@ -410,7 +409,11 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         var appHost2 = new AppHostProjectCandidate(new FileInfo(appHostPath2), KnownLanguageId.TypeScript, AppHostProjectCandidateStatus.PossiblyUnbuildable);
         var projectLocator = new TestProjectLocator
         {
-            FindAppHostProjectsStreamAsyncCallback = (_, _, _) => ToAsyncEnumerable(appHost1, appHost2)
+            FindAppHostProjectsStreamAsyncCallback = (_, _, _, onDirectoryEnumerated) =>
+            {
+                onDirectoryEnumerated?.Invoke(42);
+                return ToAsyncEnumerable(appHost1, appHost2);
+            }
         };
 
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
@@ -427,14 +430,21 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(CliExitCodes.Success, exitCode);
-        Assert.Empty(interactionService.DisplayedRenderables);
 
-        var liveOutputs = interactionService.DisplayedLiveRenderables.Select(RenderToPlainConsole).ToArray();
-        Assert.Contains(liveOutputs, output => output.Contains(InteractionServiceStrings.FindingAppHosts));
-        Assert.Contains(liveOutputs, output => output.Contains("App1.AppHost.csproj"));
-        Assert.Contains(liveOutputs, output => output.Contains("App2.AppHost.csproj"));
-        Assert.Contains("App1.AppHost.csproj", liveOutputs[^1]);
-        Assert.Contains("App2.AppHost.csproj", liveOutputs[^1]);
+        // The interactive path should not stream a live table any more. It instead shows a search
+        // status while discovery runs and then renders the final table exactly once.
+        Assert.Empty(interactionService.DisplayedLiveRenderables);
+
+        // The initial status text is captured by TestInteractionService even when the action completes
+        // before the periodic refresh loop ticks, so this is stable across timing.
+        Assert.NotEmpty(interactionService.DynamicStatusTexts);
+        Assert.Contains(interactionService.DynamicStatusTexts, text => text.Contains("AppHosts found"));
+        Assert.Contains(interactionService.DynamicStatusTexts, text => text.Contains("42 directories searched", StringComparison.Ordinal));
+
+        Assert.Single(interactionService.DisplayedRenderables);
+        var finalOutput = RenderToPlainConsole(interactionService.DisplayedRenderables[0]);
+        Assert.Contains("App1.AppHost.csproj", finalOutput);
+        Assert.Contains("App2.AppHost.csproj", finalOutput);
     }
 
     [Fact]

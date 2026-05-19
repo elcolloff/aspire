@@ -129,6 +129,12 @@ namespace Aspire.Cli.Resources {
             }
         }
 
+        internal static string LsSearchingForAppHostsStatus {
+            get {
+                return ResourceManager.GetString("LsSearchingForAppHostsStatus", resourceCulture);
+            }
+        }
+
         internal static string HeaderPath {
             get {
                 return ResourceManager.GetString("HeaderPath", resourceCulture);

@@ -73,6 +73,24 @@ internal sealed class TestInteractionService : IInteractionService
         return action();
     }
 
+    public List<string> DynamicStatusTexts { get; } = [];
+
+    public Task<T> ShowDynamicStatusAsync<T>(string initialStatusText, Func<Action<string>, Task<T>> action, KnownEmoji? emoji = null)
+    {
+        lock (_displayLock)
+        {
+            DynamicStatusTexts.Add(initialStatusText);
+        }
+
+        return action(text =>
+        {
+            lock (_displayLock)
+            {
+                DynamicStatusTexts.Add(text);
+            }
+        });
+    }
+
     public void ShowStatus(string statusText, Action action, KnownEmoji? emoji = null, bool allowMarkup = false)
     {
         action();

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using System.Globalization;
 using System.Text.Json;
 using Aspire.Cli.Configuration;
 using Aspire.Cli.Interaction;
@@ -10,7 +11,6 @@ using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Spectre.Console;
-using Spectre.Console.Rendering;
 
 namespace Aspire.Cli.Commands;
 
@@ -105,19 +105,19 @@ internal sealed class LsCommand : BaseCommand
         {
             var useJsonStream = format == OutputFormat.Json && stream;
 
-            // Live rendering is only for human interactive table output. JSON without --stream is consumed by
-            // tools/logs as one stable payload, and JSON with --stream writes machine-readable event lines.
-            // Non-interactive hosts may not support terminal cursor rewrites, so they also wait for the final table.
-            var useLiveOutput = format == OutputFormat.Table
+            // Status-based progress (with directories searched / AppHosts found) is only useful for the human
+            // table view in an interactive terminal. JSON consumers receive structured data instead, and
+            // non-interactive hosts may not support spinner status, so they wait for the final table.
+            var useInteractiveStatus = format == OutputFormat.Table
                 && _hostEnvironment.SupportsInteractiveOutput
                 && !_executionContext.DebugMode;
 
             List<AppHostProjectCandidate> appHosts;
             using (var findAppHostsActivity = _profilingTelemetry.StartLsFindAppHosts(scope.ToString()))
             {
-                appHosts = (useLiveOutput, useJsonStream) switch
+                appHosts = (useInteractiveStatus, useJsonStream) switch
                 {
-                    (true, _) => await FindAppHostsWithLiveUpdatesAsync(scope, cancellationToken).ConfigureAwait(false),
+                    (true, _) => await FindAppHostsWithStatusAsync(scope, cancellationToken).ConfigureAwait(false),
                     (_, true) => await FindAppHostsWithJsonStreamAsync(scope, cancellationToken).ConfigureAwait(false),
                     _ => await _projectLocator.FindAppHostProjectsAsync(_executionContext.WorkingDirectory, scope, cancellationToken).ConfigureAwait(false)
                 };
@@ -132,8 +132,10 @@ internal sealed class LsCommand : BaseCommand
                 var json = JsonSerializer.Serialize(appHostInfos, JsonSourceGenerationContext.RelaxedEscaping.ListCandidateAppHostDisplayInfo);
                 _interactionService.DisplayRawText(json, ConsoleOutput.Standard);
             }
-            else if (!useLiveOutput && !useJsonStream)
+            else if (!useJsonStream)
             {
+                // Both interactive and non-interactive table output land here so the final table render is
+                // identical: the only difference is whether discovery showed a live spinner status above.
                 if (appHostInfos.Count == 0)
                 {
                     _interactionService.DisplayMessage(KnownEmojis.Information, SharedCommandStrings.LsNoCandidateAppHostsFound);
@@ -203,42 +205,79 @@ internal sealed class LsCommand : BaseCommand
         }
     }
 
-    private async Task<List<AppHostProjectCandidate>> FindAppHostsWithLiveUpdatesAsync(AppHostDiscoveryScope scope, CancellationToken cancellationToken)
+    private async Task<List<AppHostProjectCandidate>> FindAppHostsWithStatusAsync(AppHostDiscoveryScope scope, CancellationToken cancellationToken)
     {
-        var displayLock = new object();
-        var liveAppHostInfos = new List<CandidateAppHostDisplayInfo>();
         var appHosts = new List<AppHostProjectCandidate>();
+        // Counters are mutated from the discovery worker thread (directory enumeration is single-threaded, and
+        // validation runs in parallel via Parallel.ForEachAsync), but read from the status-refresh loop on a
+        // different thread. Use Volatile/Interlocked so the refresh loop observes recent values without locking.
+        var directoriesSearched = 0;
+        var appHostsFound = 0;
 
-        await _interactionService.DisplayLiveAsync(BuildLiveSearchRenderable(liveAppHostInfos, isSearching: true), async updateTarget =>
-        {
-            await foreach (var candidate in _projectLocator.FindAppHostProjectsStreamAsync(_executionContext.WorkingDirectory, scope, cancellationToken).ConfigureAwait(false))
+        // Re-render the status text at most ~once per second so a deep filesystem walk doesn't spam the terminal,
+        // but still gives the user a visible heartbeat that work is happening.
+        var statusRefreshInterval = TimeSpan.FromSeconds(1);
+
+        await _interactionService.ShowDynamicStatusAsync(
+            FormatSearchingStatus(directoriesSearched: 0, appHostsFound: 0),
+            async updateStatus =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                appHosts.Add(candidate);
+                using var statusCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var refreshTask = RefreshStatusLoopAsync(updateStatus, statusCancellation.Token);
 
-                // Candidate validation runs in parallel. Keep the live render state locked while
-                // updating it so Spectre.Console never renders a list that another worker is mutating.
-                lock (displayLock)
+                try
                 {
-                    liveAppHostInfos.Add(CreateDisplayInfo(candidate));
-                    liveAppHostInfos.Sort(CompareByPath);
-                    updateTarget(BuildLiveSearchRenderable(liveAppHostInfos, isSearching: true));
+                    await foreach (var candidate in _projectLocator
+                        .FindAppHostProjectsStreamAsync(
+                            _executionContext.WorkingDirectory,
+                            scope,
+                            cancellationToken,
+                            onDirectoryEnumerated: count => Volatile.Write(ref directoriesSearched, count))
+                        .ConfigureAwait(false))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        appHosts.Add(candidate);
+                        Interlocked.Increment(ref appHostsFound);
+                    }
                 }
-            }
+                finally
+                {
+                    updateStatus(FormatSearchingStatus(Volatile.Read(ref directoriesSearched), Volatile.Read(ref appHostsFound)));
+                    statusCancellation.Cancel();
+                    try
+                    {
+                        await refreshTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                }
 
-            appHosts.Sort((x, y) => x.AppHostFile.FullName.CompareTo(y.AppHostFile.FullName));
+                return 0;
 
-            // The final frame should be sorted by path, not by the order stream items arrived
-            // from parallel validation workers.
-            lock (displayLock)
-            {
-                liveAppHostInfos.Clear();
-                liveAppHostInfos.AddRange(CreateDisplayInfos(appHosts));
-                updateTarget(BuildLiveSearchRenderable(liveAppHostInfos, isSearching: false));
-            }
-        }).ConfigureAwait(false);
+                async Task RefreshStatusLoopAsync(Action<string> update, CancellationToken refreshToken)
+                {
+                    try
+                    {
+                        while (!refreshToken.IsCancellationRequested)
+                        {
+                            await Task.Delay(statusRefreshInterval, refreshToken).ConfigureAwait(false);
+                            update(FormatSearchingStatus(Volatile.Read(ref directoriesSearched), Volatile.Read(ref appHostsFound)));
+                        }
+                    }
+                    catch (OperationCanceledException) when (refreshToken.IsCancellationRequested)
+                    {
+                    }
+                }
+            }).ConfigureAwait(false);
 
+        appHosts.Sort((x, y) => x.AppHostFile.FullName.CompareTo(y.AppHostFile.FullName));
         return appHosts;
+    }
+
+    private static string FormatSearchingStatus(int directoriesSearched, int appHostsFound)
+    {
+        return string.Format(CultureInfo.CurrentCulture, SharedCommandStrings.LsSearchingForAppHostsStatus, directoriesSearched, appHostsFound);
     }
 
     private List<CandidateAppHostDisplayInfo> CreateDisplayInfos(IEnumerable<AppHostProjectCandidate> appHosts)
@@ -254,27 +293,6 @@ internal sealed class LsCommand : BaseCommand
             Language = appHost.Language,
             Status = GetDisplayStatus(appHost.Status)
         };
-    }
-
-    private static int CompareByPath(CandidateAppHostDisplayInfo x, CandidateAppHostDisplayInfo y)
-    {
-        return x.Path.CompareTo(y.Path);
-    }
-
-    private static IRenderable BuildLiveSearchRenderable(List<CandidateAppHostDisplayInfo> appHosts, bool isSearching)
-    {
-        if (appHosts.Count == 0)
-        {
-            return isSearching
-                ? new Markup($"[grey]{InteractionServiceStrings.FindingAppHosts.EscapeMarkup()}[/]")
-                : new Markup(SharedCommandStrings.LsNoCandidateAppHostsFound.EscapeMarkup());
-        }
-
-        var table = BuildTable(appHosts);
-
-        return isSearching
-            ? new Rows(new Markup($"[grey]{InteractionServiceStrings.FindingAppHosts.EscapeMarkup()}[/]"), table)
-            : table;
     }
 
     private void DisplayTable(List<CandidateAppHostDisplayInfo> appHosts)
