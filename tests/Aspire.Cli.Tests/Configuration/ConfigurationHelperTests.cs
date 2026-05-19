@@ -7,6 +7,7 @@ using Aspire.Cli.Configuration;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Cli.Utils;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aspire.Cli.Tests.Configuration;
 
@@ -22,7 +23,7 @@ public class ConfigurationHelperTests(ITestOutputHelper outputHelper)
         var globalSettingsFile = new FileInfo(Path.Combine(globalDir.FullName, AspireConfigFile.FileName));
 
         var builder = new ConfigurationBuilder();
-        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile);
+        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile, NullLogger.Instance);
         return builder.Build();
     }
 
@@ -198,7 +199,7 @@ public class ConfigurationHelperTests(ITestOutputHelper outputHelper)
         var globalSettingsFile = new FileInfo(Path.Combine(globalDir.FullName, AspireConfigFile.FileName));
 
         var builder = new ConfigurationBuilder();
-        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile);
+        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile, NullLogger.Instance);
 
         Assert.True(
             File.Exists(aspireConfigPath),
@@ -233,7 +234,7 @@ public class ConfigurationHelperTests(ITestOutputHelper outputHelper)
         var globalSettingsFile = new FileInfo(Path.Combine(globalDir.FullName, AspireConfigFile.FileName));
 
         var builder = new ConfigurationBuilder();
-        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile);
+        ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile, NullLogger.Instance);
 
         Assert.Equal(existingContent, File.ReadAllText(aspireConfigPath));
 
@@ -261,7 +262,7 @@ public class ConfigurationHelperTests(ITestOutputHelper outputHelper)
 
         var builder = new ConfigurationBuilder();
         var ex = Record.Exception(() =>
-            ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile));
+            ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile, NullLogger.Instance));
 
         // The guard rejected the file before migration ran, so aspire.config.json must not have
         // been materialized at the workspace root.
@@ -299,7 +300,7 @@ public class ConfigurationHelperTests(ITestOutputHelper outputHelper)
 
         var builder = new ConfigurationBuilder();
         var ex = Record.Exception(() =>
-            ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile));
+            ConfigurationHelper.RegisterSettingsFiles(builder, workspace.WorkspaceRoot, globalSettingsFile, NullLogger.Instance));
 
         Assert.Null(ex);
 
