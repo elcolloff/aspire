@@ -27,6 +27,7 @@ namespace Aspire.Hosting;
 public static class ResourceBuilderExtensions
 {
     private const string ConnectionStringEnvironmentName = "ConnectionStrings__";
+    private const string PersistenceExperimentalDiagnosticId = "ASPIREPERSISTENCE001";
     private static readonly MethodInfo s_dispatchCustomWithReferenceMethod = typeof(ResourceBuilderExtensions).GetMethod(nameof(DispatchCustomWithReference), BindingFlags.NonPublic | BindingFlags.Static)!;
 
     /// <summary>
@@ -49,6 +50,7 @@ public static class ResourceBuilderExtensions
     /// </example>
     /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when the resource does not support lifetime configuration.</exception>
+    [Experimental(PersistenceExperimentalDiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExport(Description = "Sets session lifetime behavior for the resource")]
     public static IResourceBuilder<T> WithSessionLifetime<T>(this IResourceBuilder<T> builder)
         where T : IResource
@@ -78,6 +80,7 @@ public static class ResourceBuilderExtensions
     /// </example>
     /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when the resource does not support lifetime configuration.</exception>
+    [Experimental(PersistenceExperimentalDiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExport(Description = "Sets persistent lifetime behavior for the resource")]
     public static IResourceBuilder<T> WithPersistentLifetime<T>(this IResourceBuilder<T> builder)
         where T : IResource
@@ -100,6 +103,7 @@ public static class ResourceBuilderExtensions
     /// changes to the source resource are reflected by this resource.
     /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when the resource does not support lifetime configuration.</exception>
+    [Experimental(PersistenceExperimentalDiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExport(Description = "Sets resource lifetime behavior to match another resource")]
     public static IResourceBuilder<T> WithLifetimeOf<T, TSource>(this IResourceBuilder<T> builder, IResourceBuilder<TSource> sourceBuilder)
         where T : IResource
@@ -142,6 +146,7 @@ public static class ResourceBuilderExtensions
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="parentProcessId"/> is less than or equal to zero.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="parentProcessId"/> does not identify a running process.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the resource does not support lifetime configuration.</exception>
+    [Experimental(PersistenceExperimentalDiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     [AspireExport(Description = "Sets persistent lifetime behavior tied to a parent process")]
     public static IResourceBuilder<T> WithParentProcessLifetime<T>(this IResourceBuilder<T> builder, int parentProcessId)
         where T : IResource
@@ -156,8 +161,7 @@ public static class ResourceBuilderExtensions
         using var parentProcess = SystemProcess.GetProcessById(parentProcessId);
         var parentProcessIdentity = DcpProcessMonitor.GetMonitorProcessIdentity(parentProcess);
 
-        return builder
-            .WithPersistentLifetime()
+        return ApplyLifetime(builder, Lifetime.Persistent)
             .WithAnnotation(new ParentProcessLifetimeAnnotation(parentProcessIdentity.ProcessId, parentProcessIdentity.Timestamp), ResourceAnnotationMutationBehavior.Replace);
     }
 
