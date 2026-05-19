@@ -27,6 +27,7 @@ public class AppHostSdkTargetsTests
         var packageReferences = await RunAddReferenceToDashboardAndDcpAsync(extraProjectXml: null);
 
         Assert.Contains("UseSdkPickBestRid=true", packageReferences);
+        Assert.Contains("RunRidToolFallback=false", packageReferences);
         AssertDashboardAndOrchestrationReferences(packageReferences);
     }
 
@@ -48,6 +49,7 @@ public class AppHostSdkTargetsTests
         var packageReferences = await RunAddReferenceToDashboardAndDcpAsync(extraProjectXml);
 
         Assert.Contains("UseSdkPickBestRid=false", packageReferences);
+        Assert.Contains("RunRidToolFallback=true", packageReferences);
         AssertDashboardAndOrchestrationReferences(packageReferences);
     }
 
@@ -81,7 +83,7 @@ public class AppHostSdkTargetsTests
 
               <Target Name="WritePackageReferences" DependsOnTargets="AddReferenceToDashboardAndDCP">
                 <WriteLinesToFile File="$(BaseIntermediateOutputPath)package-references.txt"
-                                  Lines="UseSdkPickBestRid=$(_AspireUseSdkPickBestRid);@(PackageReference->'%(Identity)=%(Version)')"
+                                  Lines="UseSdkPickBestRid=$(_AspireUseSdkPickBestRid);RunRidToolFallback=$(_AspireRunRidToolFallback);@(PackageReference->'%(Identity)=%(Version)')"
                                   Overwrite="true" />
               </Target>
 
