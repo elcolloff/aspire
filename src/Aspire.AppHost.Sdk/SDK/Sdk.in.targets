@@ -125,7 +125,7 @@
     </ItemGroup>
 
     <PropertyGroup>
-      <_AspireUseSdkPickBestRid Condition="'$(_AspireUseSdkPickBestRid)' == '' and '$(NETCoreSdkVersion)' != '' and !$([MSBuild]::VersionLessThan('$(NETCoreSdkVersion)', '10.0.100'))">true</_AspireUseSdkPickBestRid>
+      <_AspireUseSdkPickBestRid Condition="'$(_AspireUseSdkPickBestRid)' == '' and '$(NETCoreSdkVersion)' != '' and $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '10.0.100'))">true</_AspireUseSdkPickBestRid>
     </PropertyGroup>
 
     <!-- .NET 10 SDKs provide the RID-selection task in-process. Keep the older out-of-proc tool
@@ -168,7 +168,7 @@
       <_DashboardAndDcpRID>@(_AspireRidToolOutput)</_DashboardAndDcpRID>
     </PropertyGroup>
 
-    <Error Condition="'$(_DashboardAndDcpRID)' == ''" Text="Failed to resolve a RID for Aspire Dashboard and DCP package references." />
+    <Error Condition="'$(_DashboardAndDcpRID)' == ''" Text="Failed to resolve a RID for Aspire Dashboard and DCP package references. NETCoreSdkRuntimeIdentifier='$(NETCoreSdkRuntimeIdentifier)', NETCoreSdkVersion='$(NETCoreSdkVersion)', UsedSdkPickBestRidTask='$(_AspireUseSdkPickBestRid)', SupportedRids='@(_DashboardAndDCPSupportedTargetingRIDs)'." />
 
     <!-- Now that we have the version, we add the package references -->
     <ItemGroup>
