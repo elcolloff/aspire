@@ -737,8 +737,28 @@ internal sealed class AtsRustCodeGenerator : ICodeGenerator
         WriteLine("        resolved_options.insert(\"Args\".to_string(), serde_json::to_value(args).unwrap_or(Value::Null));");
         WriteLine("    }");
         WriteLine("    if !resolved_options.contains_key(\"ProjectDirectory\") {");
-        WriteLine("        if let Ok(pwd) = std::env::current_dir() {");
-        WriteLine("            resolved_options.insert(\"ProjectDirectory\".to_string(), Value::String(pwd.to_string_lossy().to_string()));");
+        // ASPIRE_PROJECT_DIRECTORY is set by the CLI so the host reports the correct project
+        // directory (not the cwd) when matching --apphost <directory> requests.
+        WriteLine("        if let Ok(project_directory) = std::env::var(\"ASPIRE_PROJECT_DIRECTORY\") {");
+        WriteLine("            if !project_directory.is_empty() {");
+        WriteLine("                resolved_options.insert(\"ProjectDirectory\".to_string(), Value::String(project_directory));");
+        WriteLine("            }");
+        WriteLine("        }");
+        WriteLine("        if !resolved_options.contains_key(\"ProjectDirectory\") {");
+        WriteLine("            if let Ok(pwd) = std::env::current_dir() {");
+        WriteLine("                resolved_options.insert(\"ProjectDirectory\".to_string(), Value::String(pwd.to_string_lossy().to_string()));");
+        WriteLine("            }");
+        WriteLine("        }");
+        WriteLine("    }");
+        // ASPIRE_APPHOST_FILEPATH is set by the CLI so the host reports the original AppHost file
+        // path (e.g. apphost.rs) back through GetAppHostInformationAsync. Without this the host
+        // falls back to the aspire-managed entry assembly name and the CLI cannot match
+        // --apphost <directory> against the running AppHost.
+        WriteLine("    if !resolved_options.contains_key(\"AppHostFilePath\") {");
+        WriteLine("        if let Ok(app_host_file_path) = std::env::var(\"ASPIRE_APPHOST_FILEPATH\") {");
+        WriteLine("            if !app_host_file_path.is_empty() {");
+        WriteLine("                resolved_options.insert(\"AppHostFilePath\".to_string(), Value::String(app_host_file_path));");
+        WriteLine("            }");
         WriteLine("        }");
         WriteLine("    }");
         WriteLine("    let mut args: HashMap<String, Value> = HashMap::new();");
