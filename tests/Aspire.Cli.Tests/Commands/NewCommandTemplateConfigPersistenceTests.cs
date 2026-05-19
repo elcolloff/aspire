@@ -75,6 +75,8 @@ public class NewCommandTemplateConfigPersistenceTests(ITestOutputHelper outputHe
     [InlineData(KnownTemplateId.GoEmptyAppHost, "apphost.go")]
     [InlineData(KnownTemplateId.JavaEmptyAppHost, "AppHost.java")]
     [InlineData(KnownTemplateId.TypeScriptStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.PythonStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.GoStarter, "apphost.go")]
     public async Task ChannelPinningTemplate_IdentityNotRegistered_DoesNotPinChannel(string templateId, string _)
     {
         var persisted = await ScaffoldAndReadPersistedChannelAsync(
@@ -100,6 +102,8 @@ public class NewCommandTemplateConfigPersistenceTests(ITestOutputHelper outputHe
     [InlineData(KnownTemplateId.GoEmptyAppHost, "apphost.go")]
     [InlineData(KnownTemplateId.JavaEmptyAppHost, "AppHost.java")]
     [InlineData(KnownTemplateId.TypeScriptStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.PythonStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.GoStarter, "apphost.go")]
     public async Task ChannelPinningTemplate_IdentityMatchesRegisteredChannel_PinsThatChannel(string templateId, string _)
     {
         var persisted = await ScaffoldAndReadPersistedChannelAsync(
@@ -124,6 +128,8 @@ public class NewCommandTemplateConfigPersistenceTests(ITestOutputHelper outputHe
     [InlineData(KnownTemplateId.GoEmptyAppHost, "apphost.go")]
     [InlineData(KnownTemplateId.JavaEmptyAppHost, "AppHost.java")]
     [InlineData(KnownTemplateId.TypeScriptStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.PythonStarter, "apphost.ts")]
+    [InlineData(KnownTemplateId.GoStarter, "apphost.go")]
     public async Task ChannelPinningTemplate_ExplicitChannelArg_OverridesIdentityAndPersists(string templateId, string _)
     {
         var persisted = await ScaffoldAndReadPersistedChannelAsync(
@@ -136,56 +142,23 @@ public class NewCommandTemplateConfigPersistenceTests(ITestOutputHelper outputHe
     }
 
     /// <summary>
-    /// Bug-class peer of the daily / unregistered-identity case. <c>PackagingService</c>
-    /// only registers the <c>staging</c> channel when <c>KnownFeatures.IsStagingChannelEnabled</c>
-    /// is true — so a default staging-identity CLI sees only <c>{ Implicit, Stable, Daily }</c>,
-    /// the identity doesn't match any registered channel, and the resolution must fall back
-    /// to Implicit (no pin). Tracked separately in #17121; pinned here so the staging-
-    /// without-flag path can't silently regress for the channel-pinning templates.
+    /// Issue #17121 regression guard: <c>PackagingService</c> now registers the
+    /// <c>staging</c> channel for a staging-identity CLI. Once <see cref="NewCommand"/>
+    /// resolves that registered identity channel, channel-pinning templates must persist
+    /// <c>channel: staging</c> so later add/restore operations keep using staging.
     /// </summary>
     [Theory]
     [InlineData(KnownTemplateId.TypeScriptEmptyAppHost)]
     [InlineData(KnownTemplateId.TypeScriptStarter)]
-    public async Task ChannelPinningTemplate_StagingIdentityWithoutStagingRegistered_DoesNotPinChannel(string templateId)
+    public async Task ChannelPinningTemplate_StagingIdentityWithRegisteredChannel_PinsStagingChannel(string templateId)
     {
         var persisted = await ScaffoldAndReadPersistedChannelAsync(
             templateId: templateId,
             identityChannel: PackageChannelNames.Staging,
-            registerIdentityChannel: false,
+            registerIdentityChannel: true,
             explicitChannelArg: null);
 
-        Assert.Null(persisted);
-    }
-
-    /// <summary>
-    /// Tripwire for the Go and Python starter factories. PR #17120 removed their dead
-    /// channel-write code (it wrote to a <c>.aspire/settings.json</c> file those templates
-    /// don't ship, so the write was a silent no-op). These templates now ship a static
-    /// embedded <c>aspire.config.json</c> with no <c>channel</c> field and the factories
-    /// don't touch it. If anyone reintroduces a channel-write (the most likely path for
-    /// re-introducing the original bug class), the persisted <c>channel</c> stops being
-    /// <see langword="null"/> and this test fails.
-    /// </summary>
-    [Theory]
-    [InlineData(KnownTemplateId.GoStarter, null)]
-    [InlineData(KnownTemplateId.GoStarter, PackageChannelNames.Stable)]
-    [InlineData(KnownTemplateId.PythonStarter, null)]
-    [InlineData(KnownTemplateId.PythonStarter, PackageChannelNames.Stable)]
-    public async Task NonChannelPinningStarter_NeverPersistsChannel(string templateId, string? explicitChannelArg)
-    {
-        // Use a registered Explicit channel identity so the resolution layer DOES produce
-        // a value — making this a true tripwire: if someone re-adds `config.Channel =
-        // inputs.Channel`, the resolution value would propagate through and break the
-        // assertion. Pre-fix dead-code would not have caught this either way (the
-        // dead-code wrote to .aspire/settings.json, not aspire.config.json), so the
-        // tripwire is for *future* writes, not the pre-fix shape.
-        var persisted = await ScaffoldAndReadPersistedChannelAsync(
-            templateId: templateId,
-            identityChannel: PackageChannelNames.Daily,
-            registerIdentityChannel: true,
-            explicitChannelArg: explicitChannelArg);
-
-        Assert.Null(persisted);
+        Assert.Equal(PackageChannelNames.Staging, persisted);
     }
 
     /// <summary>
