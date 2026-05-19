@@ -13,15 +13,15 @@ namespace Aspire.Hosting.Tests;
 public class ResourceBuilderLifetimeTests
 {
     [Fact]
-    public void WithPersistentLifetimeAddsLifetimeAnnotation()
+    public void WithPersistentLifetimeAddsPersistenceAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
         var container = builder.AddContainer("container", "image")
             .WithPersistentLifetime();
 
-        var annotation = container.Resource.Annotations.OfType<LifetimeAnnotation>().Single();
-        Assert.Equal(Lifetime.Persistent, annotation.Lifetime);
+        var annotation = container.Resource.Annotations.OfType<PersistenceAnnotation>().Single();
+        Assert.Equal(PersistenceMode.Persistent, annotation.Mode);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class ResourceBuilderLifetimeTests
     }
 
     [Fact]
-    public void WithPersistentLifetimeRemovesParentProcessLifetimeAnnotation()
+    public void WithPersistentLifetimeReplacesPersistenceAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
@@ -46,23 +46,26 @@ public class ResourceBuilderLifetimeTests
             .WithParentProcessLifetime(Environment.ProcessId)
             .WithPersistentLifetime();
 
-        Assert.False(container.Resource.TryGetLastAnnotation<ParentProcessLifetimeAnnotation>(out _));
+        var annotation = container.Resource.Annotations.OfType<PersistenceAnnotation>().Single();
+        Assert.Equal(PersistenceMode.Persistent, annotation.Mode);
+        Assert.Null(annotation.ParentProcessId);
+        Assert.Null(annotation.ParentProcessTimestamp);
     }
 
     [Fact]
-    public void WithParentProcessLifetimeReplacesExistingParentProcessLifetimeAnnotation()
+    public void WithParentProcessLifetimeReplacesExistingPersistenceAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
-        var originalTimestamp = new DateTime(2026, 5, 18, 1, 2, 3, DateTimeKind.Utc);
         var container = builder.AddContainer("container", "image")
-            .WithAnnotation(new ParentProcessLifetimeAnnotation(parentProcessId: 1, parentProcessTimestamp: originalTimestamp));
+            .WithPersistentLifetime();
 
         container.WithParentProcessLifetime(Environment.ProcessId);
 
-        var annotation = Assert.Single(container.Resource.Annotations.OfType<ParentProcessLifetimeAnnotation>());
+        var annotation = Assert.Single(container.Resource.Annotations.OfType<PersistenceAnnotation>());
+        Assert.Equal(PersistenceMode.ParentProcess, annotation.Mode);
         Assert.Equal(Environment.ProcessId, annotation.ParentProcessId);
-        Assert.NotEqual(originalTimestamp, annotation.ParentProcessTimestamp);
+        Assert.NotNull(annotation.ParentProcessTimestamp);
     }
 
     [Fact]
@@ -77,7 +80,9 @@ public class ResourceBuilderLifetimeTests
             .WithLifetimeOf(source);
 
         Assert.Equal(Lifetime.Persistent, container.Resource.GetLifetimeType());
-        Assert.Empty(container.Resource.Annotations.OfType<LifetimeAnnotation>());
+        var annotation = Assert.Single(container.Resource.Annotations.OfType<PersistenceAnnotation>());
+        Assert.Equal(PersistenceMode.Resource, annotation.Mode);
+        Assert.Same(source.Resource, annotation.SourceResource);
 
         source.WithSessionLifetime();
 
@@ -96,13 +101,13 @@ public class ResourceBuilderLifetimeTests
         var container = builder.AddContainer("container", "image")
             .WithLifetimeOf(source);
 
-        Assert.True(container.Resource.TryGetParentProcessLifetime(out var parentProcessLifetimeAnnotation));
-        Assert.Equal(parentProcessIdentity.ProcessId, parentProcessLifetimeAnnotation.ParentProcessId);
-        Assert.Equal(parentProcessIdentity.Timestamp, parentProcessLifetimeAnnotation.ParentProcessTimestamp);
+        Assert.True(container.Resource.TryGetParentProcessLifetime(out var parentProcessId, out var parentProcessTimestamp));
+        Assert.Equal(parentProcessIdentity.ProcessId, parentProcessId);
+        Assert.Equal(parentProcessIdentity.Timestamp, parentProcessTimestamp);
 
         source.WithSessionLifetime();
 
-        Assert.False(container.Resource.TryGetParentProcessLifetime(out _));
+        Assert.False(container.Resource.TryGetParentProcessLifetime(out _, out _));
     }
 
     [Fact]
@@ -150,7 +155,7 @@ public class ResourceBuilderLifetimeTests
     }
 
     [Fact]
-    public void WithSessionLifetimeRemovesParentProcessLifetimeAnnotation()
+    public void WithSessionLifetimeReplacesPersistenceAnnotation()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
 
@@ -158,6 +163,9 @@ public class ResourceBuilderLifetimeTests
             .WithParentProcessLifetime(Environment.ProcessId)
             .WithSessionLifetime();
 
-        Assert.False(container.Resource.TryGetLastAnnotation<ParentProcessLifetimeAnnotation>(out _));
+        var annotation = container.Resource.Annotations.OfType<PersistenceAnnotation>().Single();
+        Assert.Equal(PersistenceMode.Session, annotation.Mode);
+        Assert.Null(annotation.ParentProcessId);
+        Assert.Null(annotation.ParentProcessTimestamp);
     }
 }

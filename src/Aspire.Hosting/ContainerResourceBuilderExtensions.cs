@@ -4,6 +4,7 @@
 #pragma warning disable ASPIREPIPELINES001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 #pragma warning disable ASPIREPIPELINES003 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 #pragma warning disable ASPIREFILESYSTEM001 // Type is for evaluation purposes only
+#pragma warning disable ASPIREPERSISTENCE001 // Persistence annotation APIs are experimental.
 
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
@@ -556,25 +557,16 @@ public static class ContainerResourceBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        foreach (var annotation in builder.Resource.Annotations.OfType<ParentProcessLifetimeAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
-        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeReferenceAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
-        var resourceLifetime = lifetime switch
-        {
-            ContainerLifetime.Session => Lifetime.Session,
-            ContainerLifetime.Persistent => Lifetime.Persistent,
-            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
-        };
-
         return builder
-            .WithAnnotation(new LifetimeAnnotation { Lifetime = resourceLifetime }, ResourceAnnotationMutationBehavior.Replace)
+            .WithAnnotation(new PersistenceAnnotation
+            {
+                Mode = lifetime switch
+                {
+                    ContainerLifetime.Session => PersistenceMode.Session,
+                    ContainerLifetime.Persistent => PersistenceMode.Persistent,
+                    _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+                }
+            }, ResourceAnnotationMutationBehavior.Replace)
             .WithAnnotation(new ContainerLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
     }
 

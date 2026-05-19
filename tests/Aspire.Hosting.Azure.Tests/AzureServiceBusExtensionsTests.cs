@@ -622,11 +622,11 @@ public class AzureServiceBusExtensionsTests(ITestOutputHelper output)
 
         Assert.NotNull(sql);
 
-        var sourceResource = GetLifetimeReferenceSource(sql);
+        var sourceResource = GetPersistenceReferenceSource(sql);
         Assert.Same(serviceBus.Resource.Annotations, sourceResource.Annotations);
 
-        serviceBus.Resource.TryGetLastAnnotation<LifetimeAnnotation>(out var lifetimeAnnotation);
-        Assert.Equal(lifetime, lifetimeAnnotation?.Lifetime);
+        var persistenceAnnotation = Assert.Single(serviceBus.Resource.Annotations.OfType<PersistenceAnnotation>());
+        Assert.Equal(ToPersistenceMode(lifetime), persistenceAnnotation.Mode);
     }
 
     [Fact]
@@ -639,7 +639,7 @@ public class AzureServiceBusExtensionsTests(ITestOutputHelper output)
         var sql = builder.Resources.FirstOrDefault(x => x.Name == "sb-mssql");
 
         Assert.NotNull(sql);
-        Assert.DoesNotContain(sql.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
+        Assert.Empty(sql.Annotations.OfType<PersistenceAnnotation>());
     }
 
     [Fact]
@@ -651,13 +651,19 @@ public class AzureServiceBusExtensionsTests(ITestOutputHelper output)
         Assert.Throws<InvalidOperationException>(() => serviceBus.RunAsEmulator());
     }
 
-    private static IResource GetLifetimeReferenceSource(IResource resource)
+    private static IResource GetPersistenceReferenceSource(IResource resource)
     {
-        var annotation = Assert.Single(resource.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
-        var sourceResource = annotation.GetType().GetProperty("SourceResource", BindingFlags.Instance | BindingFlags.Public)!.GetValue(annotation);
-
-        return Assert.IsAssignableFrom<IResource>(sourceResource);
+        var annotation = Assert.Single(resource.Annotations.OfType<PersistenceAnnotation>());
+        return Assert.IsAssignableFrom<IResource>(annotation.SourceResource);
     }
+
+    private static PersistenceMode ToPersistenceMode(Lifetime lifetime) =>
+        lifetime switch
+        {
+            Lifetime.Session => PersistenceMode.Session,
+            Lifetime.Persistent => PersistenceMode.Persistent,
+            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+        };
 
     [Fact]
     public void AzureServiceBusHasCorrectConnectionStrings()

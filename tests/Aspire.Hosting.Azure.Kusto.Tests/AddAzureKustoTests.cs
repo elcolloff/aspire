@@ -297,7 +297,7 @@ public class AddAzureKustoTests
     }
 
     [Fact]
-    public void RunAsEmulator_WithCustomLifetime_ShouldConfigureLifetimeAnnotation()
+    public void RunAsEmulator_WithCustomLifetime_ShouldConfigurePersistenceAnnotation()
     {
         // Arrange
         using var builder = TestDistributedApplicationBuilder.Create();
@@ -309,9 +309,8 @@ public class AddAzureKustoTests
         });
 
         // Assert
-        var lifetimeAnnotation = resourceBuilder.Resource.Annotations.OfType<LifetimeAnnotation>().SingleOrDefault();
-        Assert.NotNull(lifetimeAnnotation);
-        Assert.Equal(Lifetime.Persistent, lifetimeAnnotation.Lifetime);
+        var persistenceAnnotation = Assert.Single(resourceBuilder.Resource.Annotations.OfType<PersistenceAnnotation>());
+        Assert.Equal(PersistenceMode.Persistent, persistenceAnnotation.Mode);
     }
 
     [Fact]

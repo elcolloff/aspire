@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIREPERSISTENCE001 // Persistence annotation APIs are experimental.
+
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Aspire.Dashboard.Model;
@@ -1054,7 +1056,7 @@ public static class ResourceExtensions
     /// </summary>
     /// <param name="resource">The resource to get the lifetime type for.</param>
     /// <returns>
-    /// The <see cref="Lifetime"/> from the <see cref="LifetimeAnnotation"/> for the resource (if the annotation exists).
+    /// The <see cref="Lifetime"/> from the <see cref="PersistenceAnnotation"/> for the resource (if the annotation exists).
     /// Defaults to <see cref="Lifetime.Session"/> if the annotation is not set.
     /// </returns>
     internal static Lifetime GetLifetimeType(this IResource resource)
@@ -1069,26 +1071,28 @@ public static class ResourceExtensions
             throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
         }
 
-        var annotations = GetAnnotationsSnapshot(resource);
-        for (var i = annotations.Length - 1; i >= 0; i--)
+        if (resource.TryGetLastAnnotation<PersistenceAnnotation>(out var persistenceAnnotation))
         {
-            var annotation = annotations[i];
-            switch (annotation)
+            return persistenceAnnotation.Mode switch
             {
-                case LifetimeAnnotation lifetimeAnnotation:
-                    return lifetimeAnnotation.Lifetime;
-                case LifetimeReferenceAnnotation lifetimeReferenceAnnotation:
-                    return GetLifetimeType(lifetimeReferenceAnnotation.SourceResource, visitedResources);
-                case ExecutableLifetimeAnnotation executableLifetimeAnnotation:
-                    return executableLifetimeAnnotation.Lifetime;
-                case ContainerLifetimeAnnotation containerLifetimeAnnotation:
-                    return containerLifetimeAnnotation.Lifetime switch
-                    {
-                        ContainerLifetime.Session => Lifetime.Session,
-                        ContainerLifetime.Persistent => Lifetime.Persistent,
-                        _ => throw new InvalidOperationException($"Unknown container lifetime '{Enum.GetName(typeof(ContainerLifetime), containerLifetimeAnnotation.Lifetime)}'.")
-                    };
-            }
+                PersistenceMode.Session => Lifetime.Session,
+                PersistenceMode.Persistent => Lifetime.Persistent,
+                PersistenceMode.Resource => persistenceAnnotation.SourceResource is { } sourceResource
+                    ? GetLifetimeType(sourceResource, visitedResources)
+                    : throw new InvalidOperationException($"Resource '{resource.Name}' has a resource persistence mode but no source resource."),
+                PersistenceMode.ParentProcess => Lifetime.Persistent,
+                _ => throw new InvalidOperationException($"Unknown persistence mode '{Enum.GetName(typeof(PersistenceMode), persistenceAnnotation.Mode)}'.")
+            };
+        }
+
+        if (resource.TryGetLastAnnotation<ContainerLifetimeAnnotation>(out var containerLifetimeAnnotation))
+        {
+            return containerLifetimeAnnotation.Lifetime switch
+            {
+                ContainerLifetime.Session => Lifetime.Session,
+                ContainerLifetime.Persistent => Lifetime.Persistent,
+                _ => throw new InvalidOperationException($"Unknown container lifetime '{Enum.GetName(typeof(ContainerLifetime), containerLifetimeAnnotation.Lifetime)}'.")
+            };
         }
 
         return Lifetime.Session;
@@ -1113,47 +1117,45 @@ public static class ResourceExtensions
     /// Determines whether the specified resource has a parent process lifetime.
     /// </summary>
     /// <param name="resource">The resource to get parent process lifetime behavior for.</param>
-    /// <param name="annotation">The parent process lifetime annotation if one exists.</param>
+    /// <param name="parentProcessId">The parent process ID if one exists.</param>
+    /// <param name="parentProcessTimestamp">The parent process identity timestamp if one exists.</param>
     /// <returns><see langword="true"/> if the resource has a parent process lifetime, otherwise <see langword="false"/>.</returns>
-    internal static bool TryGetParentProcessLifetime(this IResource resource, [NotNullWhen(true)] out ParentProcessLifetimeAnnotation? annotation)
+    internal static bool TryGetParentProcessLifetime(this IResource resource, out int parentProcessId, out DateTime parentProcessTimestamp)
     {
-        return TryGetParentProcessLifetime(resource, [], out annotation);
+        return TryGetParentProcessLifetime(resource, [], out parentProcessId, out parentProcessTimestamp);
     }
 
-    private static bool TryGetParentProcessLifetime(IResource resource, HashSet<IResource> visitedResources, [NotNullWhen(true)] out ParentProcessLifetimeAnnotation? annotation)
+    private static bool TryGetParentProcessLifetime(IResource resource, HashSet<IResource> visitedResources, out int parentProcessId, out DateTime parentProcessTimestamp)
     {
         if (!visitedResources.Add(resource))
         {
             throw new InvalidOperationException($"A circular lifetime reference was detected for resource '{resource.Name}'.");
         }
 
-        var annotations = GetAnnotationsSnapshot(resource);
-        for (var i = annotations.Length - 1; i >= 0; i--)
+        if (resource.TryGetLastAnnotation<PersistenceAnnotation>(out var persistenceAnnotation))
         {
-            var resourceAnnotation = annotations[i];
-            switch (resourceAnnotation)
+            switch (persistenceAnnotation.Mode)
             {
-                case ParentProcessLifetimeAnnotation parentProcessLifetimeAnnotation:
-                    annotation = parentProcessLifetimeAnnotation;
+                case PersistenceMode.ParentProcess when persistenceAnnotation.ParentProcessId is { } id && persistenceAnnotation.ParentProcessTimestamp is { } timestamp:
+                    parentProcessId = id;
+                    parentProcessTimestamp = timestamp;
                     return true;
-                case LifetimeReferenceAnnotation lifetimeReferenceAnnotation:
-                    return TryGetParentProcessLifetime(lifetimeReferenceAnnotation.SourceResource, visitedResources, out annotation);
-                case LifetimeAnnotation or ExecutableLifetimeAnnotation or ContainerLifetimeAnnotation:
-                    annotation = null;
+                case PersistenceMode.ParentProcess:
+                    throw new InvalidOperationException($"Resource '{resource.Name}' has a parent process persistence mode but no parent process identity.");
+                case PersistenceMode.Resource:
+                    return persistenceAnnotation.SourceResource is { } sourceResource
+                        ? TryGetParentProcessLifetime(sourceResource, visitedResources, out parentProcessId, out parentProcessTimestamp)
+                        : throw new InvalidOperationException($"Resource '{resource.Name}' has a resource persistence mode but no source resource.");
+                case PersistenceMode.Session or PersistenceMode.Persistent:
+                    parentProcessId = 0;
+                    parentProcessTimestamp = default;
                     return false;
             }
         }
 
-        annotation = null;
+        parentProcessId = 0;
+        parentProcessTimestamp = default;
         return false;
-    }
-
-    private static IResourceAnnotation[] GetAnnotationsSnapshot(IResource resource)
-    {
-        lock (resource.Annotations)
-        {
-            return resource.Annotations.ToArray();
-        }
     }
 
     /// <summary>

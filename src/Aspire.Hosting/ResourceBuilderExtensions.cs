@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIREPERSISTENCE001 // Persistence annotation APIs are experimental.
+
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -112,11 +114,15 @@ public static class ResourceBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(sourceBuilder);
 
-        RemoveLifetimeAnnotations(builder);
-
         if (builder.Resource is ContainerResource or ExecutableResource or ProjectResource)
         {
-            return builder.WithAnnotation(new LifetimeReferenceAnnotation(sourceBuilder.Resource), ResourceAnnotationMutationBehavior.Replace);
+            RemoveLegacyLifetimeAnnotations(builder);
+
+            return builder.WithAnnotation(new PersistenceAnnotation
+            {
+                Mode = PersistenceMode.Resource,
+                SourceResource = sourceBuilder.Resource
+            }, ResourceAnnotationMutationBehavior.Replace);
         }
 
         throw new InvalidOperationException($"Resource '{builder.Resource.Name}' does not support lifetime configuration.");
@@ -161,47 +167,41 @@ public static class ResourceBuilderExtensions
         using var parentProcess = SystemProcess.GetProcessById(parentProcessId);
         var parentProcessIdentity = DcpProcessMonitor.GetMonitorProcessIdentity(parentProcess);
 
-        return ApplyLifetime(builder, Lifetime.Persistent)
-            .WithAnnotation(new ParentProcessLifetimeAnnotation(parentProcessIdentity.ProcessId, parentProcessIdentity.Timestamp), ResourceAnnotationMutationBehavior.Replace);
+        RemoveLegacyLifetimeAnnotations(builder);
+
+        return builder.WithAnnotation(new PersistenceAnnotation
+        {
+            Mode = PersistenceMode.ParentProcess,
+            ParentProcessId = parentProcessIdentity.ProcessId,
+            ParentProcessTimestamp = parentProcessIdentity.Timestamp
+        }, ResourceAnnotationMutationBehavior.Replace);
     }
 
     private static IResourceBuilder<T> ApplyLifetime<T>(IResourceBuilder<T> builder, Lifetime lifetime)
         where T : IResource
     {
-        RemoveLifetimeAnnotations(builder);
-
         if (builder.Resource is ContainerResource or ExecutableResource or ProjectResource)
         {
-            return builder.WithAnnotation(new LifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+            RemoveLegacyLifetimeAnnotations(builder);
+
+            return builder.WithAnnotation(new PersistenceAnnotation
+            {
+                Mode = lifetime switch
+                {
+                    Lifetime.Session => PersistenceMode.Session,
+                    Lifetime.Persistent => PersistenceMode.Persistent,
+                    _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+                }
+            }, ResourceAnnotationMutationBehavior.Replace);
         }
 
         throw new InvalidOperationException($"Resource '{builder.Resource.Name}' does not support lifetime configuration.");
     }
 
-    private static void RemoveLifetimeAnnotations<T>(IResourceBuilder<T> builder)
+    private static void RemoveLegacyLifetimeAnnotations<T>(IResourceBuilder<T> builder)
         where T : IResource
     {
-        foreach (var annotation in builder.Resource.Annotations.OfType<ParentProcessLifetimeAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
-        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
         foreach (var annotation in builder.Resource.Annotations.OfType<ContainerLifetimeAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
-        foreach (var annotation in builder.Resource.Annotations.OfType<ExecutableLifetimeAnnotation>().ToArray())
-        {
-            builder.Resource.Annotations.Remove(annotation);
-        }
-
-        foreach (var annotation in builder.Resource.Annotations.OfType<LifetimeReferenceAnnotation>().ToArray())
         {
             builder.Resource.Annotations.Remove(annotation);
         }

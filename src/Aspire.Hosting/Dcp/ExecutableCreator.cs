@@ -321,10 +321,10 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
     private static void ApplyMonitorProcess(IResource resource, ExecutableSpec spec)
     {
-        if (resource.TryGetParentProcessLifetime(out var annotation))
+        if (resource.TryGetParentProcessLifetime(out var parentProcessId, out var parentProcessTimestamp))
         {
-            spec.MonitorPid = annotation.ParentProcessId;
-            spec.MonitorTimestamp = annotation.ParentProcessTimestamp;
+            spec.MonitorPid = parentProcessId;
+            spec.MonitorTimestamp = parentProcessTimestamp;
         }
     }
 

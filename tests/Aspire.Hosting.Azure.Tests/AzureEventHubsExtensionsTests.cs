@@ -5,7 +5,6 @@
 
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Reflection;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure.EventHubs;
 using Aspire.Hosting.Utils;
@@ -526,11 +525,11 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
 
         Assert.NotNull(azurite);
 
-        var sourceResource = GetLifetimeReferenceSource(azurite);
+        var sourceResource = GetPersistenceReferenceSource(azurite);
         Assert.Same(eventHubs.Resource.Annotations, sourceResource.Annotations);
 
-        eventHubs.Resource.TryGetLastAnnotation<LifetimeAnnotation>(out var lifetimeAnnotation);
-        Assert.Equal(lifetime, lifetimeAnnotation?.Lifetime);
+        var persistenceAnnotation = Assert.Single(eventHubs.Resource.Annotations.OfType<PersistenceAnnotation>());
+        Assert.Equal(ToPersistenceMode(lifetime), persistenceAnnotation.Mode);
     }
 
     [Fact]
@@ -543,7 +542,7 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
         var azurite = builder.Resources.FirstOrDefault(x => x.Name == "eh-storage");
 
         Assert.NotNull(azurite);
-        Assert.DoesNotContain(azurite.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
+        Assert.Empty(azurite.Annotations.OfType<PersistenceAnnotation>());
     }
 
     [Fact]
@@ -555,13 +554,19 @@ public class AzureEventHubsExtensionsTests(ITestOutputHelper testOutputHelper)
         Assert.Throws<InvalidOperationException>(() => eventHubs.RunAsEmulator());
     }
 
-    private static IResource GetLifetimeReferenceSource(IResource resource)
+    private static IResource GetPersistenceReferenceSource(IResource resource)
     {
-        var annotation = Assert.Single(resource.Annotations, a => a.GetType().Name == "LifetimeReferenceAnnotation");
-        var sourceResource = annotation.GetType().GetProperty("SourceResource", BindingFlags.Instance | BindingFlags.Public)!.GetValue(annotation);
-
-        return Assert.IsAssignableFrom<IResource>(sourceResource);
+        var annotation = Assert.Single(resource.Annotations.OfType<PersistenceAnnotation>());
+        return Assert.IsAssignableFrom<IResource>(annotation.SourceResource);
     }
+
+    private static PersistenceMode ToPersistenceMode(Lifetime lifetime) =>
+        lifetime switch
+        {
+            Lifetime.Session => PersistenceMode.Session,
+            Lifetime.Persistent => PersistenceMode.Persistent,
+            _ => throw new ArgumentOutOfRangeException(nameof(lifetime), lifetime, null)
+        };
 
     [Fact]
     public void AzureEventHubsHasCorrectConnectionStrings()

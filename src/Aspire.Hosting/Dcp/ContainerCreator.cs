@@ -209,10 +209,10 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
 
     private static void ApplyMonitorProcess(IResource resource, ContainerSpec spec)
     {
-        if (resource.TryGetParentProcessLifetime(out var annotation))
+        if (resource.TryGetParentProcessLifetime(out var parentProcessId, out var parentProcessTimestamp))
         {
-            spec.MonitorPid = annotation.ParentProcessId;
-            spec.MonitorTimestamp = annotation.ParentProcessTimestamp;
+            spec.MonitorPid = parentProcessId;
+            spec.MonitorTimestamp = parentProcessTimestamp;
         }
     }
 
