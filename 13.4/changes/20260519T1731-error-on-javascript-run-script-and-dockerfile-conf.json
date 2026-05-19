@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "When AddJavaScriptApp is configured with both a user-authored Dockerfile and a run script, Aspire now fails fast with a clear error instead of silently ignoring the run script. This prevents hard-to-diagnose issues where the Dockerfile entrypoint overrides the configured run script.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛑",
+  "firstMergedAt": "2026-05-19T17:31:03Z",
+  "lastMergedAt": "2026-05-19T17:31:03Z",
+  "name": "Error on JavaScript run script and Dockerfile conflict",
+  "owner": "sebastienros",
+  "prs": [
+    16969
+  ]
+}

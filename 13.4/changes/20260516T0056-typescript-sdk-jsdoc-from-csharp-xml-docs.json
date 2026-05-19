@@ -6,7 +6,9 @@
   "changeType": "Improvements",
   "communityContributors": [],
   "description": "The generated TypeScript SDK now includes JSDoc documentation derived from C# XML docs. Summaries, remarks, parameters, return values, callback parameters, and enum values from the C# source are preserved in the generated TypeScript SDK surface, keeping API documentation in sync with the C# implementation.",
-  "docsPrs": [],
+  "docsPrs": [
+    999
+  ],
   "docsRequired": false,
   "emoji": "📚",
   "firstMergedAt": "2026-05-16T00:56:45Z",

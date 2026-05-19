@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The TypeScript AppHost validation CI now tests against multiple Node LTS runtimes. PR builds validate against Node 24.x (current LTS), while main branch builds additionally validate Node 22.x, improving compatibility coverage for the TypeScript AppHost runtime.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🧪",
+  "firstMergedAt": "2026-05-19T17:48:23Z",
+  "lastMergedAt": "2026-05-19T17:48:23Z",
+  "name": "TypeScript AppHost CI validates multiple Node LTS versions",
+  "owner": "sebastienros",
+  "prs": [
+    17101
+  ]
+}

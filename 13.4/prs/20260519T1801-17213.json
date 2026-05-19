@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Improvement: ESLint config single-source-of-truth for TypeScript AppHost scaffold with regression test coverage",
+  "mergedAt": "2026-05-19T18:01:40Z",
+  "number": 17213,
+  "runDate": "2026-05-19T18:53:42Z",
+  "status": "included",
+  "title": "Add TypeScript AppHost scaffold lint regression coverage"
+}

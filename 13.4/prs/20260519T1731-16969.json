@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Improvement: fail fast with clear error when JavaScript run script conflicts with user Dockerfile",
+  "mergedAt": "2026-05-19T17:31:03Z",
+  "number": 16969,
+  "runDate": "2026-05-19T18:53:42Z",
+  "status": "included",
+  "title": "Fail on JavaScript run script Dockerfile conflict"
+}

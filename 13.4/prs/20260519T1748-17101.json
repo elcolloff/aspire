@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Engineering improvement: CI now validates TypeScript AppHosts against multiple Node LTS versions",
+  "mergedAt": "2026-05-19T17:48:23Z",
+  "number": 17101,
+  "runDate": "2026-05-19T18:53:42Z",
+  "status": "included",
+  "title": "Add Node LTS matrix for TypeScript AppHost validation"
+}

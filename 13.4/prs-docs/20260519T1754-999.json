@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Documents TypeScript SDK JSDoc from C# XML docs feature (aspire#16992); regenerates TS API reference JSON with XML doc-enriched output",
+  "mergedAt": "2026-05-19T17:54:48Z",
+  "number": 999,
+  "runDate": "2026-05-19T18:53:42Z",
+  "status": "included",
+  "title": "Regenerate TS API docs against Aspire CLI 13.4 (XML doc preservation, microsoft/aspire#17044)"
+}

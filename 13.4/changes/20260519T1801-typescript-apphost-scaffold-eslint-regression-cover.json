@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The TypeScript AppHost scaffold's eslint.config.mjs and tsconfig.apphost.json are now single-source-of-truth files shared between aspire init and the code generator, eliminating drift. Regression tests now verify that the ESLint rules correctly catch unawaited async calls in AppHost code.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔍",
+  "firstMergedAt": "2026-05-19T18:01:40Z",
+  "lastMergedAt": "2026-05-19T18:01:40Z",
+  "name": "TypeScript AppHost scaffold ESLint config single-source-of-truth",
+  "owner": "IEvangelist",
+  "prs": [
+    17213
+  ]
+}
