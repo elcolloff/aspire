@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "New feature: shows blocking dependency names when a resource is waiting to start",
+  "mergedAt": "2026-05-19T04:00:21Z",
+  "number": 17089,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "included",
+  "title": "Show waiting dependency details in dashboard"
+}

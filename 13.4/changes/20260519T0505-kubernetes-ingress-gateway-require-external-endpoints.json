@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": true,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Routing a non-external endpoint through a Kubernetes ingress or gateway resource now throws an InvalidOperationException at publish time. Previously, any endpoint could be routed, potentially exposing internal services to public traffic unintentionally. Use WithExternalHttpEndpoints() on the target resource to opt in to external routing.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔒",
+  "firstMergedAt": "2026-05-19T05:05:31Z",
+  "lastMergedAt": "2026-05-19T05:05:31Z",
+  "name": "Kubernetes ingress and gateway routes require external endpoints",
+  "owner": "mitchdenny",
+  "prs": [
+    17232
+  ]
+}

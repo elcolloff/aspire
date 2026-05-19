@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Breaking: Kubernetes ingress/gateway routes now require the target endpoint to be marked external",
+  "mergedAt": "2026-05-19T05:05:31Z",
+  "number": 17232,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "included",
+  "title": "Require external endpoint for Kubernetes ingress/gateway routes"
+}

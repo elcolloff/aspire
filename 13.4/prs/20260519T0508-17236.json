@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "CI-only fix for AzDO build tag colon separator; no user or developer impact",
+  "mergedAt": "2026-05-19T05:08:52Z",
+  "number": 17236,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "excluded",
+  "title": "Use ' - ' separator in release-version build tag"
+}

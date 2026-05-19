@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "When a resource is waiting for dependencies to start, the dashboard and CLI now show the specific blocking resource names in the state description. In the dashboard, dependency names are rendered as clickable links to the dependent resource's detail page.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "⏳",
+  "firstMergedAt": "2026-05-19T04:00:21Z",
+  "lastMergedAt": "2026-05-19T04:00:21Z",
+  "name": "Show waiting dependency details in dashboard",
+  "owner": "adamint",
+  "prs": [
+    17089
+  ]
+}

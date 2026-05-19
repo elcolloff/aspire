@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard improvement: canceled resource commands remain visible in notification center",
+  "mergedAt": "2026-05-19T03:50:11Z",
+  "number": 17204,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "included",
+  "title": "Keep canceled resource commands in dashboard notification center"
+}

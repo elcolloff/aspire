@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Bug fix: BrowserPageSession reconnect delay now uses injected TimeProvider",
+  "mergedAt": "2026-05-19T03:05:02Z",
+  "number": 17228,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "included",
+  "title": "Fix BrowserPageSession: use TimeProvider for delay, document ReferenceEquals, add timeout test"
+}

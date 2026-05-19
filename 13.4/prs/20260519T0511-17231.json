@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "CLI improvement: error-context messages in BaseCommand now route to stderr; grouped with PR 17230",
+  "mergedAt": "2026-05-19T05:11:44Z",
+  "number": 17231,
+  "runDate": "2026-05-19T05:22:44Z",
+  "status": "included",
+  "title": "Route error-context DisplayMessage calls to stderr in BaseCommand"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "When a resource command is canceled, its notification now remains visible in the notification center with a warning status instead of being removed. This helps users track which commands were interrupted rather than leaving them with no record of the cancellation.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔔",
+  "firstMergedAt": "2026-05-19T03:50:11Z",
+  "lastMergedAt": "2026-05-19T03:50:11Z",
+  "name": "Canceled resource commands stay visible in notification center",
+  "owner": "JamesNK",
+  "prs": [
+    17204
+  ]
+}

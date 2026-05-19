@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed the BrowserPageSession reconnect loop to use the injected TimeProvider for delays instead of the ambient Task.Delay overload, ensuring correct behavior in tests and environments using non-default time providers.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🕐",
+  "firstMergedAt": "2026-05-19T03:05:02Z",
+  "lastMergedAt": "2026-05-19T03:05:02Z",
+  "name": "Fix BrowserPageSession reconnect delay to use TimeProvider",
+  "owner": "mitchdenny",
+  "prs": [
+    17228
+  ]
+}
