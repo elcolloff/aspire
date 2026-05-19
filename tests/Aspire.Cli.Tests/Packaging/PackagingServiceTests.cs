@@ -269,6 +269,17 @@ public class PackagingServiceTests(ITestOutputHelper outputHelper)
 
         Assert.Contains(PackageChannelNames.Staging, channels.Select(c => c.Name));
         Assert.Null(packagingService.GetStagingChannelUnavailableReason());
+
+        // Isolate the feature-flag gate itself: IsStagingChannelSynthesisAllowed short-circuits on
+        // overrideStagingFeed before the feature flag is ever checked, so the assertions above
+        // would still pass if the feature-flag branch were removed. Build a second service whose
+        // only opt-in is the StagingChannelEnabled feature flag (no overrideStagingFeed) and
+        // assert that the gate alone reports the channel as available. We deliberately do not
+        // call GetChannelsAsync() here because the full channel-creation path requires an
+        // AssemblyInformationalVersion that is not guaranteed in test hosts.
+        var featureFlagOnlyConfig = new ConfigurationBuilder().Build();
+        var featureFlagOnlyService = new PackagingService(executionContext, new FakeNuGetPackageCache(), features, featureFlagOnlyConfig, NullLogger<PackagingService>.Instance);
+        Assert.Null(featureFlagOnlyService.GetStagingChannelUnavailableReason());
     }
 
     /// <summary>
