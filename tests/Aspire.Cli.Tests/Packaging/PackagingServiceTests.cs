@@ -100,13 +100,49 @@ public class PackagingServiceTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task GetChannelsAsync_WhenConfigurationChannelIsStagingWithoutQualityOverride_DefaultsToBothAndSharedFeed()
+    public async Task GetChannelsAsync_WhenConfigurationChannelIsStagingOnLocalCli_DoesNotIncludeStagingChannel()
     {
+        // Regression: https://github.com/microsoft/aspire/issues/16652
+        // A local/daily/pr-N CLI must not silently fabricate a 'staging' channel from the shared
+        // daily feed when config asks for staging — that resolves daily packages, not staging.
+        // The escape hatches (overrideStagingFeed or the staging feature flag) are covered by
+        // other tests in this file.
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var tempDir = workspace.WorkspaceRoot;
         var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
         var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
         var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log");
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["channel"] = PackageChannelNames.Staging
+            })
+            .Build();
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), new TestFeatures(), configuration, NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+
+        var channelNames = channels.Select(c => c.Name).ToList();
+        Assert.DoesNotContain(PackageChannelNames.Staging, channelNames);
+
+        var reason = packagingService.GetStagingChannelUnavailableReason();
+        Assert.NotNull(reason);
+        Assert.Contains(PackageChannelNames.Local, reason);
+    }
+
+    [Fact]
+    public async Task GetChannelsAsync_WhenConfigurationChannelIsStagingOnStableCli_IncludesStagingChannelWithSharedFeed()
+    {
+        // Counterpart to the local/daily refusal: a stable-identity CLI can synthesize staging
+        // because the SHA-specific darc feed for the stable commit exists. With quality=Both
+        // (the default for stagingChannelConfigured), useSharedFeed=true so the channel points
+        // at the shared dnceng/dotnet9 feed.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log", identityChannel: PackageChannelNames.Stable);
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -124,6 +160,115 @@ public class PackagingServiceTests(ITestOutputHelper outputHelper)
         Assert.Contains(stagingChannel.Mappings!, m =>
             m.PackageFilter == "Aspire*" &&
             m.Source == "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet9/nuget/v3/index.json");
+
+        Assert.Null(packagingService.GetStagingChannelUnavailableReason());
+    }
+
+    [Fact]
+    public async Task GetChannelsAsync_WhenChannelStagingRequestedOnDailyCli_DoesNotIncludeStagingChannel()
+    {
+        // Direct repro of https://github.com/microsoft/aspire/issues/16652.
+        // A daily CLI invoked with `aspire update --channel staging` must NOT synthesize a
+        // staging channel from either the SHA-specific darc feed (which doesn't exist for daily
+        // commits) or the shared daily feed (which contains daily packages, not staging).
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log", identityChannel: PackageChannelNames.Daily);
+
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), new TestFeatures(), new ConfigurationBuilder().Build(), NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync(requestedChannelName: PackageChannelNames.Staging).DefaultTimeout();
+
+        var channelNames = channels.Select(c => c.Name).ToList();
+        Assert.DoesNotContain(PackageChannelNames.Staging, channelNames);
+
+        var reason = packagingService.GetStagingChannelUnavailableReason();
+        Assert.NotNull(reason);
+        Assert.Contains(PackageChannelNames.Daily, reason);
+    }
+
+    [Fact]
+    public async Task GetChannelsAsync_WhenChannelStagingRequestedOnDailyCliWithOverrideFeed_IncludesStagingChannel()
+    {
+        // The overrideStagingFeed escape hatch must still work on a daily CLI: when the user has
+        // explicitly named the staging feed, we trust them and synthesize the channel.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log", identityChannel: PackageChannelNames.Daily);
+
+        var overrideUrl = "https://example.com/staging/v3/index.json";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["overrideStagingFeed"] = overrideUrl
+            })
+            .Build();
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), new TestFeatures(), configuration, NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync(requestedChannelName: PackageChannelNames.Staging).DefaultTimeout();
+
+        var stagingChannel = channels.First(c => c.Name == PackageChannelNames.Staging);
+        Assert.Contains(stagingChannel.Mappings!, m => m.PackageFilter == "Aspire*" && m.Source == overrideUrl);
+        Assert.Null(packagingService.GetStagingChannelUnavailableReason());
+    }
+
+    [Theory]
+    [InlineData(PackageChannelNames.Local)]
+    [InlineData("pr-12345")]
+    public async Task GetChannelsAsync_WhenChannelStagingRequestedOnNonReleaseIdentityWithoutOverride_DoesNotIncludeStagingChannel(string identity)
+    {
+        // The same gating applies to local and per-PR CLI identities. Per-PR (pr-<N>) builds
+        // have a hive label baked in by CI but no staging feed of their own.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log", identityChannel: identity);
+
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), new TestFeatures(), new ConfigurationBuilder().Build(), NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync(requestedChannelName: PackageChannelNames.Staging).DefaultTimeout();
+
+        Assert.DoesNotContain(PackageChannelNames.Staging, channels.Select(c => c.Name));
+
+        var reason = packagingService.GetStagingChannelUnavailableReason();
+        Assert.NotNull(reason);
+        Assert.Contains(identity, reason);
+    }
+
+    [Fact]
+    public async Task GetChannelsAsync_WhenChannelStagingRequestedOnDailyCliWithFeatureFlag_IncludesStagingChannel()
+    {
+        // Back-compat: the StagingChannelEnabled feature flag is an explicit developer/test opt-in
+        // and continues to bypass the identity gating. Without an override feed the SHA-specific
+        // path needs an AssemblyInformationalVersion to resolve, which is not guaranteed in test
+        // hosts, so we also supply overrideStagingFeed to make the test deterministic.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var tempDir = workspace.WorkspaceRoot;
+        var hivesDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "hives"));
+        var cacheDir = new DirectoryInfo(Path.Combine(tempDir.FullName, ".aspire", "cache"));
+        var executionContext = new CliExecutionContext(tempDir, hivesDir, cacheDir, new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-runtimes")), new DirectoryInfo(Path.Combine(Path.GetTempPath(), "aspire-test-logs")), "test.log", identityChannel: PackageChannelNames.Daily);
+
+        var features = new TestFeatures();
+        features.SetFeature(KnownFeatures.StagingChannelEnabled, true);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["overrideStagingFeed"] = "https://example.com/staging/v3/index.json"
+            })
+            .Build();
+
+        var packagingService = new PackagingService(executionContext, new FakeNuGetPackageCache(), features, configuration, NullLogger<PackagingService>.Instance);
+
+        var channels = await packagingService.GetChannelsAsync().DefaultTimeout();
+
+        Assert.Contains(PackageChannelNames.Staging, channels.Select(c => c.Name));
+        Assert.Null(packagingService.GetStagingChannelUnavailableReason());
     }
 
     /// <summary>

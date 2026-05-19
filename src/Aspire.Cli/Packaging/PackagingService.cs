@@ -3,10 +3,12 @@
 
 using Aspire.Cli.Configuration;
 using Aspire.Cli.NuGet;
+using Aspire.Cli.Resources;
 using Aspire.Cli.Utils;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Semver;
+using System.Globalization;
 using System.Reflection;
 
 namespace Aspire.Cli.Packaging;
@@ -14,6 +16,22 @@ namespace Aspire.Cli.Packaging;
 internal interface IPackagingService
 {
     public Task<IEnumerable<PackageChannel>> GetChannelsAsync(CancellationToken cancellationToken = default, string? requestedChannelName = null);
+
+    /// <summary>
+    /// Returns a user-facing reason explaining why the <c>staging</c> package channel cannot be
+    /// synthesized for the running CLI, or <see langword="null"/> when staging IS available.
+    /// </summary>
+    /// <remarks>
+    /// On a CLI whose baked <c>AspireCliChannel</c> identity is <c>daily</c>, <c>local</c>, or
+    /// <c>pr-&lt;N&gt;</c>, there is no deterministic way to produce a real staging feed:
+    /// the SHA-specific darc feed (<c>darc-pub-microsoft-aspire-&lt;hash&gt;</c>) only exists
+    /// for stable release branch builds, and falling back to the shared daily feed silently
+    /// resolves daily packages instead of staging ones. To avoid that downgrade
+    /// (see <see href="https://github.com/microsoft/aspire/issues/16652"/>), the service refuses
+    /// to fabricate a staging channel from those identities unless the caller has set
+    /// <c>overrideStagingFeed</c> or enabled the staging feature flag.
+    /// </remarks>
+    string? GetStagingChannelUnavailableReason();
 }
 
 internal class PackagingService(CliExecutionContext executionContext, INuGetPackageCache nuGetPackageCache, IFeatures features, IConfiguration configuration, ILogger<PackagingService> logger) : IPackagingService
@@ -89,6 +107,19 @@ internal class PackagingService(CliExecutionContext executionContext, INuGetPack
 
     private PackageChannel? CreateStagingChannel(PackageChannelQuality defaultQuality)
     {
+        // Refuse to synthesize a staging channel on CLI identities that cannot produce a real
+        // staging feed (daily, local, pr-<N>). Silently falling back to the shared daily feed or
+        // a non-existent SHA-specific darc feed is the bug tracked by
+        // https://github.com/microsoft/aspire/issues/16652. The escape hatches (explicit
+        // overrideStagingFeed, or the StagingChannelEnabled feature flag) are honored inside
+        // IsStagingChannelSynthesisAllowed below.
+        var unavailableReason = GetStagingChannelUnavailableReason();
+        if (unavailableReason is not null)
+        {
+            logger.LogWarning("Refusing to synthesize 'staging' package channel: {Reason}", unavailableReason);
+            return null;
+        }
+
         var stagingQuality = GetStagingQuality(defaultQuality);
         var hasExplicitFeedOverride = !string.IsNullOrEmpty(configuration["overrideStagingFeed"]);
 
@@ -113,7 +144,58 @@ internal class PackagingService(CliExecutionContext executionContext, INuGetPack
             new PackageMapping(PackageMapping.AllPackages, "https://api.nuget.org/v3/index.json")
         }, nuGetPackageCache, configureGlobalPackagesFolder: !useSharedFeed, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/rc/daily", pinnedVersion: pinnedVersion, logger: logger);
 
+        // Surface the resolved staging routing so users can see what `--channel staging` actually
+        // picked (the "show what was resolved" suggestion from the issue RCA). Pinned version is
+        // optional and only set when configured via stagingPinToCliVersion.
+        logger.LogInformation(
+            "Resolved 'staging' channel: feed={FeedUrl}, quality={Quality}, pinnedVersion={PinnedVersion}",
+            stagingFeedUrl,
+            stagingQuality,
+            pinnedVersion ?? "(none)");
+
         return stagingChannel;
+    }
+
+    /// <inheritdoc />
+    public string? GetStagingChannelUnavailableReason()
+    {
+        if (IsStagingChannelSynthesisAllowed())
+        {
+            return null;
+        }
+
+        return string.Format(
+            CultureInfo.CurrentCulture,
+            PackagingStrings.StagingChannelUnavailableOnDailyCli,
+            executionContext.IdentityChannel);
+    }
+
+    private bool IsStagingChannelSynthesisAllowed()
+    {
+        // Explicit feed override always wins: the caller has told us exactly which feed to use,
+        // so we don't need to infer one from the CLI identity.
+        if (!string.IsNullOrEmpty(configuration["overrideStagingFeed"]))
+        {
+            return true;
+        }
+
+        // The staging feature flag is an explicit developer/test opt-in that predates this
+        // gating; preserve it for back-compat with existing developer workflows.
+        if (features.IsFeatureEnabled(KnownFeatures.StagingChannelEnabled, false))
+        {
+            return true;
+        }
+
+        // Only stable and staging CLI builds can deterministically resolve a staging feed:
+        //   - stable: the SHA-specific darc-pub-microsoft-aspire-<hash> feed exists for the
+        //     stable release branch commit baked into the CLI.
+        //   - staging: dogfoods staging packages (see #17155 which auto-registers the staging
+        //     channel for the staging CLI identity).
+        // For daily, local, and pr-<N> identities, falling back to either the SHA feed (no real
+        // darc feed exists) or the shared daily feed silently resolves daily packages — the
+        // exact bug tracked by https://github.com/microsoft/aspire/issues/16652.
+        return string.Equals(executionContext.IdentityChannel, PackageChannelNames.Stable, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(executionContext.IdentityChannel, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase);
     }
 
     private string? GetStagingFeedUrl(bool useSharedFeed)

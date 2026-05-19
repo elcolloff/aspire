@@ -208,8 +208,27 @@ internal sealed class UpdateCommand : BaseCommand
             if (!string.IsNullOrWhiteSpace(channelName))
             {
                 // Try to find a channel matching the provided channel/quality
-                channel = allChannels.FirstOrDefault(c => string.Equals(c.Name, channelName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ChannelNotFoundException($"No channel found matching '{channelName}'. Valid options are: {string.Join(", ", allChannels.Select(c => c.Name))}");
+                var matchedChannel = allChannels.FirstOrDefault(c => string.Equals(c.Name, channelName, StringComparison.OrdinalIgnoreCase));
+                if (matchedChannel is null)
+                {
+                    // When the user explicitly asked for the 'staging' channel and the packaging
+                    // service refused to synthesize it (daily/local/pr-N CLI without an override),
+                    // surface the packaging-service reason instead of the generic "no channel
+                    // matching" message — the generic message hides the actual fix from the user.
+                    // See https://github.com/microsoft/aspire/issues/16652.
+                    if (string.Equals(channelName, PackageChannelNames.Staging, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var stagingUnavailableReason = _packagingService.GetStagingChannelUnavailableReason();
+                        if (stagingUnavailableReason is not null)
+                        {
+                            throw new ChannelNotFoundException(stagingUnavailableReason);
+                        }
+                    }
+
+                    throw new ChannelNotFoundException($"No channel found matching '{channelName}'. Valid options are: {string.Join(", ", allChannels.Select(c => c.Name))}");
+                }
+
+                channel = matchedChannel;
 
                 if (channelFromConfig)
                 {
