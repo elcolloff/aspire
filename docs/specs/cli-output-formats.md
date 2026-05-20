@@ -35,28 +35,22 @@ By default, the command outputs a human-readable table. Use `--format json` for 
 ]
 ```
 
-Use `--format json --stream` to receive discovery progress as NDJSON, with one complete JSON event per line. `--stream` is valid only with `--format json`.
+Use `--format json --stream` to receive discovery results as NDJSON, with one complete AppHost candidate object per line. `--stream` is valid only with `--format json`.
 
 ```json
-{"type":"started"}
-{"type":"candidate","candidate":{"path":"/path/to/MyApp.AppHost/MyApp.AppHost.csproj","language":"C#","status":"buildable"}}
-{"type":"candidate","candidate":{"path":"/path/to/ts-app/apphost.ts","language":"TypeScript","status":"possibly-unbuildable"}}
-{"type":"complete","appHostCount":2}
+{"path":"/path/to/MyApp.AppHost/MyApp.AppHost.csproj","language":"C#","status":"buildable"}
+{"path":"/path/to/ts-app/apphost.ts","language":"TypeScript","status":"possibly-unbuildable"}
 ```
 
-If discovery is canceled, the stream emits a terminal cancellation event:
+If discovery finds no AppHost candidates, the stream emits no lines.
 
-```json
-{"type":"canceled"}
-```
-
-#### NDJSON event fields
+#### AppHost candidate fields
 
 | Field | Applies to | Description |
 | ----- | ---------- | ----------- |
-| `type` | All events | One of `started`, `candidate`, `complete`, or `canceled`. |
-| `candidate` | `candidate` | The discovered AppHost candidate with `path`, `language`, and `status`. |
-| `appHostCount` | `complete` | Total candidate count emitted by discovery. |
+| `path` | All candidates | Full path to the candidate AppHost project file. |
+| `language` | All candidates | Detected AppHost language, such as `C#` or `TypeScript`. |
+| `status` | All candidates | Candidate validation status, such as `buildable` or `possibly-unbuildable`. |
 
 ### `aspire start` and `aspire run --detach`
 

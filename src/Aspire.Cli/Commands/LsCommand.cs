@@ -25,19 +25,6 @@ internal sealed class LsCommand : BaseCommand
     private readonly ConsoleEnvironment _consoleEnvironment;
     private readonly ProfilingTelemetry _profilingTelemetry;
 
-    // `--format json --stream` emits newline-delimited JSON (NDJSON), one object per line:
-    //   {"type":"started"}
-    //   {"type":"candidate","candidate":{"path":"C:\\repo\\AppHost.csproj","language":"C#","status":"buildable"}}
-    //   {"type":"complete","appHostCount":1}
-    //   {"type":"canceled"}
-    // These constants are the stable wire-format values for the `type` property.
-    // See https://github.com/ndjson/ndjson-spec for the line-delimited JSON convention.
-    // Keep docs/specs/cli-output-formats.md in sync when changing this shape.
-    private const string JsonStreamStartedEventType = "started";
-    private const string JsonStreamCandidateEventType = "candidate";
-    private const string JsonStreamCompleteEventType = "complete";
-    private const string JsonStreamCanceledEventType = "canceled";
-
     private static readonly Option<OutputFormat> s_formatOption = new("--format")
     {
         Description = SharedCommandStrings.LsFormatOptionDescription
@@ -150,11 +137,7 @@ internal sealed class LsCommand : BaseCommand
         }
         catch (OperationCanceledException ex) when (ex.CancellationToken == cancellationToken || cancellationToken.IsCancellationRequested)
         {
-            if (format == OutputFormat.Json && stream)
-            {
-                WriteJsonStreamEvent(new LsJsonStreamEvent { Type = JsonStreamCanceledEventType }, new object());
-            }
-            else
+            if (format != OutputFormat.Json || !stream)
             {
                 _interactionService.DisplayCancellationMessage();
             }
@@ -165,44 +148,34 @@ internal sealed class LsCommand : BaseCommand
 
     private async Task<List<AppHostProjectCandidate>> FindAppHostsWithJsonStreamAsync(AppHostDiscoveryScope scope, CancellationToken cancellationToken)
     {
-        var streamLock = new object();
         var appHosts = new List<AppHostProjectCandidate>();
-        WriteJsonStreamEvent(new LsJsonStreamEvent { Type = JsonStreamStartedEventType }, streamLock);
 
         await foreach (var candidate in _projectLocator.FindAppHostProjectsStreamAsync(_executionContext.WorkingDirectory, scope, cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
             appHosts.Add(candidate);
-            WriteJsonStreamEvent(new LsJsonStreamEvent
-            {
-                Type = JsonStreamCandidateEventType,
-                Candidate = CreateDisplayInfo(candidate)
-            }, streamLock);
+            WriteJsonStreamCandidate(CreateDisplayInfo(candidate));
         }
 
         appHosts.Sort((x, y) => x.AppHostFile.FullName.CompareTo(y.AppHostFile.FullName));
 
-        WriteJsonStreamEvent(new LsJsonStreamEvent
-        {
-            Type = JsonStreamCompleteEventType,
-            AppHostCount = appHosts.Count
-        }, streamLock);
-
         return appHosts;
     }
 
-    private void WriteJsonStreamEvent(LsJsonStreamEvent streamEvent, object streamLock)
+    private void WriteJsonStreamCandidate(CandidateAppHostDisplayInfo candidate)
     {
-        var json = JsonSerializer.Serialize(streamEvent, JsonSourceGenerationContext.Streaming.LsJsonStreamEvent);
+        var json = JsonSerializer.Serialize(candidate, JsonSourceGenerationContext.Streaming.CandidateAppHostDisplayInfo);
 
-        // Flush immediately so tools can render each discovery event without waiting for the
-        // final array or the process exit.
-        lock (streamLock)
-        {
-            var writer = _consoleEnvironment.Out.Profile.Out.Writer;
-            writer.WriteLine(json);
-            writer.Flush();
-        }
+        // `aspire ls --format json --stream` follows the repository-wide NDJSON convention:
+        // each line is the same JSON content shape that would otherwise appear as an array
+        // item, not a separate event envelope.
+        // See https://github.com/ndjson/ndjson-spec for the line-delimited JSON convention.
+        // Example:
+        //   {"path":"C:\\repo\\AppHost.csproj","language":"C#","status":"buildable"}
+        // Keep docs/specs/cli-output-formats.md in sync when changing this shape.
+        var writer = _consoleEnvironment.Out.Profile.Out.Writer;
+        writer.WriteLine(json);
+        writer.Flush();
     }
 
     private async Task<List<AppHostProjectCandidate>> FindAppHostsWithStatusAsync(AppHostDiscoveryScope scope, CancellationToken cancellationToken)
@@ -347,14 +320,4 @@ internal sealed class CandidateAppHostDisplayInfo
     public required string Language { get; init; }
 
     public required string Status { get; init; }
-}
-
-// `aspire ls --format json --stream` uses this shape; keep docs/specs/cli-output-formats.md in sync when changing it.
-internal sealed class LsJsonStreamEvent
-{
-    public required string Type { get; init; }
-
-    public CandidateAppHostDisplayInfo? Candidate { get; init; }
-
-    public int? AppHostCount { get; init; }
 }

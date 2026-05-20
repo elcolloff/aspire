@@ -158,7 +158,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task LsCommand_JsonFormat_Stream_ReturnsNewlineDelimitedEvents()
+    public async Task LsCommand_JsonFormat_Stream_ReturnsNewlineDelimitedCandidates()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var textWriter = new TestOutputTextWriter(outputHelper);
@@ -188,7 +188,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         Assert.Equal(CliExitCodes.Success, exitCode);
 
         var lines = textWriter.Logs.ToArray();
-        Assert.Equal(4, lines.Length);
+        Assert.Equal(2, lines.Length);
         Assert.All(lines, line =>
         {
             Assert.DoesNotContain('\n', line);
@@ -196,26 +196,15 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
             Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         });
 
-        using var startedEvent = JsonDocument.Parse(lines[0]);
-        Assert.Equal("started", startedEvent.RootElement.GetProperty("type").GetString());
+        using var firstCandidate = JsonDocument.Parse(lines[0]);
+        Assert.Equal(appHostPath1, firstCandidate.RootElement.GetProperty("path").GetString());
+        Assert.Equal(KnownLanguageId.CSharp, firstCandidate.RootElement.GetProperty("language").GetString());
+        Assert.Equal("buildable", firstCandidate.RootElement.GetProperty("status").GetString());
 
-        using var firstCandidateEvent = JsonDocument.Parse(lines[1]);
-        Assert.Equal("candidate", firstCandidateEvent.RootElement.GetProperty("type").GetString());
-        var firstCandidate = firstCandidateEvent.RootElement.GetProperty("candidate");
-        Assert.Equal(appHostPath1, firstCandidate.GetProperty("path").GetString());
-        Assert.Equal(KnownLanguageId.CSharp, firstCandidate.GetProperty("language").GetString());
-        Assert.Equal("buildable", firstCandidate.GetProperty("status").GetString());
-
-        using var secondCandidateEvent = JsonDocument.Parse(lines[2]);
-        Assert.Equal("candidate", secondCandidateEvent.RootElement.GetProperty("type").GetString());
-        var secondCandidate = secondCandidateEvent.RootElement.GetProperty("candidate");
-        Assert.Equal(appHostPath2, secondCandidate.GetProperty("path").GetString());
-        Assert.Equal(KnownLanguageId.TypeScript, secondCandidate.GetProperty("language").GetString());
-        Assert.Equal("possibly-unbuildable", secondCandidate.GetProperty("status").GetString());
-
-        using var completeEvent = JsonDocument.Parse(lines[3]);
-        Assert.Equal("complete", completeEvent.RootElement.GetProperty("type").GetString());
-        Assert.Equal(2, completeEvent.RootElement.GetProperty("appHostCount").GetInt32());
+        using var secondCandidate = JsonDocument.Parse(lines[1]);
+        Assert.Equal(appHostPath2, secondCandidate.RootElement.GetProperty("path").GetString());
+        Assert.Equal(KnownLanguageId.TypeScript, secondCandidate.RootElement.GetProperty("language").GetString());
+        Assert.Equal("possibly-unbuildable", secondCandidate.RootElement.GetProperty("status").GetString());
         Assert.Equal(string.Empty, errorWriter.ToString());
     }
 
@@ -241,14 +230,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         Assert.Equal(CliExitCodes.Success, exitCode);
 
         var lines = textWriter.Logs.ToArray();
-        Assert.Equal(2, lines.Length);
-
-        using var startedEvent = JsonDocument.Parse(lines[0]);
-        Assert.Equal("started", startedEvent.RootElement.GetProperty("type").GetString());
-
-        using var completeEvent = JsonDocument.Parse(lines[1]);
-        Assert.Equal("complete", completeEvent.RootElement.GetProperty("type").GetString());
-        Assert.Equal(0, completeEvent.RootElement.GetProperty("appHostCount").GetInt32());
+        Assert.Empty(lines);
         Assert.Equal(string.Empty, errorWriter.ToString());
     }
 
@@ -287,21 +269,20 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         await candidateReported.Task.DefaultTimeout();
 
         var partialLines = textWriter.Logs.ToArray();
-        Assert.Equal(2, partialLines.Length);
-        using var candidateEvent = JsonDocument.Parse(partialLines[1]);
-        Assert.Equal("candidate", candidateEvent.RootElement.GetProperty("type").GetString());
-        Assert.Equal(appHostPath, candidateEvent.RootElement.GetProperty("candidate").GetProperty("path").GetString());
+        Assert.Single(partialLines);
+        using var candidate = JsonDocument.Parse(partialLines[0]);
+        Assert.Equal(appHostPath, candidate.RootElement.GetProperty("path").GetString());
 
         allowDiscoveryToComplete.SetResult();
 
         var exitCode = await invokeTask.DefaultTimeout();
 
         Assert.Equal(CliExitCodes.Success, exitCode);
-        Assert.Equal(3, textWriter.Logs.Count);
+        Assert.Single(textWriter.Logs);
     }
 
     [Fact]
-    public async Task LsCommand_JsonFormat_Stream_WhenCancelled_ReturnsCanceledEvent()
+    public async Task LsCommand_JsonFormat_Stream_WhenCancelled_DoesNotWriteProtocolEvent()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         using var cancellationTokenSource = new CancellationTokenSource();
@@ -333,13 +314,7 @@ public class LsCommandTests(ITestOutputHelper outputHelper)
         Assert.Equal(CliExitCodes.Success, exitCode);
 
         var lines = textWriter.Logs.ToArray();
-        Assert.Equal(2, lines.Length);
-
-        using var startedEvent = JsonDocument.Parse(lines[0]);
-        Assert.Equal("started", startedEvent.RootElement.GetProperty("type").GetString());
-
-        using var canceledEvent = JsonDocument.Parse(lines[1]);
-        Assert.Equal("canceled", canceledEvent.RootElement.GetProperty("type").GetString());
+        Assert.Empty(lines);
     }
 
     [Fact]
