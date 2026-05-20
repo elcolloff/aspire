@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents run script and Dockerfile conflict for AddJavaScriptApp (matches product PR #16969)",
+  "mergedAt": "2026-05-20T16:20:11Z",
+  "number": 1014,
+  "runDate": "2026-05-20T17:21:00Z",
+  "status": "included",
+  "title": "[docs] Document run script and Dockerfile conflict for AddJavaScriptApp"
+}

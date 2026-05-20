@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Fix for ATS scanner incorrectly generating setter access for init-only properties in polyglot SDK code generation",
+  "mergedAt": "2026-05-20T16:35:47Z",
+  "number": 17285,
+  "runDate": "2026-05-20T17:21:00Z",
+  "status": "included",
+  "title": "Avoid ATS setters for init-only properties"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Adds agent-readiness infrastructure to aspire.dev website (Link headers, markdown negotiation, WebMCP); not a documentation PR for a specific Aspire product feature",
+  "mergedAt": "2026-05-20T17:03:57Z",
+  "number": 807,
+  "runDate": "2026-05-20T17:21:00Z",
+  "status": "excluded",
+  "title": "Add agent-readiness improvements (Link headers, markdown negotiation, Content-Signal, agent-skills, WebMCP)"
+}

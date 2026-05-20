@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Init-only C# properties are now correctly omitted from setter generation in ATS-generated TypeScript, Python, Java, and other polyglot SDKs. Previously, these properties were incorrectly exposed as mutable setter capabilities despite being read-only after initialization.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-20T16:35:47Z",
+  "lastMergedAt": "2026-05-20T16:35:47Z",
+  "name": "Fix init-only property setter generation in polyglot SDKs",
+  "owner": "sebastienros",
+  "prs": [
+    17285
+  ]
+}
