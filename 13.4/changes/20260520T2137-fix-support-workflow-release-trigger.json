@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed the release-driven support page automation workflow to listen for the GitHub release published event instead of released, ensuring stable Aspire releases correctly trigger the aspire.dev support page PR automation.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-20T21:37:48Z",
+  "lastMergedAt": "2026-05-20T21:37:48Z",
+  "name": "Fix support workflow release trigger",
+  "owner": "IEvangelist",
+  "prs": [
+    17322
+  ]
+}

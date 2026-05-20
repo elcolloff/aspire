@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Bug fix for release-driven support docs workflow release event trigger.",
+  "mergedAt": "2026-05-20T21:37:48Z",
+  "number": 17322,
+  "runDate": "2026-05-20T22:37:14Z",
+  "status": "included",
+  "title": "Fix support workflow release trigger"
+}

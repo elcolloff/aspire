@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "New persistent lifetime support for executable and project resources with breaking changes to lifetime model.",
+  "mergedAt": "2026-05-20T22:15:14Z",
+  "number": 17112,
+  "runDate": "2026-05-20T22:37:14Z",
+  "status": "included",
+  "title": "Add persistent executable and project lifetimes"
+}

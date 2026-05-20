@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "The Aspire.Hosting.Integration.Analyzers package is now published as a standalone preview NuGet package, enabling third-party integration authors to use the same ATS/polyglot analyzer guidance used within the Aspire repository itself.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📦",
+  "firstMergedAt": "2026-05-20T22:08:58Z",
+  "lastMergedAt": "2026-05-20T22:08:58Z",
+  "name": "Publish Aspire.Hosting.Integration.Analyzers as preview package",
+  "owner": "sebastienros",
+  "prs": [
+    17276
+  ]
+}

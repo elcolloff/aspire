@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "New standalone preview NuGet package for third-party integration authors using ATS/polyglot analyzer guidance.",
+  "mergedAt": "2026-05-20T22:08:58Z",
+  "number": 17276,
+  "runDate": "2026-05-20T22:37:14Z",
+  "status": "included",
+  "title": "Publish Aspire.Hosting.Integration.Analyzers as preview package"
+}

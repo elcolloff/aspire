@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": true,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Executable and project resources now support persistent lifetimes, enabling stable process, endpoint, and environment behavior across AppHost/DCP restarts. This aligns with the existing persistent container lifetime model and includes updated DCP executable model fields (persistent, start, stop).",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔄",
+  "firstMergedAt": "2026-05-20T22:15:14Z",
+  "lastMergedAt": "2026-05-20T22:15:14Z",
+  "name": "Persistent executable and project lifetimes",
+  "owner": "danegsta",
+  "prs": [
+    17112
+  ]
+}
