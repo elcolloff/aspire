@@ -24,6 +24,19 @@ namespace Aspire.Hosting;
 public static class ContainerResourceBuilderExtensions
 {
     /// <summary>
+    /// Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="proxyEnabled">Should endpoints for the resource support using a proxy?</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    [AspireExportIgnore(Reason = "Binary compatibility shim for the resource-level WithEndpointProxySupport overload.")]
+    public static IResourceBuilder<T> WithEndpointProxySupport<T>(IResourceBuilder<T> builder, bool proxyEnabled) where T : ContainerResource
+    {
+        return ResourceBuilderExtensions.WithEndpointProxySupport(builder, proxyEnabled);
+    }
+
+    /// <summary>
     /// Ensures that a container resource has PipelineStepAnnotations for building and pushing.
     /// </summary>
     /// <typeparam name="T">The type of container resource.</typeparam>

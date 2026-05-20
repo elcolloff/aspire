@@ -1,11 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Net.Sockets;
+using System.Reflection;
 using Aspire.Hosting.Tests.Utils;
 using Aspire.Hosting.Utils;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.DependencyInjection;
-using System.Net.Sockets;
 
 namespace Aspire.Hosting.Tests;
 
@@ -14,6 +15,85 @@ public class WithEndpointTests
 {
     // copied from /src/Shared/StringComparers.cs to avoid ambiguous reference since StringComparers exists internally in multiple Hosting assemblies.
     private static StringComparison EndpointAnnotationName => StringComparison.OrdinalIgnoreCase;
+
+    [Fact]
+    public void EndpointIsProxiedBinaryCompatibilityOverloadsExist()
+    {
+        Assert.NotNull(GetPublicStaticMethod(
+            typeof(ResourceBuilderExtensions),
+            nameof(ResourceBuilderExtensions.WithEndpoint),
+            typeof(IResourceBuilder<>),
+            typeof(int?),
+            typeof(int?),
+            typeof(string),
+            typeof(string),
+            typeof(string),
+            typeof(bool),
+            typeof(bool?),
+            typeof(ProtocolType?)));
+
+        Assert.NotNull(GetPublicStaticMethod(
+            typeof(ResourceBuilderExtensions),
+            nameof(ResourceBuilderExtensions.WithEndpoint),
+            typeof(IResourceBuilder<>),
+            typeof(int?),
+            typeof(int?),
+            typeof(string),
+            typeof(string),
+            typeof(string),
+            typeof(bool),
+            typeof(bool?)));
+
+        Assert.NotNull(GetPublicStaticMethod(
+            typeof(ResourceBuilderExtensions),
+            nameof(ResourceBuilderExtensions.WithHttpEndpoint),
+            typeof(IResourceBuilder<>),
+            typeof(int?),
+            typeof(int?),
+            typeof(string),
+            typeof(string),
+            typeof(bool)));
+
+        Assert.NotNull(GetPublicStaticMethod(
+            typeof(ResourceBuilderExtensions),
+            nameof(ResourceBuilderExtensions.WithHttpsEndpoint),
+            typeof(IResourceBuilder<>),
+            typeof(int?),
+            typeof(int?),
+            typeof(string),
+            typeof(string),
+            typeof(bool)));
+
+        Assert.NotNull(GetPublicStaticMethod(
+            typeof(ContainerResourceBuilderExtensions),
+            nameof(ContainerResourceBuilderExtensions.WithEndpointProxySupport),
+            typeof(IResourceBuilder<>),
+            typeof(bool)));
+    }
+
+    [Fact]
+    public void WithHttpEndpointOmittedIsProxiedLeavesProxySettingUnset()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var container = builder.AddContainer("app", "image")
+            .WithHttpEndpoint(name: "http");
+
+        var endpoint = Assert.Single(container.Resource.Annotations.OfType<EndpointAnnotation>());
+        Assert.Null(endpoint.IsProxied);
+    }
+
+    [Fact]
+    public void WithHttpEndpointBoolCompatibilityOverloadPreservesExplicitProxySetting()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var container = builder.AddContainer("app", "image");
+        ResourceBuilderExtensions.WithHttpEndpoint(container, port: null, targetPort: null, name: "http", env: null, isProxied: true);
+
+        var endpoint = Assert.Single(container.Resource.Annotations.OfType<EndpointAnnotation>());
+        Assert.True(endpoint.IsProxied);
+    }
 
     [Fact]
     public void WithEndpointInvokesCallback()
@@ -30,6 +110,21 @@ public class WithEndpointTests
         var endpoint = projectA.Resource.Annotations.OfType<EndpointAnnotation>()
             .Where(e => string.Equals(e.Name, "mybinding", EndpointAnnotationName)).Single();
         Assert.Equal(2000, endpoint.Port);
+    }
+
+    private static MethodInfo? GetPublicStaticMethod(Type declaringType, string methodName, params Type[] parameterTypes)
+    {
+        return declaringType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .SingleOrDefault(method =>
+                method.Name == methodName &&
+                method.GetParameters().Select(parameter => NormalizeGenericParameterType(parameter.ParameterType)).SequenceEqual(parameterTypes));
+    }
+
+    private static Type NormalizeGenericParameterType(Type parameterType)
+    {
+        return parameterType.IsGenericType && parameterType.GetGenericTypeDefinition() == typeof(IResourceBuilder<>)
+            ? typeof(IResourceBuilder<>)
+            : parameterType;
     }
 
     [Fact]

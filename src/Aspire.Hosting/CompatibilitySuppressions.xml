@@ -23,41 +23,6 @@
     <IsBaselineSuppression>true</IsBaselineSuppression>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:Aspire.Hosting.ContainerResourceBuilderExtensions.WithEndpointProxySupport``1(Aspire.Hosting.ApplicationModel.IResourceBuilder{``0},System.Boolean)</Target>
-    <Left>lib/net8.0/Aspire.Hosting.dll</Left>
-    <Right>lib/net8.0/Aspire.Hosting.dll</Right>
-    <IsBaselineSuppression>true</IsBaselineSuppression>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:Aspire.Hosting.ResourceBuilderExtensions.WithEndpoint``1(Aspire.Hosting.ApplicationModel.IResourceBuilder{``0},System.Nullable{System.Int32},System.Nullable{System.Int32},System.String,System.String,System.String,System.Boolean,System.Nullable{System.Boolean},System.Nullable{System.Net.Sockets.ProtocolType})</Target>
-    <Left>lib/net8.0/Aspire.Hosting.dll</Left>
-    <Right>lib/net8.0/Aspire.Hosting.dll</Right>
-    <IsBaselineSuppression>true</IsBaselineSuppression>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:Aspire.Hosting.ResourceBuilderExtensions.WithEndpoint``1(Aspire.Hosting.ApplicationModel.IResourceBuilder{``0},System.Nullable{System.Int32},System.Nullable{System.Int32},System.String,System.String,System.String,System.Boolean,System.Nullable{System.Boolean})</Target>
-    <Left>lib/net8.0/Aspire.Hosting.dll</Left>
-    <Right>lib/net8.0/Aspire.Hosting.dll</Right>
-    <IsBaselineSuppression>true</IsBaselineSuppression>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:Aspire.Hosting.ResourceBuilderExtensions.WithHttpEndpoint``1(Aspire.Hosting.ApplicationModel.IResourceBuilder{``0},System.Nullable{System.Int32},System.Nullable{System.Int32},System.String,System.String,System.Boolean)</Target>
-    <Left>lib/net8.0/Aspire.Hosting.dll</Left>
-    <Right>lib/net8.0/Aspire.Hosting.dll</Right>
-    <IsBaselineSuppression>true</IsBaselineSuppression>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:Aspire.Hosting.ResourceBuilderExtensions.WithHttpsEndpoint``1(Aspire.Hosting.ApplicationModel.IResourceBuilder{``0},System.Nullable{System.Int32},System.Nullable{System.Int32},System.String,System.String,System.Boolean)</Target>
-    <Left>lib/net8.0/Aspire.Hosting.dll</Left>
-    <Right>lib/net8.0/Aspire.Hosting.dll</Right>
-    <IsBaselineSuppression>true</IsBaselineSuppression>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0006</DiagnosticId>
     <Target>M:Aspire.Hosting.Pipelines.IDeploymentStateManager.ClearAllStateAsync(System.Threading.CancellationToken)</Target>
     <Left>lib/net8.0/Aspire.Hosting.dll</Left>
