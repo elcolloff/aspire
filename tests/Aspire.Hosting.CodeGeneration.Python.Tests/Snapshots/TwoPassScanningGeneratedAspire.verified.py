@@ -1,4 +1,4 @@
-﻿#   -------------------------------------------------------------
+#   -------------------------------------------------------------
 #   Copyright (c) Microsoft Corporation. All rights reserved.
 #   Licensed under the MIT License. See LICENSE in project root for information.
 #
@@ -6346,6 +6346,10 @@ class AbstractResourceWithEndpoints(AbstractResource):
     """Abstract base class for AbstractResourceWithEndpoints interface."""
 
     @abc.abstractmethod
+    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
+        """Configures endpoint proxy support"""
+
+    @abc.abstractmethod
     def with_mcp_server(self, *, path: str = "/mcp", endpoint_name: str | None = None) -> typing.Self:
         """Configures an MCP server endpoint on the resource"""
 
@@ -6364,10 +6368,6 @@ class AbstractResourceWithEndpoints(AbstractResource):
     @abc.abstractmethod
     def with_endpoint(self, *, port: int | None = None, target_port: int | None = None, scheme: str | None = None, name: str | None = None, env: str | None = None, is_proxied: bool | None = None, is_external: bool | None = None, protocol: ProtocolType | None = None) -> typing.Self:
         """Adds a network endpoint"""
-
-    @abc.abstractmethod
-    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
-        """Configures endpoint proxy support"""
 
     @abc.abstractmethod
     def with_http_endpoint(self, *, port: int | None = None, target_port: int | None = None, name: str | None = None, env: str | None = None, is_proxied: bool | None = None) -> typing.Self:
@@ -7532,6 +7532,7 @@ class ContainerRegistryResource(_BaseResource, AbstractContainerRegistry):
 class ContainerResourceKwargs(_BaseResourceKwargs, total=False):
     """ContainerResource options."""
 
+    endpoint_proxy_support: bool
     bind_mount: tuple[str, str] | BindMountParameters
     entrypoint: str
     image_tag: str
@@ -7562,7 +7563,6 @@ class ContainerResourceKwargs(_BaseResourceKwargs, total=False):
     http_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpEndpointCallbackParameters
     https_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpsEndpointCallbackParameters
     endpoint: EndpointParameters | typing.Literal[True]
-    endpoint_proxy_support: bool
     http_endpoint: HttpEndpointParameters | typing.Literal[True]
     https_endpoint: HttpsEndpointParameters | typing.Literal[True]
     external_http_endpoints: typing.Literal[True]
@@ -7591,6 +7591,17 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
 
     def __repr__(self) -> str:
         return "ContainerResource(handle={self._handle.handle_id})"
+
+    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
+        """Configures endpoint proxy support"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['proxyEnabled'] = proxy_enabled
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withEndpointProxySupport',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
 
     def with_bind_mount(self, source: str, target: str, *, is_read_only: bool = False) -> typing.Self:
         """Adds a bind mount"""
@@ -7976,17 +7987,6 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
         self._handle = self._wrap_builder(result)
         return self
 
-    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
-        """Configures endpoint proxy support"""
-        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
-        rpc_args['proxyEnabled'] = proxy_enabled
-        result = self._client.invoke_capability(
-            'Aspire.Hosting/withEndpointProxySupport',
-            rpc_args,
-        )
-        self._handle = self._wrap_builder(result)
-        return self
-
     def with_http_endpoint(self, *, port: int | None = None, target_port: int | None = None, name: str | None = None, env: str | None = None, is_proxied: bool | None = None) -> typing.Self:
         """Adds an HTTP endpoint"""
         rpc_args: dict[str, typing.Any] = {'builder': self._handle}
@@ -8288,6 +8288,13 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
         return self
 
     def __init__(self, handle: Handle, client: AspireClient, **kwargs: typing.Unpack[ContainerResourceKwargs]) -> None:
+        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
+            if _validate_type(_endpoint_proxy_support, bool):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _bind_mount := kwargs.pop("bind_mount", None):
             if _validate_tuple_types(_bind_mount, (str, str)):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -8572,13 +8579,6 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpoint', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'endpoint'. Expected: EndpointParameters or Literal[True]")
-        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
-            if _validate_type(_endpoint_proxy_support, bool):
-                rpc_args: dict[str, typing.Any] = {"builder": handle}
-                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
-                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
-            else:
-                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _http_endpoint := kwargs.pop("http_endpoint", None):
             if _validate_dict_types(_http_endpoint, HttpEndpointParameters):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -8797,6 +8797,7 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
 class ProjectResourceKwargs(_BaseResourceKwargs, total=False):
     """ProjectResource options."""
 
+    endpoint_proxy_support: bool
     mcp_server: McpServerParameters | typing.Literal[True]
     otlp_exporter: OtlpProtocol | typing.Literal[True]
     replicas: int
@@ -8812,7 +8813,6 @@ class ProjectResourceKwargs(_BaseResourceKwargs, total=False):
     http_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpEndpointCallbackParameters
     https_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpsEndpointCallbackParameters
     endpoint: EndpointParameters | typing.Literal[True]
-    endpoint_proxy_support: bool
     http_endpoint: HttpEndpointParameters | typing.Literal[True]
     https_endpoint: HttpsEndpointParameters | typing.Literal[True]
     external_http_endpoints: typing.Literal[True]
@@ -8841,6 +8841,17 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
 
     def __repr__(self) -> str:
         return "ProjectResource(handle={self._handle.handle_id})"
+
+    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
+        """Configures endpoint proxy support"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['proxyEnabled'] = proxy_enabled
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withEndpointProxySupport',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
 
     def with_mcp_server(self, *, path: str = "/mcp", endpoint_name: str | None = None) -> typing.Self:
         """Configures an MCP server endpoint on the resource"""
@@ -9039,17 +9050,6 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
             rpc_args['protocol'] = protocol
         result = self._client.invoke_capability(
             'Aspire.Hosting/withEndpoint',
-            rpc_args,
-        )
-        self._handle = self._wrap_builder(result)
-        return self
-
-    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
-        """Configures endpoint proxy support"""
-        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
-        rpc_args['proxyEnabled'] = proxy_enabled
-        result = self._client.invoke_capability(
-            'Aspire.Hosting/withEndpointProxySupport',
             rpc_args,
         )
         self._handle = self._wrap_builder(result)
@@ -9353,6 +9353,13 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
         return self
 
     def __init__(self, handle: Handle, client: AspireClient, **kwargs: typing.Unpack[ProjectResourceKwargs]) -> None:
+        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
+            if _validate_type(_endpoint_proxy_support, bool):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _mcp_server := kwargs.pop("mcp_server", None):
             if _validate_dict_types(_mcp_server, McpServerParameters):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -9504,13 +9511,6 @@ class ProjectResource(_BaseResource, AbstractResourceWithEnvironment, AbstractRe
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpoint', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'endpoint'. Expected: EndpointParameters or Literal[True]")
-        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
-            if _validate_type(_endpoint_proxy_support, bool):
-                rpc_args: dict[str, typing.Any] = {"builder": handle}
-                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
-                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
-            else:
-                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _http_endpoint := kwargs.pop("http_endpoint", None):
             if _validate_dict_types(_http_endpoint, HttpEndpointParameters):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -9738,6 +9738,7 @@ class CSharpAppResource(ProjectResource):
 class ExecutableResourceKwargs(_BaseResourceKwargs, total=False):
     """ExecutableResource options."""
 
+    endpoint_proxy_support: bool
     publish_as_docker_file: typing.Callable[[ContainerResource], None]
     executable_command: str
     working_dir: str
@@ -9753,7 +9754,6 @@ class ExecutableResourceKwargs(_BaseResourceKwargs, total=False):
     http_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpEndpointCallbackParameters
     https_endpoint_callback: typing.Callable[[EndpointUpdateContext], None] | HttpsEndpointCallbackParameters
     endpoint: EndpointParameters | typing.Literal[True]
-    endpoint_proxy_support: bool
     http_endpoint: HttpEndpointParameters | typing.Literal[True]
     https_endpoint: HttpsEndpointParameters | typing.Literal[True]
     external_http_endpoints: typing.Literal[True]
@@ -9781,6 +9781,17 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
 
     def __repr__(self) -> str:
         return "ExecutableResource(handle={self._handle.handle_id})"
+
+    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
+        """Configures endpoint proxy support"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['proxyEnabled'] = proxy_enabled
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withEndpointProxySupport',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
 
     def publish_as_docker_file(self, configure: typing.Callable[[ContainerResource], None]) -> typing.Self:
         """Publishes an executable as a Docker file"""
@@ -9979,17 +9990,6 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
             rpc_args['protocol'] = protocol
         result = self._client.invoke_capability(
             'Aspire.Hosting/withEndpoint',
-            rpc_args,
-        )
-        self._handle = self._wrap_builder(result)
-        return self
-
-    def with_endpoint_proxy_support(self, proxy_enabled: bool) -> typing.Self:
-        """Configures endpoint proxy support"""
-        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
-        rpc_args['proxyEnabled'] = proxy_enabled
-        result = self._client.invoke_capability(
-            'Aspire.Hosting/withEndpointProxySupport',
             rpc_args,
         )
         self._handle = self._wrap_builder(result)
@@ -10281,6 +10281,13 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
         return self
 
     def __init__(self, handle: Handle, client: AspireClient, **kwargs: typing.Unpack[ExecutableResourceKwargs]) -> None:
+        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
+            if _validate_type(_endpoint_proxy_support, bool):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _publish_as_docker_file := kwargs.pop("publish_as_docker_file", None):
             if _validate_type(_publish_as_docker_file, typing.Callable[[ContainerResource], None]):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -10430,13 +10437,6 @@ class ExecutableResource(_BaseResource, AbstractResourceWithEnvironment, Abstrac
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpoint', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'endpoint'. Expected: EndpointParameters or Literal[True]")
-        if _endpoint_proxy_support := kwargs.pop("endpoint_proxy_support", None):
-            if _validate_type(_endpoint_proxy_support, bool):
-                rpc_args: dict[str, typing.Any] = {"builder": handle}
-                rpc_args["proxyEnabled"] = typing.cast(bool, _endpoint_proxy_support)
-                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withEndpointProxySupport', rpc_args))
-            else:
-                raise TypeError("Invalid type for option 'endpoint_proxy_support'. Expected: bool")
         if _http_endpoint := kwargs.pop("http_endpoint", None):
             if _validate_dict_types(_http_endpoint, HttpEndpointParameters):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}
@@ -11351,3 +11351,4 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.Paramet
 _register_handle_wrapper("Aspire.Hosting.CodeGeneration.Python.Tests/Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes.TestDatabaseResource", TestDatabaseResource)
 _register_handle_wrapper("Aspire.Hosting.CodeGeneration.Python.Tests/Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes.TestRedisResource", TestRedisResource)
 _register_handle_wrapper("Aspire.Hosting.CodeGeneration.Python.Tests/Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes.TestVaultResource", TestVaultResource)
+

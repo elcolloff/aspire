@@ -1,4 +1,4 @@
-﻿// ===== AddContainerOptions.java =====
+// ===== AddContainerOptions.java =====
 // AddContainerOptions.java - GENERATED CODE - DO NOT EDIT
 
 package aspire;
@@ -1588,6 +1588,15 @@ public class CSharpAppResource extends ProjectResource {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public CSharpAppResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     /** Sets the base image for a Dockerfile build */
     public CSharpAppResource withDockerfileBaseImage(WithDockerfileBaseImageOptions options) {
         var buildImage = options == null ? null : options.getBuildImage();
@@ -2030,15 +2039,6 @@ public class CSharpAppResource extends ProjectResource {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public CSharpAppResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -4644,6 +4644,15 @@ public class ContainerResource extends ResourceBuilderBase {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public ContainerResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     public ContainerResource withBindMount(String source, String target) {
         return withBindMount(source, target, null);
     }
@@ -5286,15 +5295,6 @@ public class ContainerResource extends ResourceBuilderBase {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public ContainerResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -6953,6 +6953,15 @@ public class DotnetToolResource extends ExecutableResource {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public DotnetToolResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     /** Sets the base image for a Dockerfile build */
     public DotnetToolResource withDockerfileBaseImage(WithDockerfileBaseImageOptions options) {
         var buildImage = options == null ? null : options.getBuildImage();
@@ -7443,15 +7452,6 @@ public class DotnetToolResource extends ExecutableResource {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public DotnetToolResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -9108,6 +9108,15 @@ public class ExecutableResource extends ResourceBuilderBase {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public ExecutableResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     /** Sets the base image for a Dockerfile build */
     public ExecutableResource withDockerfileBaseImage(WithDockerfileBaseImageOptions options) {
         var buildImage = options == null ? null : options.getBuildImage();
@@ -9547,15 +9556,6 @@ public class ExecutableResource extends ResourceBuilderBase {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public ExecutableResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -15118,6 +15118,15 @@ public class ProjectResource extends ResourceBuilderBase {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public ProjectResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     /** Sets the base image for a Dockerfile build */
     public ProjectResource withDockerfileBaseImage(WithDockerfileBaseImageOptions options) {
         var buildImage = options == null ? null : options.getBuildImage();
@@ -15560,15 +15569,6 @@ public class ProjectResource extends ResourceBuilderBase {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public ProjectResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -17679,6 +17679,15 @@ public class TestDatabaseResource extends ContainerResource {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public TestDatabaseResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     public TestDatabaseResource withBindMount(String source, String target) {
         return withBindMount(source, target, null);
     }
@@ -18321,15 +18330,6 @@ public class TestDatabaseResource extends ContainerResource {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public TestDatabaseResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -19625,6 +19625,15 @@ public class TestRedisResource extends ContainerResource {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public TestRedisResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     public TestRedisResource withBindMount(String source, String target) {
         return withBindMount(source, target, null);
     }
@@ -20293,15 +20302,6 @@ public class TestRedisResource extends ContainerResource {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public TestRedisResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -21664,6 +21664,15 @@ public class TestVaultResource extends ContainerResource {
         return withContainerRegistry(new IResource(registry.getHandle(), registry.getClient()));
     }
 
+    /** Configures endpoint proxy support */
+    public TestVaultResource withEndpointProxySupport(boolean proxyEnabled) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
+        return this;
+    }
+
     public TestVaultResource withBindMount(String source, String target) {
         return withBindMount(source, target, null);
     }
@@ -22306,15 +22315,6 @@ public class TestVaultResource extends ContainerResource {
             reqArgs.put("protocol", AspireClient.serializeValue(protocol));
         }
         getClient().invokeCapability("Aspire.Hosting/withEndpoint", reqArgs);
-        return this;
-    }
-
-    /** Configures endpoint proxy support */
-    public TestVaultResource withEndpointProxySupport(boolean proxyEnabled) {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("proxyEnabled", AspireClient.serializeValue(proxyEnabled));
-        getClient().invokeCapability("Aspire.Hosting/withEndpointProxySupport", reqArgs);
         return this;
     }
 
@@ -24404,3 +24404,4 @@ public final class WithVolumeOptions {
 .modules/WithPipelineStepFactoryOptions.java
 .modules/WithReferenceOptions.java
 .modules/WithVolumeOptions.java
+
