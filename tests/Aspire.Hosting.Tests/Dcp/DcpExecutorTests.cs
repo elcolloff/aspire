@@ -1648,7 +1648,7 @@ public class DcpExecutorTests
     }
 
     [Fact]
-    public async Task ResourceEndpointsAllocatedEventSubscribersDoNotBlockDcpStartup()
+    public async Task ResourceEndpointsAllocatedEventSubscribersBlockDcpStartup()
     {
         var builder = DistributedApplication.CreateBuilder();
 
@@ -1672,10 +1672,14 @@ public class DcpExecutorTests
         var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
         var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, distributedApplicationEventing: eventing);
 
-        await appExecutor.RunApplicationAsync().DefaultTimeout();
+        var runTask = appExecutor.RunApplicationAsync();
         await subscriberEntered.Task.DefaultTimeout();
 
+        var startupWasBlocked = !runTask.IsCompleted;
         releaseSubscriber.SetResult();
+        await runTask.DefaultTimeout();
+
+        Assert.True(startupWasBlocked);
     }
 
     [Fact]

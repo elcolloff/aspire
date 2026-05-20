@@ -359,10 +359,7 @@ internal sealed class ApplicationOrchestrator
                     }
 
                     // Remove it from the resource here, we'll add it back later to avoid duplicates.
-                    lock (resource.Annotations)
-                    {
-                        resource.Annotations.Remove(staticUrl);
-                    }
+                    resource.Annotations.Remove(staticUrl);
                 }
             }
 
@@ -475,10 +472,7 @@ internal sealed class ApplicationOrchestrator
             var count = 0;
             foreach (var url in urls)
             {
-                lock (resource.Annotations)
-                {
-                    resource.Annotations.Add(url);
-                }
+                resource.Annotations.Add(url);
                 count++;
                 if (_logger.IsEnabled(LogLevel.Trace))
                 {
