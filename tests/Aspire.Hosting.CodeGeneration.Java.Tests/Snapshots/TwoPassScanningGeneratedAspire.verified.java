@@ -1,4 +1,4 @@
-// ===== AddContainerOptions.java =====
+﻿// ===== AddContainerOptions.java =====
 // AddContainerOptions.java - GENERATED CODE - DO NOT EDIT
 
 package aspire;
@@ -3732,6 +3732,35 @@ public class ContainerImageReference extends HandleWrapperBase {
 
 }
 
+// ===== ContainerLifetime.java =====
+// ContainerLifetime.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** ContainerLifetime enum. */
+public enum ContainerLifetime implements WireValueEnum {
+    SESSION("Session"),
+    PERSISTENT("Persistent");
+
+    private final String value;
+
+    ContainerLifetime(String value) {
+        this.value = value;
+    }
+
+    public String getValue() { return value; }
+
+    public static ContainerLifetime fromValue(String value) {
+        for (ContainerLifetime e : values()) {
+            if (e.value.equals(value)) return e;
+        }
+        throw new IllegalArgumentException("Unknown value: " + value);
+    }
+}
+
 // ===== ContainerMountAnnotation.java =====
 // ContainerMountAnnotation.java - GENERATED CODE - DO NOT EDIT
 
@@ -4690,6 +4719,15 @@ public class ContainerResource extends ResourceBuilderBase {
         reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
         reqArgs.put("args", AspireClient.serializeValue(args));
         getClient().invokeCapability("Aspire.Hosting/withContainerRuntimeArgs", reqArgs);
+        return this;
+    }
+
+    /** Sets the lifetime behavior of the container resource */
+    public ContainerResource withLifetime(ContainerLifetime lifetime) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("lifetime", AspireClient.serializeValue(lifetime));
+        getClient().invokeCapability("Aspire.Hosting/withLifetime", reqArgs);
         return this;
     }
 
@@ -17719,6 +17757,15 @@ public class TestDatabaseResource extends ContainerResource {
         return this;
     }
 
+    /** Sets the lifetime behavior of the container resource */
+    public TestDatabaseResource withLifetime(ContainerLifetime lifetime) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("lifetime", AspireClient.serializeValue(lifetime));
+        getClient().invokeCapability("Aspire.Hosting/withLifetime", reqArgs);
+        return this;
+    }
+
     /** Sets the container image pull policy */
     public TestDatabaseResource withImagePullPolicy(ImagePullPolicy pullPolicy) {
         Map<String, Object> reqArgs = new HashMap<>();
@@ -19653,6 +19700,15 @@ public class TestRedisResource extends ContainerResource {
         reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
         reqArgs.put("args", AspireClient.serializeValue(args));
         getClient().invokeCapability("Aspire.Hosting/withContainerRuntimeArgs", reqArgs);
+        return this;
+    }
+
+    /** Sets the lifetime behavior of the container resource */
+    public TestRedisResource withLifetime(ContainerLifetime lifetime) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("lifetime", AspireClient.serializeValue(lifetime));
+        getClient().invokeCapability("Aspire.Hosting/withLifetime", reqArgs);
         return this;
     }
 
@@ -21683,6 +21739,15 @@ public class TestVaultResource extends ContainerResource {
         reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
         reqArgs.put("args", AspireClient.serializeValue(args));
         getClient().invokeCapability("Aspire.Hosting/withContainerRuntimeArgs", reqArgs);
+        return this;
+    }
+
+    /** Sets the lifetime behavior of the container resource */
+    public TestVaultResource withLifetime(ContainerLifetime lifetime) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("lifetime", AspireClient.serializeValue(lifetime));
+        getClient().invokeCapability("Aspire.Hosting/withLifetime", reqArgs);
         return this;
     }
 
@@ -24192,6 +24257,7 @@ public final class WithVolumeOptions {
 .modules/ContainerImagePushOptions.java
 .modules/ContainerImagePushOptionsCallbackContext.java
 .modules/ContainerImageReference.java
+.modules/ContainerLifetime.java
 .modules/ContainerMountAnnotation.java
 .modules/ContainerMountType.java
 .modules/ContainerPortReference.java

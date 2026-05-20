@@ -1499,6 +1499,8 @@ CertificateTrustScope = typing.Literal["None", "Append", "Override", "System"]
 
 CommandResultFormat = typing.Literal["Text", "Json", "Markdown"]
 
+ContainerLifetime = typing.Literal["Session", "Persistent"]
+
 ContainerMountType = typing.Literal["BindMount", "Volume"]
 
 DistributedApplicationOperation = typing.Literal["Run", "Publish"]
@@ -7537,6 +7539,7 @@ class ContainerResourceKwargs(_BaseResourceKwargs, total=False):
     image: str | tuple[str, str]
     image_sha256: str
     container_runtime_args: typing.Iterable[str]
+    lifetime: ContainerLifetime
     image_pull_policy: ImagePullPolicy
     publish_as_container: typing.Literal[True]
     dockerfile: str | DockerfileParameters
@@ -7666,6 +7669,17 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
         rpc_args['args'] = args
         result = self._client.invoke_capability(
             'Aspire.Hosting/withContainerRuntimeArgs',
+            rpc_args,
+        )
+        self._handle = self._wrap_builder(result)
+        return self
+
+    def with_lifetime(self, lifetime: ContainerLifetime) -> typing.Self:
+        """Sets the lifetime behavior of the container resource"""
+        rpc_args: dict[str, typing.Any] = {'builder': self._handle}
+        rpc_args['lifetime'] = lifetime
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/withLifetime',
             rpc_args,
         )
         self._handle = self._wrap_builder(result)
@@ -8335,6 +8349,13 @@ class ContainerResource(_BaseResource, AbstractResourceWithEnvironment, Abstract
                 handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withContainerRuntimeArgs', rpc_args))
             else:
                 raise TypeError("Invalid type for option 'container_runtime_args'. Expected: Iterable[str]")
+        if _lifetime := kwargs.pop("lifetime", None):
+            if _validate_type(_lifetime, ContainerLifetime):
+                rpc_args: dict[str, typing.Any] = {"builder": handle}
+                rpc_args["lifetime"] = typing.cast(ContainerLifetime, _lifetime)
+                handle = self._wrap_builder(client.invoke_capability('Aspire.Hosting/withLifetime', rpc_args))
+            else:
+                raise TypeError("Invalid type for option 'lifetime'. Expected: ContainerLifetime")
         if _image_pull_policy := kwargs.pop("image_pull_policy", None):
             if _validate_type(_image_pull_policy, ImagePullPolicy):
                 rpc_args: dict[str, typing.Any] = {"builder": handle}

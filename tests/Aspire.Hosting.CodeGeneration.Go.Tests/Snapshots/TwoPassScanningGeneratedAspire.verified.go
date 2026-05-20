@@ -31,6 +31,14 @@ const (
 	ContainerMountTypeVolume ContainerMountType = "Volume"
 )
 
+// ContainerLifetime represents ContainerLifetime.
+type ContainerLifetime string
+
+const (
+	ContainerLifetimeSession ContainerLifetime = "Session"
+	ContainerLifetimePersistent ContainerLifetime = "Persistent"
+)
+
 // ImagePullPolicy represents ImagePullPolicy.
 type ImagePullPolicy string
 
@@ -1097,6 +1105,7 @@ type Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource interface {
 	WithImageRegistry(registry string) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithImageSHA256(sha256 string) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithImageTag(tag string) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
+	WithLifetime(lifetime ContainerLifetime) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithLifetimeOf(sourceBuilder Resource) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithMcpServer(options ...*WithMcpServerOptions) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
 	WithMergeEndpoint(endpointName string, port float64) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource
@@ -2236,6 +2245,18 @@ func (s *aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource) WithImageTag(t
 	}
 	reqArgs["tag"] = serializeValue(tag)
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withImageTag", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithLifetime sets the lifetime behavior of the container resource
+func (s *aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource) WithLifetime(lifetime ContainerLifetime) Aspire_Hosting_CodeGeneration_Go_TestsTestVaultResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["lifetime"] = serializeValue(lifetime)
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withLifetime", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -6284,6 +6305,7 @@ type ContainerResource interface {
 	WithImageRegistry(registry string) ContainerResource
 	WithImageSHA256(sha256 string) ContainerResource
 	WithImageTag(tag string) ContainerResource
+	WithLifetime(lifetime ContainerLifetime) ContainerResource
 	WithLifetimeOf(sourceBuilder Resource) ContainerResource
 	WithMcpServer(options ...*WithMcpServerOptions) ContainerResource
 	WithMergeEndpoint(endpointName string, port float64) ContainerResource
@@ -7422,6 +7444,18 @@ func (s *containerResource) WithImageTag(tag string) ContainerResource {
 	}
 	reqArgs["tag"] = serializeValue(tag)
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withImageTag", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithLifetime sets the lifetime behavior of the container resource
+func (s *containerResource) WithLifetime(lifetime ContainerLifetime) ContainerResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["lifetime"] = serializeValue(lifetime)
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withLifetime", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -20199,6 +20233,7 @@ type TestDatabaseResource interface {
 	WithImageRegistry(registry string) TestDatabaseResource
 	WithImageSHA256(sha256 string) TestDatabaseResource
 	WithImageTag(tag string) TestDatabaseResource
+	WithLifetime(lifetime ContainerLifetime) TestDatabaseResource
 	WithLifetimeOf(sourceBuilder Resource) TestDatabaseResource
 	WithMcpServer(options ...*WithMcpServerOptions) TestDatabaseResource
 	WithMergeEndpoint(endpointName string, port float64) TestDatabaseResource
@@ -21340,6 +21375,18 @@ func (s *testDatabaseResource) WithImageTag(tag string) TestDatabaseResource {
 	return s
 }
 
+// WithLifetime sets the lifetime behavior of the container resource
+func (s *testDatabaseResource) WithLifetime(lifetime ContainerLifetime) TestDatabaseResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["lifetime"] = serializeValue(lifetime)
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withLifetime", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
 // WithLifetimeOf sets resource lifetime behavior to match another resource
 func (s *testDatabaseResource) WithLifetimeOf(sourceBuilder Resource) TestDatabaseResource {
 	if s.err != nil { return s }
@@ -22200,6 +22247,7 @@ type TestRedisResource interface {
 	WithImageRegistry(registry string) TestRedisResource
 	WithImageSHA256(sha256 string) TestRedisResource
 	WithImageTag(tag string) TestRedisResource
+	WithLifetime(lifetime ContainerLifetime) TestRedisResource
 	WithLifetimeOf(sourceBuilder Resource) TestRedisResource
 	WithMcpServer(options ...*WithMcpServerOptions) TestRedisResource
 	WithMergeEndpoint(endpointName string, port float64) TestRedisResource
@@ -23560,6 +23608,18 @@ func (s *testRedisResource) WithImageTag(tag string) TestRedisResource {
 	}
 	reqArgs["tag"] = serializeValue(tag)
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withImageTag", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithLifetime sets the lifetime behavior of the container resource
+func (s *testRedisResource) WithLifetime(lifetime ContainerLifetime) TestRedisResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["lifetime"] = serializeValue(lifetime)
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withLifetime", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 

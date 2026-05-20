@@ -39,6 +39,25 @@ impl std::fmt::Display for ContainerMountType {
     }
 }
 
+/// ContainerLifetime
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainerLifetime {
+    #[default]
+    #[serde(rename = "Session")]
+    Session,
+    #[serde(rename = "Persistent")]
+    Persistent,
+}
+
+impl std::fmt::Display for ContainerLifetime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Session => write!(f, "Session"),
+            Self::Persistent => write!(f, "Persistent"),
+        }
+    }
+}
+
 /// ImagePullPolicy
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImagePullPolicy {
@@ -3875,6 +3894,16 @@ impl ContainerResource {
         args.insert("builder".to_string(), self.handle.to_json());
         args.insert("args".to_string(), serde_json::to_value(&args).unwrap_or(Value::Null));
         let result = self.client.invoke_capability("Aspire.Hosting/withContainerRuntimeArgs", args)?;
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(ContainerResource::new(handle, self.client.clone()))
+    }
+
+    /// Sets the lifetime behavior of the container resource
+    pub fn with_lifetime(&self, lifetime: ContainerLifetime) -> Result<ContainerResource, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("builder".to_string(), self.handle.to_json());
+        args.insert("lifetime".to_string(), serde_json::to_value(&lifetime).unwrap_or(Value::Null));
+        let result = self.client.invoke_capability("Aspire.Hosting/withLifetime", args)?;
         let handle: Handle = serde_json::from_value(result)?;
         Ok(ContainerResource::new(handle, self.client.clone()))
     }
@@ -14258,6 +14287,16 @@ impl TestDatabaseResource {
         Ok(ContainerResource::new(handle, self.client.clone()))
     }
 
+    /// Sets the lifetime behavior of the container resource
+    pub fn with_lifetime(&self, lifetime: ContainerLifetime) -> Result<ContainerResource, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("builder".to_string(), self.handle.to_json());
+        args.insert("lifetime".to_string(), serde_json::to_value(&lifetime).unwrap_or(Value::Null));
+        let result = self.client.invoke_capability("Aspire.Hosting/withLifetime", args)?;
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(ContainerResource::new(handle, self.client.clone()))
+    }
+
     /// Sets the container image pull policy
     pub fn with_image_pull_policy(&self, pull_policy: ImagePullPolicy) -> Result<ContainerResource, Box<dyn std::error::Error>> {
         let mut args: HashMap<String, Value> = HashMap::new();
@@ -15696,6 +15735,16 @@ impl TestRedisResource {
         args.insert("builder".to_string(), self.handle.to_json());
         args.insert("args".to_string(), serde_json::to_value(&args).unwrap_or(Value::Null));
         let result = self.client.invoke_capability("Aspire.Hosting/withContainerRuntimeArgs", args)?;
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(ContainerResource::new(handle, self.client.clone()))
+    }
+
+    /// Sets the lifetime behavior of the container resource
+    pub fn with_lifetime(&self, lifetime: ContainerLifetime) -> Result<ContainerResource, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("builder".to_string(), self.handle.to_json());
+        args.insert("lifetime".to_string(), serde_json::to_value(&lifetime).unwrap_or(Value::Null));
+        let result = self.client.invoke_capability("Aspire.Hosting/withLifetime", args)?;
         let handle: Handle = serde_json::from_value(result)?;
         Ok(ContainerResource::new(handle, self.client.clone()))
     }
@@ -17244,6 +17293,16 @@ impl TestVaultResource {
         args.insert("builder".to_string(), self.handle.to_json());
         args.insert("args".to_string(), serde_json::to_value(&args).unwrap_or(Value::Null));
         let result = self.client.invoke_capability("Aspire.Hosting/withContainerRuntimeArgs", args)?;
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(ContainerResource::new(handle, self.client.clone()))
+    }
+
+    /// Sets the lifetime behavior of the container resource
+    pub fn with_lifetime(&self, lifetime: ContainerLifetime) -> Result<ContainerResource, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("builder".to_string(), self.handle.to_json());
+        args.insert("lifetime".to_string(), serde_json::to_value(&lifetime).unwrap_or(Value::Null));
+        let result = self.client.invoke_capability("Aspire.Hosting/withLifetime", args)?;
         let handle: Handle = serde_json::from_value(result)?;
         Ok(ContainerResource::new(handle, self.client.clone()))
     }
