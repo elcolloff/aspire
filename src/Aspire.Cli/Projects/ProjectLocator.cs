@@ -61,18 +61,28 @@ internal interface IProjectLocator
             ? FindAppHostProjectFilesAsync(searchDirectory, scope, cancellationToken)
             : throw new NotSupportedException();
     Task<AppHostProjectSearchResult> UseOrFindAppHostProjectFileAsync(FileInfo? projectFile, MultipleAppHostProjectsFoundBehavior multipleAppHostProjectsFoundBehavior, bool createSettingsFile, CancellationToken cancellationToken = default);
+
     Task<FileInfo?> UseOrFindAppHostProjectFileAsync(FileInfo? projectFile, bool createSettingsFile, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Resolves the AppHost project file from Aspire settings, without any user interaction or
-    /// recursive filesystem scanning. Returns <c>null</c> when no settings file or AppHost path
-    /// entry is found, or when the configured path is no longer a valid AppHost project.
+    /// Resolves the AppHost project file from Aspire settings, without any user interaction,
+    /// recursive filesystem scanning, or MSBuild-based validation of the configured path.
+    /// Returns <c>null</c> when no settings file is found, when the path entry is absent,
+    /// when the configured file does not exist, or when no registered handler can process it.
     /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="UseOrFindAppHostProjectFileAsync(FileInfo?, bool, CancellationToken)"/>,
+    /// this method intentionally does not call into MSBuild to validate the configured AppHost.
+    /// Callers like <c>aspire update</c> need to operate on an AppHost whose pinned SDK no
+    /// longer resolves (that's the very condition the command exists to repair); environment
+    /// checks similarly just need the configured path so they can run their own targeted
+    /// inspections against it.
+    /// </remarks>
     Task<FileInfo?> GetAppHostFromSettingsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Resolves the AppHost project file from Aspire settings starting in the specified directory,
-    /// without any user interaction or recursive filesystem scanning.
+    /// As <see cref="GetAppHostFromSettingsAsync(CancellationToken)"/>, but rooted at a specific
+    /// directory.
     /// </summary>
     Task<FileInfo?> GetAppHostFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, CancellationToken cancellationToken = default)
         => GetAppHostFromSettingsAsync(cancellationToken);
@@ -335,7 +345,21 @@ internal sealed class ProjectLocator(
     /// <inheritdoc />
     public async Task<FileInfo?> GetAppHostFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, CancellationToken cancellationToken = default)
     {
-        return await GetValidatedAppHostProjectFileFromSettingsAsync(searchDirectory, searchParentDirectories, silent: true, cancellationToken);
+        // Intentionally does not call ValidateAppHostAsync. See interface XML docs for rationale.
+        var settingsAppHost = await GetAppHostProjectFileFromSettingsAsync(searchDirectory, searchParentDirectories, silent: true, cancellationToken);
+        if (settingsAppHost is null)
+        {
+            return null;
+        }
+
+        var handler = projectFactory.TryGetProject(settingsAppHost);
+        if (handler is null)
+        {
+            logger.LogWarning("Ignoring AppHost path '{AppHostPath}' from settings because no project handler can process it.", settingsAppHost.FullName);
+            return null;
+        }
+
+        return settingsAppHost;
     }
 
     private async Task<FileInfo?> GetValidatedAppHostProjectFileFromSettingsAsync(DirectoryInfo searchDirectory, bool searchParentDirectories, bool silent, CancellationToken cancellationToken)
@@ -683,6 +707,9 @@ internal sealed class ProjectLocator(
 
     private async Task CreateSettingsFileAsync(FileInfo projectFile, CancellationToken cancellationToken)
     {
+        FileInfo? settingsFile = null;
+        DirectoryInfo? appHostDirForScopedConfig = null;
+
         // Search from the apphost's directory upward for an existing config file.
         // This handles the case where "aspire new" created a project in a subdirectory
         // and the user runs "aspire run" from the parent without cd-ing first.
@@ -692,6 +719,8 @@ internal sealed class ProjectLocator(
             if (nearAppHost is not null)
             {
                 var configDir = Path.GetDirectoryName(nearAppHost)!;
+                var targetSettingsFilePath = nearAppHost;
+                AspireConfigFile? existingConfig;
 
                 // For legacy .aspire/settings.json, the config root is the parent of .aspire/
                 var trimmedConfigDir = configDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -702,9 +731,15 @@ internal sealed class ProjectLocator(
                     {
                         configDir = parentDir.FullName;
                     }
+
+                    targetSettingsFilePath = Path.Combine(configDir, AspireConfigFile.FileName);
+                    existingConfig = AspireConfigFile.LoadOrCreate(configDir);
+                }
+                else
+                {
+                    existingConfig = AspireConfigFile.Load(configDir);
                 }
 
-                var existingConfig = AspireConfigFile.Load(configDir);
                 if (existingConfig?.AppHost?.Path is { } existingPath)
                 {
                     // Resolve the stored path relative to the config file's directory.
@@ -721,10 +756,16 @@ internal sealed class ProjectLocator(
                         return;
                     }
                 }
+
+                settingsFile = new FileInfo(targetSettingsFilePath);
+                appHostDirForScopedConfig = appHostDir;
             }
         }
 
-        var settingsFile = GetOrCreateLocalAspireConfigFile();
+        // Only use the working-directory config after checking the selected AppHost's tree.
+        // GetOrCreateLocalAspireConfigFile can migrate legacy .aspire/settings.json into
+        // aspire.config.json, so calling it earlier would recreate the split-config bug.
+        settingsFile ??= GetOrCreateLocalAspireConfigFile();
         var fileExisted = settingsFile.Exists;
 
         logger.LogDebug("Creating settings file at {SettingsFilePath}", settingsFile.FullName);
@@ -732,20 +773,24 @@ internal sealed class ProjectLocator(
         var relativePathToProjectFile = Path.GetRelativePath(settingsFile.Directory!.FullName, projectFile.FullName).Replace(Path.DirectorySeparatorChar, '/');
 
         // Use the configuration writer to set the AppHost path, which will merge with any existing settings.
-        await configurationService.SetConfigurationAsync("appHost.path", relativePathToProjectFile, isGlobal: false, cancellationToken);
+        await ConfigurationService.SetConfigurationInFileAsync(settingsFile.FullName, "appHost.path", relativePathToProjectFile, cancellationToken);
 
         // For polyglot projects, also set language and inherit SDK version from parent/global config.
         var language = languageDiscovery.GetLanguageByFile(projectFile);
         if (language is not null && !language.LanguageId.Value.Equals(KnownLanguageId.CSharp, StringComparison.OrdinalIgnoreCase))
         {
-            await configurationService.SetConfigurationAsync("appHost.language", language.LanguageId.Value, isGlobal: false, cancellationToken);
+            await ConfigurationService.SetConfigurationInFileAsync(settingsFile.FullName, "appHost.language", language.LanguageId.Value, cancellationToken);
 
             // Inherit SDK version from parent/global config if available.
-            var inheritedSdkVersion = await configurationService.GetConfigurationAsync("sdk.version", cancellationToken)
-                ?? await configurationService.GetConfigurationAsync("sdkVersion", cancellationToken);
+            var inheritedSdkVersion = appHostDirForScopedConfig is not null
+                ? await configurationService.GetConfigurationFromDirectoryAsync("sdk.version", appHostDirForScopedConfig, continueSearchWhenKeyMissing: true, cancellationToken: cancellationToken)
+                    ?? await configurationService.GetConfigurationFromDirectoryAsync("sdkVersion", appHostDirForScopedConfig, continueSearchWhenKeyMissing: true, cancellationToken: cancellationToken)
+                : await configurationService.GetConfigurationAsync("sdk.version", cancellationToken)
+                    ?? await configurationService.GetConfigurationAsync("sdkVersion", cancellationToken);
+
             if (!string.IsNullOrEmpty(inheritedSdkVersion))
             {
-                await configurationService.SetConfigurationAsync("sdk.version", inheritedSdkVersion, isGlobal: false, cancellationToken);
+                await ConfigurationService.SetConfigurationInFileAsync(settingsFile.FullName, "sdk.version", inheritedSdkVersion, cancellationToken);
                 logger.LogDebug("Set SDK version {Version} in settings file (inherited from parent config)", inheritedSdkVersion);
             }
         }
@@ -825,22 +870,22 @@ internal static class ProjectLocatorErrorHelper
         return ex.FailureReason switch
         {
             ProjectLocatorFailureReason.MultipleProjectFilesFound when projectOptionSpecifiedAsDirectory
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.ProjectOptionSpecifiedDirectoryContainsMultipleAppHosts),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.ProjectOptionSpecifiedDirectoryContainsMultipleAppHosts),
             ProjectLocatorFailureReason.ProjectFileDoesntExist or ProjectLocatorFailureReason.NoProjectFileFound when projectOptionSpecifiedAsDirectory
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.ProjectOptionSpecifiedDirectoryContainsNoAppHosts),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.ProjectOptionSpecifiedDirectoryContainsNoAppHosts),
             ProjectLocatorFailureReason.UnsupportedProjects
-                => (ExitCodeConstants.SdkNotInstalled, InteractionServiceStrings.NoSupportedAppHostsFound),
+                => (CliExitCodes.SdkNotInstalled, InteractionServiceStrings.NoSupportedAppHostsFound),
             ProjectLocatorFailureReason.ProjectFileNotAppHostProject
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.SpecifiedProjectFileNotAppHostProject),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.SpecifiedProjectFileNotAppHostProject),
             ProjectLocatorFailureReason.ProjectFileDoesntExist
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.ProjectOptionDoesntExist),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.ProjectOptionDoesntExist),
             ProjectLocatorFailureReason.MultipleProjectFilesFound
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.ProjectOptionNotSpecifiedMultipleAppHostsFound),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.ProjectOptionNotSpecifiedMultipleAppHostsFound),
             ProjectLocatorFailureReason.NoProjectFileFound
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.ProjectOptionNotSpecifiedNoCsprojFound),
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.ProjectOptionNotSpecifiedNoCsprojFound),
             ProjectLocatorFailureReason.AppHostsMayNotBeBuildable
-                => (ExitCodeConstants.FailedToFindProject, InteractionServiceStrings.UnbuildableAppHostsDetected),
-            _ => (ExitCodeConstants.FailedToFindProject, string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.UnexpectedErrorOccurred, ex.Message))
+                => (CliExitCodes.FailedToFindProject, InteractionServiceStrings.UnbuildableAppHostsDetected),
+            _ => (CliExitCodes.FailedToFindProject, string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.UnexpectedErrorOccurred, ex.Message))
         };
     }
 }

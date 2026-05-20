@@ -127,23 +127,23 @@ export interface TestConfigDto {
     /** A value indicating whether the test config is enabled. */
     enabled?: boolean;
     /** An optional test config field. */
-    optionalField?: string;
+    optionalField?: string | null;
 }
 
 /** Test DTO with deeply nested generic types. */
 export interface TestDeeplyNestedDto {
     /** Deeply nested generic: Dictionary containing List of DTOs. */
-    nestedData?: AspireDict<string, AspireList<TestConfigDto>>;
+    nestedData?: Record<string, TestConfigDto[]>;
     /** Array of dictionaries. */
-    metadataArray?: AspireDict<string, string>[];
+    metadataArray?: Record<string, string>[];
 }
 
 /** Test DTO with complex nested types. */
 export interface TestNestedDto {
     id?: string;
     config?: TestConfigDto;
-    tags?: AspireList<string>;
-    counts?: AspireDict<string, number>;
+    tags?: string[];
+    counts?: Record<string, number>;
 }
 
 // ============================================================================
@@ -222,8 +222,8 @@ export interface TestCallbackContext {
     toJSON(): MarshalledHandle;
     /** Gets the Name property */
     name: {
-        get: () => Promise<string>;
-        set: (value: string) => Promise<void>;
+        get: () => Promise<string | null>;
+        set: (value: string | null) => Promise<void>;
     };
     /** Gets the Value property */
     value: {
@@ -249,13 +249,13 @@ class TestCallbackContextImpl implements TestCallbackContext {
     toJSON(): MarshalledHandle { return this._handle.toJSON(); }
 
     name = {
-        get: async (): Promise<string> => {
-            return await this._client.invokeCapability<string>(
+        get: async (): Promise<string | null> => {
+            return await this._client.invokeCapability<string | null>(
                 'Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes/TestCallbackContext.name',
                 { context: this._handle }
             );
         },
-        set: async (value: string): Promise<void> => {
+        set: async (value: string | null): Promise<void> => {
             await this._client.invokeCapability<void>(
                 'Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes/TestCallbackContext.setName',
                 { context: this._handle, value }
@@ -362,8 +362,8 @@ export interface TestEnvironmentContext {
     };
     /** Gets the Description property */
     description: {
-        get: () => Promise<string>;
-        set: (value: string) => Promise<void>;
+        get: () => Promise<string | null>;
+        set: (value: string | null) => Promise<void>;
     };
     /** Gets the Priority property */
     priority: {
@@ -399,13 +399,13 @@ class TestEnvironmentContextImpl implements TestEnvironmentContext {
     };
 
     description = {
-        get: async (): Promise<string> => {
-            return await this._client.invokeCapability<string>(
+        get: async (): Promise<string | null> => {
+            return await this._client.invokeCapability<string | null>(
                 'Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes/TestEnvironmentContext.description',
                 { context: this._handle }
             );
         },
-        set: async (value: string): Promise<void> => {
+        set: async (value: string | null): Promise<void> => {
             await this._client.invokeCapability<void>(
                 'Aspire.Hosting.CodeGeneration.TypeScript.Tests.TestTypes/TestEnvironmentContext.setDescription',
                 { context: this._handle, value }
@@ -4029,4 +4029,5 @@ registerHandleWrapper('Aspire.Hosting.CodeGeneration.TypeScript.Tests/Aspire.Hos
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResource', (handle, client) => new ResourceImpl(handle as IResourceHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithConnectionString', (handle, client) => new ResourceWithConnectionStringImpl(handle as IResourceWithConnectionStringHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEnvironment', (handle, client) => new ResourceWithEnvironmentImpl(handle as IResourceWithEnvironmentHandle, client));
+
 

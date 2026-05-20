@@ -106,7 +106,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
         var parseResult = newCommand.Parse("new aspire-starter --name TestApp --output ./output --use-redis-cache --test-framework None");
         var exitCode = await parseResult.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         // The template version came from the Implicit channel's package cache. If the tripwire
         // had been triggered, the run would have failed before reaching install.
         Assert.Equal("13.3.0", capturedTemplateVersion);
@@ -124,7 +124,6 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     /// </summary>
     [Theory]
     [InlineData(PackageChannelNames.Daily, "13.4.0-preview.1.99999.1")]
-    [InlineData("staging", "13.4.0-rc.1.99999.1")]
     [InlineData(PackageChannelNames.Stable, "13.5.0")]
     public async Task NewCommand_NoChannelArg_ResolvesTemplateFromIdentityChannel(string identityChannel, string identityChannelVersion)
     {
@@ -178,24 +177,21 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     }
 
     /// <summary>
-    /// Production staging-channel registration gap: a staging-identity CLI does NOT
-    /// auto-register a staging channel in <c>PackagingService.GetChannelsAsync</c> — that
-    /// gate is controlled by <c>KnownFeatures.IsStagingChannelEnabled</c> (feature flag or
-    /// <c>configuration["channel"] == "staging"</c>). So a default staging CLI sees only
-    /// <c>{ Implicit, Stable, Daily }</c> and must fall back to Implicit just like an
-    /// unregistered identity. This pins that contract so a future change to either
-    /// <see cref="NewCommand"/> or <c>PackagingService</c> doesn't silently flip it.
+    /// Issue #17121 regression guard: a staging-identity CLI should have a registered
+    /// staging channel from <c>PackagingService.GetChannelsAsync</c>, so <c>aspire new</c>
+    /// resolves templates from staging instead of falling back to the Implicit NuGet.org
+    /// channel.
     /// </summary>
     [Fact]
-    public async Task NewCommand_NoChannelArg_StagingIdentityWithoutStagingChannelRegistered_FallsBackToImplicit()
+    public async Task NewCommand_NoChannelArg_StagingIdentityWithStagingChannelRegistered_ResolvesTemplateFromStaging()
     {
         var captured = await CaptureTemplateInputsAsync(
-            identityChannel: "staging",
+            identityChannel: PackageChannelNames.Staging,
             channelOptionArg: null,
-            identityChannelVersion: null);
+            identityChannelVersion: "13.4.0-rc.1.99999.1");
 
-        Assert.Equal("13.3.0", captured.Version); // value from Implicit channel
-        Assert.Null(captured.Channel); // Implicit channels never persist a channel pin
+        Assert.Equal("13.4.0-rc.1.99999.1", captured.Version);
+        Assert.Equal(PackageChannelNames.Staging, captured.Channel);
     }
 
     /// <summary>
@@ -253,7 +249,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
                 capturedInputs.Channel = inputs.Channel;
                 var outputPath = Path.Combine(workspace.WorkspaceRoot.FullName, "captured");
                 Directory.CreateDirectory(outputPath);
-                return Task.FromResult(new TemplateResult(ExitCodeConstants.Success, outputPath));
+                return Task.FromResult(new TemplateResult(CliExitCodes.Success, outputPath));
             },
             runtime: TemplateRuntime.Cli,
             languageId: KnownLanguageId.TypeScript);
@@ -274,7 +270,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
         var parseResult = newCommand.Parse($"new fake-cli-template --name TestApp --output ./captured{channelArg}");
         var exitCode = await parseResult.InvokeAsync().DefaultTimeout();
 
-        Assert.Equal(ExitCodeConstants.Success, exitCode);
+        Assert.Equal(CliExitCodes.Success, exitCode);
         return capturedInputs;
     }
 
@@ -367,19 +363,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
 
     private static CliExecutionContext BuildExecutionContextWithIdentity(TemporaryWorkspace workspace, string identityChannel)
     {
-        var workingDirectory = workspace.WorkspaceRoot;
-        var hivesDirectory = new DirectoryInfo(Path.Combine(workingDirectory.FullName, ".aspire", "hives"));
-        var cacheDirectory = new DirectoryInfo(Path.Combine(workingDirectory.FullName, ".aspire", "cache"));
-        var sdksDirectory = new DirectoryInfo(Path.Combine(workingDirectory.FullName, ".aspire", "sdks"));
-        var logsDirectory = new DirectoryInfo(Path.Combine(workingDirectory.FullName, ".aspire", "logs"));
-        var logFilePath = Path.Combine(logsDirectory.FullName, "test.log");
-        return new CliExecutionContext(
-            workingDirectory,
-            hivesDirectory,
-            cacheDirectory,
-            sdksDirectory,
-            logsDirectory,
-            logFilePath,
+        return workspace.CreateExecutionContext(
             identityChannel: identityChannel);
     }
 
@@ -403,4 +387,3 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
             Task.FromResult<IEnumerable<ITemplate>>([template]);
     }
 }
-

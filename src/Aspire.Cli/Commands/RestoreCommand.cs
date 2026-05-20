@@ -99,7 +99,7 @@ internal sealed class RestoreCommand : BaseCommand
 
                 var success = await _interactionService.ShowStatusAsync(
                     RestoreCommandStrings.RestoringSdkCode,
-                    async () => await configOnlyGuestProject.BuildAndGenerateSdkAsync(configOnlyProjectDirectory, cancellationToken),
+                    async () => await configOnlyGuestProject.BuildAndGenerateSdkAsync(configOnlyProjectDirectory, cancellationToken: cancellationToken),
                     emoji: KnownEmojis.Gear);
 
                 if (success)
@@ -109,26 +109,26 @@ internal sealed class RestoreCommand : BaseCommand
                     return CommandResult.Success();
                 }
 
-                return CommandResult.Failure(ExitCodeConstants.FailedToBuildArtifacts);
+                return CommandResult.Failure(CliExitCodes.FailedToBuildArtifacts);
             }
 
             if (effectiveAppHostFile is null)
             {
-                return CommandResult.Failure(ExitCodeConstants.FailedToFindProject);
+                return CommandResult.Failure(CliExitCodes.FailedToFindProject);
             }
 
             var project = _projectFactory.TryGetProject(effectiveAppHostFile);
 
             if (project is null)
             {
-                return CommandResult.Failure(ExitCodeConstants.FailedToFindProject, RestoreCommandStrings.UnrecognizedAppHostType);
+                return CommandResult.Failure(CliExitCodes.FailedToFindProject, RestoreCommandStrings.UnrecognizedAppHostType);
             }
 
             if (project is DotNetAppHostProject)
             {
                 if (!await SdkInstallHelper.EnsureSdkInstalledAsync(_sdkInstaller, InteractionService, Telemetry, cancellationToken: cancellationToken))
                 {
-                    return CommandResult.Failure(ExitCodeConstants.SdkNotInstalled);
+                    return CommandResult.Failure(CliExitCodes.SdkNotInstalled);
                 }
 
                 var appHostDirectory = effectiveAppHostFile.Directory!;
@@ -146,7 +146,7 @@ internal sealed class RestoreCommand : BaseCommand
                     return CommandResult.Success();
                 }
 
-                return CommandResult.Failure(ExitCodeConstants.FailedToBuildArtifacts);
+                return CommandResult.Failure(CliExitCodes.FailedToBuildArtifacts);
             }
 
             if (project is GuestAppHostProject guestProject)
@@ -156,7 +156,7 @@ internal sealed class RestoreCommand : BaseCommand
 
                 var success = await _interactionService.ShowStatusAsync(
                     RestoreCommandStrings.RestoringSdkCode,
-                    async () => await guestProject.BuildAndGenerateSdkAsync(directory, cancellationToken),
+                    async () => await guestProject.BuildAndGenerateSdkAsync(directory, cancellationToken: cancellationToken),
                     emoji: KnownEmojis.Gear);
 
                 if (success)
@@ -166,10 +166,10 @@ internal sealed class RestoreCommand : BaseCommand
                     return CommandResult.Success();
                 }
 
-                return CommandResult.Failure(ExitCodeConstants.FailedToBuildArtifacts);
+                return CommandResult.Failure(CliExitCodes.FailedToBuildArtifacts);
             }
 
-            return CommandResult.Failure(ExitCodeConstants.FailedToFindProject, RestoreCommandStrings.UnrecognizedAppHostType);
+            return CommandResult.Failure(CliExitCodes.FailedToFindProject, RestoreCommandStrings.UnrecognizedAppHostType);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -183,7 +183,7 @@ internal sealed class RestoreCommand : BaseCommand
         {
             var errorMessage = string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.UnexpectedErrorOccurred, ex.Message);
             Telemetry.RecordError(errorMessage, ex);
-            return CommandResult.Failure(ExitCodeConstants.FailedToBuildArtifacts, errorMessage);
+            return CommandResult.Failure(CliExitCodes.FailedToBuildArtifacts, errorMessage);
         }
     }
 

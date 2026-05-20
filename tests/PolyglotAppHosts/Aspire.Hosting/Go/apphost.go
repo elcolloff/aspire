@@ -25,7 +25,7 @@ func main() {
 	container.WithOtlpExporter(&aspire.WithOtlpExporterOptions{Protocol: &genericOtlpProtocol})
 	taggedContainer := builder.AddContainer("mytaggedcontainer", &aspire.AddContainerOptions{
 		Image: "nginx",
-		Tag:   "stable-alpine",
+		Tag:   aspire.StringPtr("stable-alpine"),
 	})
 	if err = taggedContainer.Err(); err != nil {
 		log.Fatalf(aspire.FormatError(err))
@@ -97,6 +97,17 @@ func main() {
 			Secret:  aspire.BoolPtr(true),
 			Persist: aspire.BoolPtr(true),
 		})
+	customInputType := aspire.InputTypeNumber
+	customInputParam := builder.AddParameter("custom-input")
+	customInputParam.WithCustomInput(&aspire.ParameterCustomInputOptions{
+		InputType:   &customInputType,
+		Label:       "Worker Count",
+		Placeholder: "Enter number (1-10)",
+		Options: map[string]string{
+			"one": "One",
+			"two": "Two",
+		},
+	})
 
 	// ===================================================================
 	// Container-specific methods on ContainerResource
@@ -377,6 +388,26 @@ func main() {
 		_ = beforeStartServices.GetDistributedApplicationModel()
 	})
 
+	beforePublishSub := builder.SubscribeBeforePublish(func(e aspire.BeforePublishEvent) {
+		beforePublishModel := e.Model()
+		_, _ = beforePublishModel.GetResources()
+		_ = beforePublishModel.FindResourceByName("mycontainer")
+		beforePublishServices := e.Services()
+		beforePublishLoggerFactory := beforePublishServices.GetLoggerFactory()
+		beforePublishLogger := beforePublishLoggerFactory.CreateLogger("ValidationAppHost.BeforePublish")
+		_ = beforePublishLogger.LogInformation("BeforePublish")
+	})
+
+	afterPublishSub := builder.SubscribeAfterPublish(func(e aspire.AfterPublishEvent) {
+		afterPublishModel := e.Model()
+		_, _ = afterPublishModel.GetResources()
+		_ = afterPublishModel.FindResourceByName("mycontainer")
+		afterPublishServices := e.Services()
+		afterPublishLoggerFactory := afterPublishServices.GetLoggerFactory()
+		afterPublishLogger := afterPublishLoggerFactory.CreateLogger("ValidationAppHost.AfterPublish")
+		_ = afterPublishLogger.LogInformation("AfterPublish")
+	})
+
 	afterResourcesSub := builder.SubscribeAfterResourcesCreated(func(e aspire.AfterResourcesCreatedEvent) {
 		afterResourcesModel := e.Model()
 		_, _ = afterResourcesModel.GetResources()
@@ -390,6 +421,8 @@ func main() {
 	builderEventing := builder.Eventing()
 	_ = builderEventing.Unsubscribe(beforeStartSub)
 	_ = builderEventing.Unsubscribe(afterResourcesSub)
+	_ = builderEventing.Unsubscribe(beforePublishSub)
+	_ = builderEventing.Unsubscribe(afterPublishSub)
 
 	// Resource events — typed callbacks
 	_ = container.OnBeforeResourceStarted(func(e aspire.BeforeResourceStartedEvent) {
