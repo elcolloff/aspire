@@ -28,7 +28,7 @@ public class TelemetryApiServiceTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var receivedItems = new List<string>();
-        await foreach (var item in service.FollowSpansAsync(null, null, null, null, cts.Token))
+        await foreach (var item in service.FollowSpansAsync(null, null, null, null, cancellationToken: cts.Token))
         {
             receivedItems.Add(item);
             if (receivedItems.Count >= 5)
@@ -111,7 +111,7 @@ public class TelemetryApiServiceTests
         var receivedItems = new List<string>();
         try
         {
-            await foreach (var item in service.FollowSpansAsync(["nonexistent-service"], null, null, null, cts.Token))
+            await foreach (var item in service.FollowSpansAsync(["nonexistent-service"], null, null, null, cancellationToken: cts.Token))
             {
                 receivedItems.Add(item);
             }
@@ -224,7 +224,7 @@ public class TelemetryApiServiceTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         var receivedItems = new List<string>();
-        await foreach (var streamedItem in service.FollowSpansAsync(null, "7472616", null, null, cts.Token))
+        await foreach (var streamedItem in service.FollowSpansAsync(null, "7472616", null, null, cancellationToken: cts.Token))
         {
             receivedItems.Add(streamedItem);
             break;

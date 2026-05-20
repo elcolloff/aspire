@@ -158,22 +158,41 @@ internal sealed class TelemetryApiService(
                 t.Spans.Any(s => MatchesSearch(s, search))).ToList();
         }
 
-        var minimumDuration = GetMinimumDuration(minDurationMs);
-        var filteredTraces = traces
-            .Select(t => (Trace: t, Spans: GetSpansMatchingMinimumDuration(t.Spans, minimumDuration).ToList()))
-            .Where(t => t.Spans.Count > 0)
-            .ToList();
+        List<OtlpSpan> spans;
+        int totalCount;
+        int returnedCount;
 
-        var totalCount = filteredTraces.Count;
-
-        // Apply limit (take from end for most recent)
-        if (filteredTraces.Count > effectiveLimit)
+        if (GetMinimumDuration(minDurationMs) is { } minimumDuration)
         {
-            filteredTraces = filteredTraces.Skip(filteredTraces.Count - effectiveLimit).ToList();
-        }
+            var filteredTraces = traces
+                .Select(t => (Trace: t, Spans: GetSpansMatchingMinimumDuration(t.Spans, minimumDuration).ToList()))
+                .Where(t => t.Spans.Count > 0)
+                .ToList();
 
-        // Get all spans from filtered traces
-        var spans = filteredTraces.SelectMany(t => t.Spans).ToList();
+            totalCount = filteredTraces.Count;
+
+            // Apply limit (take from end for most recent)
+            if (filteredTraces.Count > effectiveLimit)
+            {
+                filteredTraces = filteredTraces.Skip(filteredTraces.Count - effectiveLimit).ToList();
+            }
+
+            spans = filteredTraces.SelectMany(t => t.Spans).ToList();
+            returnedCount = filteredTraces.Count;
+        }
+        else
+        {
+            totalCount = traces.Count;
+
+            // Apply limit (take from end for most recent)
+            if (traces.Count > effectiveLimit)
+            {
+                traces = traces.Skip(traces.Count - effectiveLimit).ToList();
+            }
+
+            spans = traces.SelectMany(t => t.Spans).ToList();
+            returnedCount = traces.Count;
+        }
 
         var otlpData = TelemetryExportService.ConvertSpansToOtlpJson(spans, _outgoingPeerResolvers);
 
@@ -181,7 +200,7 @@ internal sealed class TelemetryApiService(
         {
             Data = otlpData,
             TotalCount = totalCount,
-            ReturnedCount = filteredTraces.Count
+            ReturnedCount = returnedCount
         };
     }
 
@@ -302,8 +321,8 @@ internal sealed class TelemetryApiService(
         string? traceId,
         bool? hasError,
         string? search,
-        [EnumeratorCancellation] CancellationToken cancellationToken,
-        double? minDurationMs = null)
+        double? minDurationMs = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Resolve resource keys
         var resources = telemetryRepository.GetResources();
@@ -591,7 +610,7 @@ internal sealed class TelemetryApiService(
             return TimeSpan.MaxValue;
         }
 
-        return TimeSpan.FromTicks((long)Math.Ceiling(value * TimeSpan.TicksPerMillisecond));
+        return TimeSpan.FromMilliseconds(value);
     }
 
     private static IEnumerable<OtlpSpan> GetSpansMatchingMinimumDuration(IEnumerable<OtlpSpan> spans, TimeSpan? minimumDuration)

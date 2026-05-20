@@ -156,7 +156,7 @@ public static class DashboardEndpointsBuilder
         {
             if (follow == true)
             {
-                await StreamNdjsonAsync(httpContext, service.FollowSpansAsync(resource, traceId, hasError, search, cancellationToken, minDurationMs), cancellationToken).ConfigureAwait(false);
+                await StreamNdjsonAsync(httpContext, service.FollowSpansAsync(resource, traceId, hasError, search, minDurationMs, cancellationToken), cancellationToken).ConfigureAwait(false);
                 return Results.Empty;
             }
 
