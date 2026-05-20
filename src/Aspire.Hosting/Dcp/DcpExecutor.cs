@@ -59,12 +59,11 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
     private readonly DistributedApplicationExecutionContext _executionContext;
     private readonly DcpAppResourceStore _appResources;
 
-    // Has an entry if we raised, or are raising, ResourceEndpointsAllocatedEvent for a resource with a given name.
-    // We want to ensure we raise the event only once for each app model resource, while also letting concurrent
-    // callers wait for in-flight URL callbacks before they continue to resource creation.
+    // Has an entry if we raised ResourceEndpointsAllocatedEvent for a resource with a given name.
+    // We want to ensure we raise the event only once for each app model resource.
     // There may be multiple physical replicas of the same app model resource
     // which can result in the event being raised multiple times if we are not careful.
-    private readonly Dictionary<string, Task> _endpointsAdvertised = new(StringComparers.ResourceName);
+    private readonly HashSet<string> _endpointsAdvertised = new(StringComparers.ResourceName);
 
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly DcpExecutorEvents _executorEvents;
@@ -1192,48 +1191,17 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
 
     private async Task<bool> PublishEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)
     {
-        TaskCompletionSource? publishCompletion = null;
-        Task? existingPublish;
-
         lock (_endpointsAdvertised)
         {
-            if (_endpointsAdvertised.TryGetValue(resource.Name, out existingPublish))
+            if (!_endpointsAdvertised.Add(resource.Name))
             {
-                publishCompletion = null;
-            }
-            else
-            {
-                publishCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                _endpointsAdvertised.Add(resource.Name, publishCompletion.Task);
-                existingPublish = null;
+                return false; // Already published for this resource.
             }
         }
 
-        if (existingPublish is not null)
-        {
-            await existingPublish.ConfigureAwait(false);
-            return false; // Already published for this resource.
-        }
-
-        try
-        {
-            await _executorEvents.PublishAsync(new OnResourceEndpointsAllocatedContext(ct, resource)).ConfigureAwait(false);
-
-            var ev = new ResourceEndpointsAllocatedEvent(resource, _executionContext.ServiceProvider);
-            await _distributedApplicationEventing.PublishAsync(ev, EventDispatchBehavior.NonBlockingConcurrent, ct).ConfigureAwait(false);
-            publishCompletion!.SetResult();
-            return true;
-        }
-        catch (OperationCanceledException ex)
-        {
-            publishCompletion!.SetException(ex);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            publishCompletion!.SetException(ex);
-            throw;
-        }
+        var ev = new ResourceEndpointsAllocatedEvent(resource, _executionContext.ServiceProvider);
+        await _distributedApplicationEventing.PublishAsync(ev, EventDispatchBehavior.NonBlockingConcurrent, ct).ConfigureAwait(false);
+        return true;
     }
 
     private async Task PublishLateEndpointsAllocatedEventAsync(IResource resource, CancellationToken ct)

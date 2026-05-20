@@ -3,7 +3,6 @@
 
 #pragma warning disable ASPIREINTERACTION001
 
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Data;
 using System.Diagnostics;
@@ -38,7 +37,6 @@ internal sealed class ApplicationOrchestrator
     private readonly DistributedApplicationExecutionContext _executionContext;
     private readonly ParameterProcessor _parameterProcessor;
     private readonly CancellationTokenSource _shutdownCancellation = new();
-    private readonly ConcurrentDictionary<string, byte> _skipNextPublicEndpointUrlProcessing = new(StringComparers.ResourceName);
     private IConfiguration? Configuration => _serviceProvider.GetService<IConfiguration>();
 
     public ApplicationOrchestrator(DistributedApplicationModel model,
@@ -73,12 +71,11 @@ internal sealed class ApplicationOrchestrator
         dcpExecutorEvents.Subscribe<OnResourcesPreparedContext>(OnResourcesPrepared);
         dcpExecutorEvents.Subscribe<OnResourceChangedContext>(OnResourceChanged);
         dcpExecutorEvents.Subscribe<OnEndpointsAllocatedContext>(OnEndpointsAllocated);
-        dcpExecutorEvents.Subscribe<OnResourceEndpointsAllocatedContext>(OnResourceEndpointsAllocated);
         dcpExecutorEvents.Subscribe<OnResourceStartingContext>(OnResourceStarting);
         dcpExecutorEvents.Subscribe<OnConnectionStringAvailableContext>(OnConnectionStringAvailable);
         dcpExecutorEvents.Subscribe<OnResourceFailedToStartContext>(OnResourceFailedToStart);
 
-        _eventing.Subscribe<ResourceEndpointsAllocatedEvent>(OnPublicResourceEndpointsAllocated);
+        _eventing.Subscribe<ResourceEndpointsAllocatedEvent>(OnResourceEndpointsAllocated);
         _eventing.Subscribe<ConnectionStringAvailableEvent>(PublishConnectionStringValue);
         // Implement WaitFor functionality using BeforeResourceStartedEvent.
         _eventing.Subscribe<BeforeResourceStartedEvent>(WaitForInBeforeResourceStartedEvent);
@@ -500,25 +497,8 @@ internal sealed class ApplicationOrchestrator
         }
     }
 
-    private async Task OnResourceEndpointsAllocated(OnResourceEndpointsAllocatedContext context)
+    private async Task OnResourceEndpointsAllocated(ResourceEndpointsAllocatedEvent @event, CancellationToken cancellationToken)
     {
-        await PublishResourceEndpointUrls(context.Resource, context.CancellationToken).ConfigureAwait(false);
-
-        // ResourceEndpointsAllocatedEvent can be published by DCP or by integrations. DCP has already
-        // processed URLs through this awaited internal event, so mark the following DCP public event
-        // to skip while still allowing integration-generated public events to process URLs.
-        _skipNextPublicEndpointUrlProcessing.TryAdd(context.Resource.Name, 0);
-    }
-
-    private async Task OnPublicResourceEndpointsAllocated(ResourceEndpointsAllocatedEvent @event, CancellationToken cancellationToken)
-    {
-        // Skip DCP-generated public events because their URLs were already processed by the internal
-        // event path. Public events from integrations do not have this marker and still need processing.
-        if (_skipNextPublicEndpointUrlProcessing.TryRemove(@event.Resource.Name, out _))
-        {
-            return;
-        }
-
         await PublishResourceEndpointUrls(@event.Resource, cancellationToken).ConfigureAwait(false);
     }
 
