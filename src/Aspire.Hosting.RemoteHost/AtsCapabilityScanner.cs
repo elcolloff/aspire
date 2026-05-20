@@ -2034,6 +2034,7 @@ public static class AtsCapabilityScanner
         var paramList = skipFirst ? parameters.Skip(1) : parameters;
 
         var methodDocumentation = GetXmlDocumentation(method, description);
+        var effectiveDescription = description ?? methodDocumentation?.Summary;
         var paramIndex = 0;
         foreach (var param in paramList)
         {
@@ -2068,7 +2069,7 @@ public static class AtsCapabilityScanner
         {
             CapabilityId = capabilityId,
             MethodName = methodName,
-            Description = description,
+            Description = effectiveDescription,
             Documentation = methodDocumentation,
             IsObsolete = obsoleteData is not null,
             ObsoleteMessage = obsoleteData?.Message,
