@@ -205,6 +205,11 @@
 ::deep .trace-header-filters {
     grid-area: filters;
     display: flex;
+    align-items: center;
+}
+
+::deep .minimum-duration-filter {
+    width: 145px;
 }
 
 ::deep .span-button-container {

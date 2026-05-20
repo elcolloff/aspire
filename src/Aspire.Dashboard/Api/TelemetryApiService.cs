@@ -29,7 +29,7 @@ internal sealed class TelemetryApiService(
     /// Returns null if resource filter is specified but not found.
     /// Supports multiple resource names.
     /// </summary>
-    public TelemetryApiResponse? GetSpans(string[]? resourceNames, string? traceId, bool? hasError, int? limit, string? search = null)
+    public TelemetryApiResponse? GetSpans(string[]? resourceNames, string? traceId, bool? hasError, int? limit, string? search = null, double? minDurationMs = null)
     {
         // Resolve resource keys for all specified resources
         var resources = telemetryRepository.GetResources();
@@ -83,6 +83,11 @@ internal sealed class TelemetryApiService(
             spans = spans.Where(s => MatchesSearch(s, search)).ToList();
         }
 
+        if (GetMinimumDuration(minDurationMs) is { } minimumDuration)
+        {
+            spans = spans.Where(s => s.Duration >= minimumDuration).ToList();
+        }
+
         var totalCount = spans.Count;
 
         // Apply limit (take from end for most recent)
@@ -106,7 +111,7 @@ internal sealed class TelemetryApiService(
     /// Returns null if resource filter is specified but not found.
     /// Supports multiple resource names.
     /// </summary>
-    public TelemetryApiResponse? GetTraces(string[]? resourceNames, bool? hasError, int? limit, string? search = null)
+    public TelemetryApiResponse? GetTraces(string[]? resourceNames, bool? hasError, int? limit, string? search = null, double? minDurationMs = null)
     {
         // Resolve resource keys for all specified resources
         var resources = telemetryRepository.GetResources();
@@ -153,16 +158,22 @@ internal sealed class TelemetryApiService(
                 t.Spans.Any(s => MatchesSearch(s, search))).ToList();
         }
 
-        var totalCount = traces.Count;
+        var minimumDuration = GetMinimumDuration(minDurationMs);
+        var filteredTraces = traces
+            .Select(t => (Trace: t, Spans: GetSpansMatchingMinimumDuration(t.Spans, minimumDuration).ToList()))
+            .Where(t => t.Spans.Count > 0)
+            .ToList();
+
+        var totalCount = filteredTraces.Count;
 
         // Apply limit (take from end for most recent)
-        if (traces.Count > effectiveLimit)
+        if (filteredTraces.Count > effectiveLimit)
         {
-            traces = traces.Skip(traces.Count - effectiveLimit).ToList();
+            filteredTraces = filteredTraces.Skip(filteredTraces.Count - effectiveLimit).ToList();
         }
 
         // Get all spans from filtered traces
-        var spans = traces.SelectMany(t => t.Spans).ToList();
+        var spans = filteredTraces.SelectMany(t => t.Spans).ToList();
 
         var otlpData = TelemetryExportService.ConvertSpansToOtlpJson(spans, _outgoingPeerResolvers);
 
@@ -170,7 +181,7 @@ internal sealed class TelemetryApiService(
         {
             Data = otlpData,
             TotalCount = totalCount,
-            ReturnedCount = traces.Count
+            ReturnedCount = filteredTraces.Count
         };
     }
 
@@ -178,7 +189,7 @@ internal sealed class TelemetryApiService(
     /// Gets a specific trace by ID with all spans in OTLP format.
     /// Returns null if trace not found.
     /// </summary>
-    public TelemetryApiResponse? GetTrace(string traceId)
+    public TelemetryApiResponse? GetTrace(string traceId, double? minDurationMs = null)
     {
         var trace = telemetryRepository.GetTrace(traceId);
         if (trace is null)
@@ -186,7 +197,7 @@ internal sealed class TelemetryApiService(
             return null;
         }
 
-        var spans = trace.Spans.ToList();
+        var spans = GetSpansMatchingMinimumDuration(trace.Spans, GetMinimumDuration(minDurationMs)).ToList();
 
         var otlpData = TelemetryExportService.ConvertSpansToOtlpJson(spans, _outgoingPeerResolvers);
 
@@ -291,7 +302,8 @@ internal sealed class TelemetryApiService(
         string? traceId,
         bool? hasError,
         string? search,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        double? minDurationMs = null)
     {
         // Resolve resource keys
         var resources = telemetryRepository.GetResources();
@@ -300,6 +312,8 @@ internal sealed class TelemetryApiService(
         // For streaming, if resources were specified but can't be resolved, filter everything out
         var hasResourceFilter = resourceNames is { Length: > 0 };
         var invalidResourceFilter = hasResourceFilter && resourceKeys is null;
+
+        var minimumDuration = GetMinimumDuration(minDurationMs);
 
         // Watch all spans and filter
         await foreach (var span in telemetryRepository.WatchSpansAsync(null, cancellationToken).ConfigureAwait(false))
@@ -331,6 +345,11 @@ internal sealed class TelemetryApiService(
 
             // Apply full-text search filter
             if (!string.IsNullOrEmpty(search) && !MatchesSearch(span, search))
+            {
+                continue;
+            }
+
+            if (minimumDuration is { } duration && span.Duration < duration)
             {
                 continue;
             }
@@ -552,6 +571,37 @@ internal sealed class TelemetryApiService(
         }
 
         return false;
+    }
+
+    private static TimeSpan? GetMinimumDuration(double? minimumDurationMilliseconds)
+    {
+        if (minimumDurationMilliseconds is not > 0)
+        {
+            return null;
+        }
+
+        var value = minimumDurationMilliseconds.GetValueOrDefault();
+        if (!double.IsFinite(value))
+        {
+            return null;
+        }
+
+        if (value >= TimeSpan.MaxValue.TotalMilliseconds)
+        {
+            return TimeSpan.MaxValue;
+        }
+
+        return TimeSpan.FromTicks((long)Math.Ceiling(value * TimeSpan.TicksPerMillisecond));
+    }
+
+    private static IEnumerable<OtlpSpan> GetSpansMatchingMinimumDuration(IEnumerable<OtlpSpan> spans, TimeSpan? minimumDuration)
+    {
+        if (minimumDuration is not { } duration)
+        {
+            return spans;
+        }
+
+        return spans.Where(s => s.Duration >= duration);
     }
 
     /// <summary>
