@@ -921,18 +921,18 @@ public static class AtsCapabilityScanner
     /// <summary>
     /// Detects method name collisions after capability expansion. Since ATS doesn't support method
     /// overloading, each (TargetTypeId, MethodName) pair must be unique. When a concrete target has
-    /// a target-specific export, it shadows matching generic exports only for that target. Ambiguous
-    /// collisions still remove later capabilities and emit warnings.
+    /// a target-specific or more-derived export, it shadows matching generic exports only for that target.
+    /// Ambiguous collisions still remove later capabilities from the colliding target and emit warnings.
     /// </summary>
     private static void FilterMethodNameCollisions(List<AtsCapabilityInfo> capabilities, List<AtsDiagnostic> diagnostics)
     {
         var capabilitiesWithTargets = capabilities
             .Where(c => c.ExpandedTargetTypes.Count > 0)
-            .SelectMany(c => c.ExpandedTargetTypes.Select(t => (Target: t.TypeId, Capability: c)))
+            .SelectMany(c => c.ExpandedTargetTypes.Select(t => (Target: t, Capability: c)))
             .ToList();
 
         var collisionGroups = capabilitiesWithTargets
-            .GroupBy(x => (x.Target, x.Capability.MethodName))
+            .GroupBy(x => (Target: x.Target.TypeId, x.Capability.MethodName))
             .Where(g => g.Count() > 1)
             .ToList();
 
@@ -941,13 +941,13 @@ public static class AtsCapabilityScanner
             return;
         }
 
-        var capabilitiesToRemove = new HashSet<string>();
         var expandedTargetsToRemove = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
         foreach (var collisionGroup in collisionGroups)
         {
             var methodName = collisionGroup.Key.MethodName;
             var targetTypeId = collisionGroup.Key.Target;
+            var targetType = collisionGroup.First().Target;
             var collidingCapabilities = collisionGroup
                 .Select(x => x.Capability)
                 .GroupBy(c => c.CapabilityId, StringComparer.Ordinal)
@@ -959,23 +959,14 @@ public static class AtsCapabilityScanner
 
             if (exactTargetCapabilities.Count == 1)
             {
-                var exactTargetCapability = exactTargetCapabilities[0];
-                foreach (var collidingCapability in collidingCapabilities)
-                {
-                    if (string.Equals(collidingCapability.CapabilityId, exactTargetCapability.CapabilityId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
+                RemoveCollidingTargetFromOtherCapabilities(exactTargetCapabilities[0]);
+                continue;
+            }
 
-                    if (!expandedTargetsToRemove.TryGetValue(collidingCapability.CapabilityId, out var targetIds))
-                    {
-                        targetIds = new(StringComparer.Ordinal);
-                        expandedTargetsToRemove[collidingCapability.CapabilityId] = targetIds;
-                    }
-
-                    targetIds.Add(targetTypeId);
-                }
-
+            var mostSpecificCapability = TryGetMostSpecificCapability(targetType, collidingCapabilities);
+            if (mostSpecificCapability is not null)
+            {
+                RemoveCollidingTargetFromOtherCapabilities(mostSpecificCapability);
                 continue;
             }
 
@@ -984,14 +975,38 @@ public static class AtsCapabilityScanner
 
             var conflictingIdsStr = string.Join(", ", capIds);
 
-            // First capability keeps original name, others are removed
+            // First capability keeps the target, others lose this specific expanded target.
             for (var i = 1; i < capIds.Count; i++)
             {
-                capabilitiesToRemove.Add(capIds[i]);
+                RemoveExpandedTarget(capIds[i], targetTypeId);
 
                 diagnostics.Add(AtsDiagnostic.Warning(
-                    $"Method '{methodName}' on target '{targetTypeId}' has collisions ({conflictingIdsStr}). '{capIds[i]}' was removed. Use [AspireExport(MethodName = \"uniqueName\")] to set an explicit name.",
+                    $"Method '{methodName}' on target '{targetTypeId}' has collisions ({conflictingIdsStr}). '{capIds[i]}' was removed from this target. Use [AspireExport(MethodName = \"uniqueName\")] to set an explicit name.",
                     capIds[i]));
+            }
+
+            void RemoveCollidingTargetFromOtherCapabilities(AtsCapabilityInfo winningCapability)
+            {
+                foreach (var collidingCapability in collidingCapabilities)
+                {
+                    if (string.Equals(collidingCapability.CapabilityId, winningCapability.CapabilityId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    RemoveExpandedTarget(collidingCapability.CapabilityId, targetTypeId);
+                }
+            }
+
+            void RemoveExpandedTarget(string capabilityId, string expandedTargetTypeId)
+            {
+                if (!expandedTargetsToRemove.TryGetValue(capabilityId, out var targetIds))
+                {
+                    targetIds = new(StringComparer.Ordinal);
+                    expandedTargetsToRemove[capabilityId] = targetIds;
+                }
+
+                targetIds.Add(expandedTargetTypeId);
             }
         }
 
@@ -1006,8 +1021,42 @@ public static class AtsCapabilityScanner
         }
 
         capabilities.RemoveAll(c =>
-            capabilitiesToRemove.Contains(c.CapabilityId) ||
-            (c.TargetTypeId is not null && c.ExpandedTargetTypes.Count == 0));
+            c.TargetTypeId is not null && c.ExpandedTargetTypes.Count == 0);
+    }
+
+    private static AtsCapabilityInfo? TryGetMostSpecificCapability(AtsTypeRef targetType, IReadOnlyList<AtsCapabilityInfo> capabilities)
+    {
+        var closestCapabilities = capabilities
+            .Select(capability => (Capability: capability, Distance: GetBaseTypeDistance(targetType, capability.TargetType)))
+            .Where(item => item.Distance is not null)
+            .OrderBy(item => item.Distance)
+            .ToList();
+
+        return closestCapabilities.Count > 0 &&
+            (closestCapabilities.Count == 1 || closestCapabilities[0].Distance != closestCapabilities[1].Distance)
+            ? closestCapabilities[0].Capability
+            : null;
+    }
+
+    private static int? GetBaseTypeDistance(AtsTypeRef targetType, AtsTypeRef? capabilityTargetType)
+    {
+        if (capabilityTargetType is not { IsInterface: false })
+        {
+            return null;
+        }
+
+        var distance = 0;
+        for (AtsTypeRef? currentType = targetType; currentType is not null; currentType = currentType.BaseType)
+        {
+            if (string.Equals(currentType.TypeId, capabilityTargetType.TypeId, StringComparison.Ordinal))
+            {
+                return distance;
+            }
+
+            distance++;
+        }
+
+        return null;
     }
 
     /// <summary>

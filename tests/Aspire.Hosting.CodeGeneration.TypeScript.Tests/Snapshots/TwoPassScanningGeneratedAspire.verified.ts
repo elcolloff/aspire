@@ -490,6 +490,23 @@ export enum CommandResultFormat {
     Markdown = "Markdown",
 }
 
+/** Lifetime modes for container resources. */
+export enum ContainerLifetime {
+    /** Create the resource when the app host process starts and dispose of it when the app host process shuts down. */
+    Session = "Session",
+    /**
+     * Attempt to re-use a previously created resource (based on the container name) if one exists. Do not destroy the container on app host process shutdown.
+     *
+     * In the event that a container with the given name does not exist, a new container will always be created based on the
+     * current `ContainerResource` configuration.
+     * When an existing container IS found, Aspire MAY re-use it based on the following criteria:
+     * -
+     * -
+     * -
+     */
+    Persistent = "Persistent",
+}
+
 /** Represents the type of a container mount. */
 export enum ContainerMountType {
     /** A local directory or file that is mounted into the container. */
@@ -12706,6 +12723,12 @@ export interface ContainerResource {
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): ContainerResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -12774,6 +12797,22 @@ export interface ContainerResource {
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): ContainerResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): ContainerResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -13041,17 +13080,6 @@ export interface ContainerResource {
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): ContainerResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -13600,6 +13628,12 @@ export interface ContainerResourcePromise extends PromiseLike<ContainerResource>
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): ContainerResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -13668,6 +13702,22 @@ export interface ContainerResourcePromise extends PromiseLike<ContainerResource>
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): ContainerResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): ContainerResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -13935,17 +13985,6 @@ export interface ContainerResourcePromise extends PromiseLike<ContainerResource>
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): ContainerResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -14517,6 +14556,25 @@ class ContainerResourceImpl extends ResourceBuilderBase<ContainerResourceHandle>
     }
 
     /** @internal */
+    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<ContainerResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
+        const result = await this._client.invokeCapability<ContainerResourceHandle>(
+            'Aspire.Hosting/withContainerEndpointProxySupport',
+            rpcArgs
+        );
+        return new ContainerResourceImpl(result, this._client);
+    }
+
+    /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
+    }
+
+    /** @internal */
     private async _withBindMountInternal(source: string, target: string, isReadOnly?: boolean): Promise<ContainerResource> {
         const rpcArgs: Record<string, unknown> = { builder: this._handle, source, target };
         if (isReadOnly !== undefined) rpcArgs.isReadOnly = isReadOnly;
@@ -14678,6 +14736,35 @@ class ContainerResourceImpl extends ResourceBuilderBase<ContainerResourceHandle>
      */
     withContainerRuntimeArgs(args: string[]): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._withContainerRuntimeArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withLifetimeInternal(lifetime: ContainerLifetime): Promise<ContainerResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, lifetime };
+        const result = await this._client.invokeCapability<ContainerResourceHandle>(
+            'Aspire.Hosting/withLifetime',
+            rpcArgs
+        );
+        return new ContainerResourceImpl(result, this._client);
+    }
+
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._withLifetimeInternal(lifetime), this._client);
     }
 
     /** @internal */
@@ -15400,30 +15487,6 @@ class ContainerResourceImpl extends ResourceBuilderBase<ContainerResourceHandle>
         const isExternal = options?.isExternal;
         const protocol = options?.protocol;
         return new ContainerResourcePromiseImpl(this._withEndpointInternal(port, targetPort, scheme, name, env, isProxied, isExternal, protocol), this._client);
-    }
-
-    /** @internal */
-    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<ContainerResource> {
-        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
-        const result = await this._client.invokeCapability<ContainerResourceHandle>(
-            'Aspire.Hosting/withEndpointProxySupport',
-            rpcArgs
-        );
-        return new ContainerResourceImpl(result, this._client);
-    }
-
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise {
-        return new ContainerResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
     }
 
     /** @internal */
@@ -17008,6 +17071,10 @@ class ContainerResourcePromiseImpl implements ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withContainerRegistry(registry)), this._client);
     }
 
+    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
+    }
+
     withBindMount(source: string, target: string, options?: WithBindMountOptions): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withBindMount(source, target, options)), this._client);
     }
@@ -17034,6 +17101,10 @@ class ContainerResourcePromiseImpl implements ContainerResourcePromise {
 
     withContainerRuntimeArgs(args: string[]): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withContainerRuntimeArgs(args)), this._client);
+    }
+
+    withLifetime(lifetime: ContainerLifetime): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withLifetime(lifetime)), this._client);
     }
 
     withImagePullPolicy(pullPolicy: ImagePullPolicy): ContainerResourcePromise {
@@ -17146,10 +17217,6 @@ class ContainerResourcePromiseImpl implements ContainerResourcePromise {
 
     withEndpoint(options?: WithEndpointOptions): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withEndpoint(options)), this._client);
-    }
-
-    withEndpointProxySupport(proxyEnabled: boolean): ContainerResourcePromise {
-        return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
     }
 
     withHttpEndpoint(options?: WithHttpEndpointOptions): ContainerResourcePromise {
@@ -37973,6 +38040,12 @@ export interface TestDatabaseResource {
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestDatabaseResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -38041,6 +38114,22 @@ export interface TestDatabaseResource {
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestDatabaseResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestDatabaseResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -38308,17 +38397,6 @@ export interface TestDatabaseResource {
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestDatabaseResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -38867,6 +38945,12 @@ export interface TestDatabaseResourcePromise extends PromiseLike<TestDatabaseRes
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestDatabaseResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -38935,6 +39019,22 @@ export interface TestDatabaseResourcePromise extends PromiseLike<TestDatabaseRes
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestDatabaseResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestDatabaseResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -39202,17 +39302,6 @@ export interface TestDatabaseResourcePromise extends PromiseLike<TestDatabaseRes
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestDatabaseResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -39783,6 +39872,25 @@ class TestDatabaseResourceImpl extends ResourceBuilderBase<TestDatabaseResourceH
     }
 
     /** @internal */
+    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestDatabaseResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
+        const result = await this._client.invokeCapability<TestDatabaseResourceHandle>(
+            'Aspire.Hosting/withContainerEndpointProxySupport',
+            rpcArgs
+        );
+        return new TestDatabaseResourceImpl(result, this._client);
+    }
+
+    /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
+    }
+
+    /** @internal */
     private async _withBindMountInternal(source: string, target: string, isReadOnly?: boolean): Promise<TestDatabaseResource> {
         const rpcArgs: Record<string, unknown> = { builder: this._handle, source, target };
         if (isReadOnly !== undefined) rpcArgs.isReadOnly = isReadOnly;
@@ -39944,6 +40052,35 @@ class TestDatabaseResourceImpl extends ResourceBuilderBase<TestDatabaseResourceH
      */
     withContainerRuntimeArgs(args: string[]): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._withContainerRuntimeArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withLifetimeInternal(lifetime: ContainerLifetime): Promise<TestDatabaseResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, lifetime };
+        const result = await this._client.invokeCapability<TestDatabaseResourceHandle>(
+            'Aspire.Hosting/withLifetime',
+            rpcArgs
+        );
+        return new TestDatabaseResourceImpl(result, this._client);
+    }
+
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._withLifetimeInternal(lifetime), this._client);
     }
 
     /** @internal */
@@ -40666,30 +40803,6 @@ class TestDatabaseResourceImpl extends ResourceBuilderBase<TestDatabaseResourceH
         const isExternal = options?.isExternal;
         const protocol = options?.protocol;
         return new TestDatabaseResourcePromiseImpl(this._withEndpointInternal(port, targetPort, scheme, name, env, isProxied, isExternal, protocol), this._client);
-    }
-
-    /** @internal */
-    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestDatabaseResource> {
-        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
-        const result = await this._client.invokeCapability<TestDatabaseResourceHandle>(
-            'Aspire.Hosting/withEndpointProxySupport',
-            rpcArgs
-        );
-        return new TestDatabaseResourceImpl(result, this._client);
-    }
-
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise {
-        return new TestDatabaseResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
     }
 
     /** @internal */
@@ -42274,6 +42387,10 @@ class TestDatabaseResourcePromiseImpl implements TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withContainerRegistry(registry)), this._client);
     }
 
+    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
+    }
+
     withBindMount(source: string, target: string, options?: WithBindMountOptions): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withBindMount(source, target, options)), this._client);
     }
@@ -42300,6 +42417,10 @@ class TestDatabaseResourcePromiseImpl implements TestDatabaseResourcePromise {
 
     withContainerRuntimeArgs(args: string[]): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withContainerRuntimeArgs(args)), this._client);
+    }
+
+    withLifetime(lifetime: ContainerLifetime): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withLifetime(lifetime)), this._client);
     }
 
     withImagePullPolicy(pullPolicy: ImagePullPolicy): TestDatabaseResourcePromise {
@@ -42412,10 +42533,6 @@ class TestDatabaseResourcePromiseImpl implements TestDatabaseResourcePromise {
 
     withEndpoint(options?: WithEndpointOptions): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withEndpoint(options)), this._client);
-    }
-
-    withEndpointProxySupport(proxyEnabled: boolean): TestDatabaseResourcePromise {
-        return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
     }
 
     withHttpEndpoint(options?: WithHttpEndpointOptions): TestDatabaseResourcePromise {
@@ -42704,6 +42821,12 @@ export interface TestRedisResource {
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestRedisResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -42772,6 +42895,22 @@ export interface TestRedisResource {
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestRedisResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestRedisResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -43055,17 +43194,6 @@ export interface TestRedisResource {
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestRedisResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -43662,6 +43790,12 @@ export interface TestRedisResourcePromise extends PromiseLike<TestRedisResource>
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestRedisResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -43730,6 +43864,22 @@ export interface TestRedisResourcePromise extends PromiseLike<TestRedisResource>
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestRedisResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestRedisResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -44013,17 +44163,6 @@ export interface TestRedisResourcePromise extends PromiseLike<TestRedisResource>
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestRedisResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -44642,6 +44781,25 @@ class TestRedisResourceImpl extends ResourceBuilderBase<TestRedisResourceHandle>
     }
 
     /** @internal */
+    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestRedisResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
+        const result = await this._client.invokeCapability<TestRedisResourceHandle>(
+            'Aspire.Hosting/withContainerEndpointProxySupport',
+            rpcArgs
+        );
+        return new TestRedisResourceImpl(result, this._client);
+    }
+
+    /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
+    }
+
+    /** @internal */
     private async _withBindMountInternal(source: string, target: string, isReadOnly?: boolean): Promise<TestRedisResource> {
         const rpcArgs: Record<string, unknown> = { builder: this._handle, source, target };
         if (isReadOnly !== undefined) rpcArgs.isReadOnly = isReadOnly;
@@ -44803,6 +44961,35 @@ class TestRedisResourceImpl extends ResourceBuilderBase<TestRedisResourceHandle>
      */
     withContainerRuntimeArgs(args: string[]): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._withContainerRuntimeArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withLifetimeInternal(lifetime: ContainerLifetime): Promise<TestRedisResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, lifetime };
+        const result = await this._client.invokeCapability<TestRedisResourceHandle>(
+            'Aspire.Hosting/withLifetime',
+            rpcArgs
+        );
+        return new TestRedisResourceImpl(result, this._client);
+    }
+
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._withLifetimeInternal(lifetime), this._client);
     }
 
     /** @internal */
@@ -45561,30 +45748,6 @@ class TestRedisResourceImpl extends ResourceBuilderBase<TestRedisResourceHandle>
         const isExternal = options?.isExternal;
         const protocol = options?.protocol;
         return new TestRedisResourcePromiseImpl(this._withEndpointInternal(port, targetPort, scheme, name, env, isProxied, isExternal, protocol), this._client);
-    }
-
-    /** @internal */
-    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestRedisResource> {
-        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
-        const result = await this._client.invokeCapability<TestRedisResourceHandle>(
-            'Aspire.Hosting/withEndpointProxySupport',
-            rpcArgs
-        );
-        return new TestRedisResourceImpl(result, this._client);
-    }
-
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise {
-        return new TestRedisResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
     }
 
     /** @internal */
@@ -47380,6 +47543,10 @@ class TestRedisResourcePromiseImpl implements TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withContainerRegistry(registry)), this._client);
     }
 
+    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
+    }
+
     withBindMount(source: string, target: string, options?: WithBindMountOptions): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withBindMount(source, target, options)), this._client);
     }
@@ -47406,6 +47573,10 @@ class TestRedisResourcePromiseImpl implements TestRedisResourcePromise {
 
     withContainerRuntimeArgs(args: string[]): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withContainerRuntimeArgs(args)), this._client);
+    }
+
+    withLifetime(lifetime: ContainerLifetime): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withLifetime(lifetime)), this._client);
     }
 
     withImagePullPolicy(pullPolicy: ImagePullPolicy): TestRedisResourcePromise {
@@ -47526,10 +47697,6 @@ class TestRedisResourcePromiseImpl implements TestRedisResourcePromise {
 
     withEndpoint(options?: WithEndpointOptions): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withEndpoint(options)), this._client);
-    }
-
-    withEndpointProxySupport(proxyEnabled: boolean): TestRedisResourcePromise {
-        return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
     }
 
     withHttpEndpoint(options?: WithHttpEndpointOptions): TestRedisResourcePromise {
@@ -47870,6 +48037,12 @@ export interface TestVaultResource {
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestVaultResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -47938,6 +48111,22 @@ export interface TestVaultResource {
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestVaultResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestVaultResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -48205,17 +48394,6 @@ export interface TestVaultResource {
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestVaultResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -48766,6 +48944,12 @@ export interface TestVaultResourcePromise extends PromiseLike<TestVaultResource>
      */
     withContainerRegistry(registry: Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>): TestVaultResourcePromise;
     /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise;
+    /**
      * Adds a bind mount to a container resource.
      *
      * Bind mounts are used to mount files or directories from the host file-system into the container. If the host doesn't require access to the files, consider
@@ -48834,6 +49018,22 @@ export interface TestVaultResourcePromise extends PromiseLike<TestVaultResource>
      * @returns The `IResourceBuilder`1`.
      */
     withContainerRuntimeArgs(args: string[]): TestVaultResourcePromise;
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestVaultResourcePromise;
     /**
      * Sets the pull policy for the container resource.
      * @param pullPolicy The pull policy behavior for the container resource.
@@ -49101,17 +49301,6 @@ export interface TestVaultResourcePromise extends PromiseLike<TestVaultResource>
      * @returns The `IResourceBuilder`1`.
      */
     withEndpoint(options?: WithEndpointOptions): TestVaultResourcePromise;
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise;
     /**
      * Exposes an HTTP endpoint on a resource, or updates the existing HTTP endpoint if one with the same name already exists. This endpoint reference can be retrieved using `GetEndpoint``1`. The endpoint name will be "http" if not specified.
      *
@@ -49684,6 +49873,25 @@ class TestVaultResourceImpl extends ResourceBuilderBase<TestVaultResourceHandle>
     }
 
     /** @internal */
+    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestVaultResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
+        const result = await this._client.invokeCapability<TestVaultResourceHandle>(
+            'Aspire.Hosting/withContainerEndpointProxySupport',
+            rpcArgs
+        );
+        return new TestVaultResourceImpl(result, this._client);
+    }
+
+    /**
+     * Set whether a container resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource.
+     * @param proxyEnabled Should endpoints for the resource support using a proxy?
+     * @returns The `IResourceBuilder`1`.
+     */
+    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
+    }
+
+    /** @internal */
     private async _withBindMountInternal(source: string, target: string, isReadOnly?: boolean): Promise<TestVaultResource> {
         const rpcArgs: Record<string, unknown> = { builder: this._handle, source, target };
         if (isReadOnly !== undefined) rpcArgs.isReadOnly = isReadOnly;
@@ -49845,6 +50053,35 @@ class TestVaultResourceImpl extends ResourceBuilderBase<TestVaultResourceHandle>
      */
     withContainerRuntimeArgs(args: string[]): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._withContainerRuntimeArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withLifetimeInternal(lifetime: ContainerLifetime): Promise<TestVaultResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, lifetime };
+        const result = await this._client.invokeCapability<TestVaultResourceHandle>(
+            'Aspire.Hosting/withLifetime',
+            rpcArgs
+        );
+        return new TestVaultResourceImpl(result, this._client);
+    }
+
+    /**
+     * Sets the lifetime behavior of the container resource.
+     *
+     * Prefer `WithPersistentLifetime``1` or
+     * `WithSessionLifetime``1` for new code.
+     * Marking a container resource to have a `Persistent` lifetime.
+     * ```
+     * var builder = DistributedApplication.CreateBuilder(args);
+     * builder.AddContainer("mycontainer", "myimage")
+     * .WithPersistentLifetime();
+     * builder.Build().Run();
+     * ```
+     * @param lifetime The lifetime behavior of the container resource. The default behavior is `Session`.
+     * @returns The `IResourceBuilder`1`.
+     */
+    withLifetime(lifetime: ContainerLifetime): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._withLifetimeInternal(lifetime), this._client);
     }
 
     /** @internal */
@@ -50567,30 +50804,6 @@ class TestVaultResourceImpl extends ResourceBuilderBase<TestVaultResourceHandle>
         const isExternal = options?.isExternal;
         const protocol = options?.protocol;
         return new TestVaultResourcePromiseImpl(this._withEndpointInternal(port, targetPort, scheme, name, env, isProxied, isExternal, protocol), this._client);
-    }
-
-    /** @internal */
-    private async _withEndpointProxySupportInternal(proxyEnabled: boolean): Promise<TestVaultResource> {
-        const rpcArgs: Record<string, unknown> = { builder: this._handle, proxyEnabled };
-        const result = await this._client.invokeCapability<TestVaultResourceHandle>(
-            'Aspire.Hosting/withEndpointProxySupport',
-            rpcArgs
-        );
-        return new TestVaultResourceImpl(result, this._client);
-    }
-
-    /**
-     * Set whether a resource can use proxied endpoints or whether they should be disabled for all endpoints belonging to the resource. If set to `false`, endpoints belonging to the resource will ignore the configured proxy settings and run proxy-less.
-     *
-     * This method is intended to support scenarios with persistent lifetime resources where it is desirable for the resource to be accessible over the same
-     * port whether the Aspire application is running or not. Proxied endpoints bind ports that are only accessible while the Aspire application is running.
-     * The user needs to be careful to ensure that endpoints are using unique ports when disabling proxy support as by default for proxy-less
-     * endpoints, Aspire will allocate the target port as the host port, which will increase the chance of port conflicts.
-     * @param proxyEnabled Should endpoints for the resource support using a proxy?
-     * @returns The `IResourceBuilder`1`.
-     */
-    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise {
-        return new TestVaultResourcePromiseImpl(this._withEndpointProxySupportInternal(proxyEnabled), this._client);
     }
 
     /** @internal */
@@ -52190,6 +52403,10 @@ class TestVaultResourcePromiseImpl implements TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withContainerRegistry(registry)), this._client);
     }
 
+    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
+    }
+
     withBindMount(source: string, target: string, options?: WithBindMountOptions): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withBindMount(source, target, options)), this._client);
     }
@@ -52216,6 +52433,10 @@ class TestVaultResourcePromiseImpl implements TestVaultResourcePromise {
 
     withContainerRuntimeArgs(args: string[]): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withContainerRuntimeArgs(args)), this._client);
+    }
+
+    withLifetime(lifetime: ContainerLifetime): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withLifetime(lifetime)), this._client);
     }
 
     withImagePullPolicy(pullPolicy: ImagePullPolicy): TestVaultResourcePromise {
@@ -52328,10 +52549,6 @@ class TestVaultResourcePromiseImpl implements TestVaultResourcePromise {
 
     withEndpoint(options?: WithEndpointOptions): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withEndpoint(options)), this._client);
-    }
-
-    withEndpointProxySupport(proxyEnabled: boolean): TestVaultResourcePromise {
-        return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withEndpointProxySupport(proxyEnabled)), this._client);
     }
 
     withHttpEndpoint(options?: WithHttpEndpointOptions): TestVaultResourcePromise {

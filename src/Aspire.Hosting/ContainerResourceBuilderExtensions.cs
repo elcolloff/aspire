@@ -30,7 +30,7 @@ public static class ContainerResourceBuilderExtensions
     /// <param name="builder">The resource builder.</param>
     /// <param name="proxyEnabled">Should endpoints for the resource support using a proxy?</param>
     /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
-    [AspireExportIgnore(Reason = "Binary compatibility shim for the resource-level WithEndpointProxySupport overload.")]
+    [AspireExport("withContainerEndpointProxySupport", MethodName = "withEndpointProxySupport", Description = "Configures endpoint proxy support")]
     public static IResourceBuilder<T> WithEndpointProxySupport<T>(IResourceBuilder<T> builder, bool proxyEnabled) where T : ContainerResource
     {
         return ResourceBuilderExtensions.WithEndpointProxySupport(builder, proxyEnabled);
@@ -565,7 +565,7 @@ public static class ContainerResourceBuilderExtensions
     /// </code>
     /// </example>
     /// </remarks>
-    [AspireExportIgnore(Reason = "Polyglot app hosts use WithPersistentLifetime or WithSessionLifetime instead.")]
+    [AspireExport(Description = "Sets the lifetime behavior of the container resource")]
     public static IResourceBuilder<T> WithLifetime<T>(this IResourceBuilder<T> builder, ContainerLifetime lifetime) where T : ContainerResource
     {
         ArgumentNullException.ThrowIfNull(builder);
