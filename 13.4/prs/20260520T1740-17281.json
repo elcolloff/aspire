@@ -1,0 +1,9 @@
+{
+  "author": "alirezafzali",
+  "comment": "Documentation-only change: adds XML remarks and Debug.Assert to WithHttpHealthCheck. No behavioral changes.",
+  "mergedAt": "2026-05-20T17:40:58Z",
+  "number": 17281,
+  "runDate": "2026-05-20T18:50:03Z",
+  "status": "excluded",
+  "title": "Add WithHttpHealthCheck remarks and Debug.Assert for external services (#10524)"
+}

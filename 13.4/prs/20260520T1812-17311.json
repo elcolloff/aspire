@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Surfaces integration assembly load failures with detailed diagnostics in aspire new.",
+  "mergedAt": "2026-05-20T18:12:24Z",
+  "number": 17311,
+  "runDate": "2026-05-20T18:50:03Z",
+  "status": "included",
+  "title": "Surface silent integration-assembly load failures (#16729)"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Test-only change: adds E2E test coverage for TypeScript AppHost publish. No user-facing changes.",
+  "mergedAt": "2026-05-20T18:24:03Z",
+  "number": 17286,
+  "runDate": "2026-05-20T18:50:03Z",
+  "status": "excluded",
+  "title": "Add TypeScript AppHost publish E2E coverage"
+}

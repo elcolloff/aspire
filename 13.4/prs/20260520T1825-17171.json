@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Security fix: patches high-severity DoS vulnerability (GHSA-q7rr-3cgh-j5r3) in JavaScript starter templates.",
+  "mergedAt": "2026-05-20T18:25:01Z",
+  "number": 17171,
+  "runDate": "2026-05-20T18:50:03Z",
+  "status": "included",
+  "title": "Bump OpenTelemetry JS deps to address GHSA-q7rr-3cgh-j5r3"
+}

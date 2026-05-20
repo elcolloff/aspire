@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "CLI startup performance: AppHost metadata disk cache eliminates redundant MSBuild evaluations across invocations.",
+  "mergedAt": "2026-05-20T17:43:55Z",
+  "number": 17246,
+  "runDate": "2026-05-20T18:50:03Z",
+  "status": "included",
+  "title": "Optimize no-build AppHost project inspection"
+}

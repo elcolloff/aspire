@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "`aspire run --no-build` now caches AppHost MSBuild metadata to disk, eliminating redundant project evaluations across CLI invocations. Benchmarks show up to 2 seconds faster startup when the cache is warm; users can clear it with `aspire cache clear`.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🚀",
+  "firstMergedAt": "2026-05-20T17:43:55Z",
+  "lastMergedAt": "2026-05-20T17:43:55Z",
+  "name": "Faster CLI startup with AppHost metadata caching",
+  "owner": "davidfowl",
+  "prs": [
+    17246
+  ]
+}
