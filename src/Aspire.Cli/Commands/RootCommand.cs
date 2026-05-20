@@ -15,12 +15,15 @@ using Aspire.Cli.Bundles;
 using Aspire.Cli.Commands.Sdk;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Resources;
+using Aspire.Cli.Utils;
 using BaseRootCommand = System.CommandLine.RootCommand;
 
 namespace Aspire.Cli.Commands;
 
 internal sealed class RootCommand : BaseRootCommand
 {
+    internal const int DefaultCaptureProfileDelaySeconds = 5;
+
     public static readonly Option<bool> DebugOption = new(CommonOptionNames.Debug, CommonOptionNames.DebugShort)
     {
         Description = RootCommandStrings.DebugArgumentDescription,
@@ -67,6 +70,13 @@ internal sealed class RootCommand : BaseRootCommand
         DefaultValueFactory = _ => false
     };
 
+    public static readonly Option<bool> StartDebugSessionOption = new(CommonOptionNames.StartDebugSession)
+    {
+        Description = RunCommandStrings.StartDebugSessionArgumentDescription,
+        Recursive = true,
+        DefaultValueFactory = _ => false
+    };
+
     public static readonly Option<bool> CaptureProfileOption = new("--capture-profile")
     {
         Recursive = true,
@@ -84,7 +94,7 @@ internal sealed class RootCommand : BaseRootCommand
     {
         Recursive = true,
         Hidden = true,
-        DefaultValueFactory = _ => 0
+        DefaultValueFactory = _ => DefaultCaptureProfileDelaySeconds
     };
 
     /// <summary>
@@ -200,6 +210,10 @@ internal sealed class RootCommand : BaseRootCommand
         Options.Add(BannerOption);
         Options.Add(WaitForDebuggerOption);
         Options.Add(CliWaitForDebuggerOption);
+        if (ExtensionHelper.IsExtensionHost(interactionService, out _, out _))
+        {
+            Options.Add(StartDebugSessionOption);
+        }
         Options.Add(CaptureProfileOption);
         Options.Add(CaptureProfileOutputOption);
         Options.Add(CaptureProfileDelayOption);

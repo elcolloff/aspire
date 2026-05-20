@@ -44,14 +44,16 @@ internal sealed class TestInteractionService : IInteractionService
     public List<StringPromptCall> StringPromptCalls { get; } = [];
     public List<BooleanPromptCall> BooleanPromptCalls { get; } = [];
     public List<string> DisplayedErrors { get; } = [];
-    public List<(KnownEmoji Emoji, string Message)> DisplayedMessages { get; } = [];
+    public List<(KnownEmoji Emoji, string Message, ConsoleOutput? ConsoleOverride)> DisplayedMessages { get; } = [];
+    public List<(OutputLineStream Stream, string Line)> DisplayedLines { get; } = [];
     public List<string> DisplayedPlainText { get; } = [];
     public List<(string Text, ConsoleOutput? ConsoleOverride)> DisplayedRawText { get; } = [];
     public List<IRenderable> DisplayedRenderables { get; } = [];
     public List<IRenderable> DisplayedLiveRenderables { get; } = [];
     public List<string> DisplayedSuccess { get; } = [];
+    public List<string> ShownStatuses { get; } = [];
     public int DisplayEmptyLineCount { get; private set; }
-    public int DisplayCancellationMessageCount { get; private set; }
+    public List<ConsoleOutput?> DisplayedCancellations { get; } = [];
 
     // Response queue setup methods
     public void SetupStringPromptResponse(string response) => _responses.Enqueue((response, ResponseType.String));
@@ -69,6 +71,11 @@ internal sealed class TestInteractionService : IInteractionService
 
     public Task<T> ShowStatusAsync<T>(string statusText, Func<Task<T>> action, KnownEmoji? emoji = null, bool allowMarkup = false)
     {
+        lock (_displayLock)
+        {
+            ShownStatuses.Add(statusText);
+        }
+
         ShowStatusCallback?.Invoke(statusText);
         return action();
     }
@@ -93,6 +100,11 @@ internal sealed class TestInteractionService : IInteractionService
 
     public void ShowStatus(string statusText, Action action, KnownEmoji? emoji = null, bool allowMarkup = false)
     {
+        lock (_displayLock)
+        {
+            ShownStatuses.Add(statusText);
+        }
+
         action();
     }
 
@@ -207,11 +219,11 @@ internal sealed class TestInteractionService : IInteractionService
         }
     }
 
-    public void DisplayMessage(KnownEmoji emoji, string message, bool allowMarkup = false)
+    public void DisplayMessage(KnownEmoji emoji, string message, bool allowMarkup = false, ConsoleOutput? consoleOverride = null)
     {
         lock (_displayLock)
         {
-            DisplayedMessages.Add((emoji, message));
+            DisplayedMessages.Add((emoji, message, consoleOverride));
         }
     }
 
@@ -225,13 +237,17 @@ internal sealed class TestInteractionService : IInteractionService
 
     public void DisplayLines(IEnumerable<(OutputLineStream Stream, string Line)> lines)
     {
+        lock (_displayLock)
+        {
+            DisplayedLines.AddRange(lines);
+        }
     }
 
-    public void DisplayCancellationMessage()
+    public void DisplayCancellationMessage(ConsoleOutput? consoleOverride = null)
     {
         lock (_displayLock)
         {
-            DisplayCancellationMessageCount++;
+            DisplayedCancellations.Add(consoleOverride);
         }
     }
 

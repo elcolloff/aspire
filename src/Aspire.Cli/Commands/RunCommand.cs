@@ -74,6 +74,11 @@ internal sealed class RunCommand : BaseCommand
     private readonly ProfilingTelemetry _profilingTelemetry;
     private bool _isDetachMode;
 
+    // Guest AppHosts can bring up the temporary server/backchannel and then fail immediately
+    // afterward when the guest startup process hits a syntax or pre-execute error. Keep the
+    // detached parent waiting briefly so those early failures are reported instead of hidden.
+    private static readonly TimeSpan s_detachedStartupStabilityWindow = TimeSpan.FromSeconds(2);
+
     protected override bool UpdateNotificationsEnabled => !_isDetachMode;
 
     private static readonly Option<bool> s_detachOption = new("--detach")
@@ -84,7 +89,6 @@ internal sealed class RunCommand : BaseCommand
     {
         Description = RunCommandStrings.NoBuildArgumentDescription
     };
-    private readonly Option<bool>? _startDebugSessionOption;
 
     public RunCommand(
         IDotNetCliRunner runner,
@@ -123,15 +127,6 @@ internal sealed class RunCommand : BaseCommand
         Options.Add(s_noBuildOption);
         AppHostLauncher.AddLaunchOptions(this);
 
-        if (ExtensionHelper.IsExtensionHost(InteractionService, out _, out _))
-        {
-            _startDebugSessionOption = new Option<bool>("--start-debug-session")
-            {
-                Description = RunCommandStrings.StartDebugSessionArgumentDescription
-            };
-            Options.Add(_startDebugSessionOption);
-        }
-
         TreatUnmatchedTokensAsErrors = false;
     }
 
@@ -149,8 +144,7 @@ internal sealed class RunCommand : BaseCommand
         var startDebugSession = false;
         if (isExtensionHost)
         {
-            Debug.Assert(_startDebugSessionOption is not null);
-            startDebugSession = parseResult.GetValue(_startDebugSessionOption);
+            startDebugSession = parseResult.GetValue(RootCommand.StartDebugSessionOption);
         }
 
         // Validate that --format is only used with --detach
@@ -159,9 +153,15 @@ internal sealed class RunCommand : BaseCommand
             return CommandResult.Failure(CliExitCodes.InvalidCommand, RunCommandStrings.FormatRequiresDetach);
         }
 
-        // Validate that --no-build is not used when watch mode would be enabled
-        // Watch mode is enabled when DefaultWatchEnabled feature is true, or when running under extension host (not in debug session)
-        var watchModeEnabled = _features.IsFeatureEnabled(KnownFeatures.DefaultWatchEnabled, defaultValue: false) || (isExtensionHost && !startDebugSession);
+        // Validate that --no-build is not used when watch mode would be enabled.
+        // The extension terminal path enables watch mode by delegating to VS Code
+        // before an Aspire debug session exists. Once VS Code starts the session,
+        // the child CLI has ASPIRE_EXTENSION_DEBUG_SESSION_ID and can honor
+        // forwarded options from the original terminal command without recursing.
+        var extensionTerminalRunWithoutDebugSession = isExtensionHost
+            && !startDebugSession
+            && string.IsNullOrEmpty(_configuration[KnownConfigNames.ExtensionDebugSessionId]);
+        var watchModeEnabled = _features.IsFeatureEnabled(KnownFeatures.DefaultWatchEnabled, defaultValue: false) || extensionTerminalRunWithoutDebugSession;
         if (noBuild && watchModeEnabled)
         {
             return CommandResult.Failure(CliExitCodes.InvalidCommand, RunCommandStrings.NoBuildNotSupportedWithWatchMode);
@@ -182,7 +182,7 @@ internal sealed class RunCommand : BaseCommand
             && ExtensionHelper.IsExtensionHost(InteractionService, out var extensionInteractionService, out _)
             && string.IsNullOrEmpty(_configuration[KnownConfigNames.ExtensionDebugSessionId]))
         {
-            extensionInteractionService.DisplayConsolePlainText(RunCommandStrings.StartingDebugSessionInExtension);
+            extensionInteractionService.DisplayConsolePlainText(string.Format(CultureInfo.CurrentCulture, startDebugSession ? RunCommandStrings.StartingDebugSessionInExtension : RunCommandStrings.StartingRunSessionInExtension, "run"));
             await extensionInteractionService.StartDebugSessionAsync(ExecutionContext.WorkingDirectory.FullName, passedAppHostProjectFile?.FullName, startDebugSession, new DebugSessionOptions { Command = "run" });
             return CommandResult.Success();
         }
@@ -333,6 +333,20 @@ internal sealed class RunCommand : BaseCommand
                 InteractionService.DisplayMessage(KnownEmojis.Warning, RunCommandStrings.DashboardFailedToStart);
             }
 
+            if (IsDetachedStartChild())
+            {
+                var observedExitCode = await ObserveEarlyDetachedStartupExitAsync(pendingRun, cancellationToken).ConfigureAwait(false);
+                if (observedExitCode is { } exitCode)
+                {
+                    return exitCode == CliExitCodes.Cancelled
+                        ? CommandResult.Cancelled(CliExitCodes.Success)
+                        : CommandResult.FromExitCode(exitCode);
+                }
+
+            }
+
+            await backchannel.NotifyAppHostReadyAsync(cancellationToken).ConfigureAwait(false);
+
             // Display the UX
             var appHostRelativePath = Path.GetRelativePath(ExecutionContext.WorkingDirectory.FullName, effectiveAppHostFile.FullName);
             var longestLocalizedLengthWithColon = RenderAppHostSummary(
@@ -353,7 +367,7 @@ internal sealed class RunCommand : BaseCommand
             var profileStopRequested = false;
             if (captureProfile)
             {
-                profileStopRequested = await RequestAppHostStopForProfileAsync(backchannel, pendingRun, captureProfileDelay, cancellationToken).ConfigureAwait(false);
+                profileStopRequested = await RequestAppHostStopForProfileAsync(backchannel, pendingRun, captureProfileDelay, _profilingTelemetry, cancellationToken).ConfigureAwait(false);
             }
             else if (!isRemoteEnvironment)
             {
@@ -523,6 +537,24 @@ internal sealed class RunCommand : BaseCommand
         }
     }
 
+    private bool IsDetachedStartChild() => _configuration.GetBool(KnownConfigNames.CliRunDetached) is true;
+
+    private static async Task<int?> ObserveEarlyDetachedStartupExitAsync(Task<int> pendingRun, CancellationToken cancellationToken)
+    {
+        var completedTask = await Task.WhenAny(
+            pendingRun,
+            Task.Delay(s_detachedStartupStabilityWindow, cancellationToken)).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (completedTask == pendingRun)
+        {
+            return await pendingRun.ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
     private static IRenderable BuildCtrlCRenderable(int longestLocalizedLengthWithColon)
     {
         var ctrlCGrid = new Grid();
@@ -549,21 +581,25 @@ internal sealed class RunCommand : BaseCommand
         IAppHostCliBackchannel backchannel,
         Task<int> pendingRun,
         TimeSpan delay,
+        ProfilingTelemetry profilingTelemetry,
         CancellationToken cancellationToken)
     {
-        // The backchannel has already connected before this method is called, so startup spans have
-        // been produced. The optional delay is only a warmup window for scenarios that want extra
-        // post-start resource activity, not a telemetry flush mechanism.
+        // The AppHost exports profiling spans through the batched OTLP exporter. Keep the process
+        // alive briefly after startup so late server-side spans (for example dashboard readiness)
+        // have time to flush before the CLI requests shutdown and exports the capture archive.
         if (delay > TimeSpan.Zero)
         {
-            var delayTask = Task.Delay(delay, cancellationToken);
-            var completedTask = await Task.WhenAny(delayTask, pendingRun).ConfigureAwait(false);
-            if (completedTask == pendingRun)
+            using (profilingTelemetry.StartProfileCaptureDelay(delay))
             {
-                return false;
-            }
+                var delayTask = Task.Delay(delay, cancellationToken);
+                var completedTask = await Task.WhenAny(delayTask, pendingRun).ConfigureAwait(false);
+                if (completedTask == pendingRun)
+                {
+                    return false;
+                }
 
-            await delayTask.ConfigureAwait(false);
+                await delayTask.ConfigureAwait(false);
+            }
         }
 
         if (!pendingRun.IsCompleted)

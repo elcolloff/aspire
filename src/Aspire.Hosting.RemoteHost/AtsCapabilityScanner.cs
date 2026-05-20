@@ -342,7 +342,7 @@ public static class AtsCapabilityScanner
             // If ExposeProperties or ExposeMethods, create context type capabilities
             if (assemblyExportAttr.ExposeProperties || assemblyExportAttr.ExposeMethods)
             {
-                var contextResult = CreateContextTypeCapabilities(exportedType, assemblyName, assemblyExportedTypeCache);
+                var contextResult = CreateContextTypeCapabilities(exportedType, assemblyName, assemblyExportedTypeCache, assemblyExportAttr);
                 capabilities.AddRange(contextResult.Capabilities);
                 diagnostics.AddRange(contextResult.Diagnostics);
 
@@ -362,7 +362,7 @@ public static class AtsCapabilityScanner
             // Check for [AspireDto] attribute - scan DTO types for code generation
             if (HasAspireDtoAttribute(type))
             {
-                var dtoInfo = CreateDtoTypeInfo(type, assemblyExportedTypeCache);
+                var dtoInfo = CreateDtoTypeInfo(type, assemblyExportedTypeCache, diagnostics);
                 if (dtoInfo != null)
                 {
                     dtoTypes.Add(dtoInfo);
@@ -1058,7 +1058,8 @@ public static class AtsCapabilityScanner
     /// </summary>
     private static AtsDtoTypeInfo? CreateDtoTypeInfo(
         Type type,
-        AssemblyExportedTypeCache assemblyExportedTypeCache)
+        AssemblyExportedTypeCache assemblyExportedTypeCache,
+        List<AtsDiagnostic> diagnostics)
     {
         var typeId = AtsTypeMapping.DeriveTypeId(type);
         var typeName = type.Name;
@@ -1068,6 +1069,7 @@ public static class AtsCapabilityScanner
 
         // Collect public properties for the DTO interface
         var properties = new List<AtsDtoPropertyInfo>();
+        var nullabilityContext = new NullabilityInfoContext();
 
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -1090,6 +1092,14 @@ public static class AtsCapabilityScanner
             {
                 continue;
             }
+            propTypeRef = WithNullability(propTypeRef, prop.PropertyType, nullabilityContext.Create(prop).ReadState);
+
+            if (!prop.CanWrite && IsMutableCollectionType(prop.PropertyType))
+            {
+                diagnostics.Add(AtsDiagnostic.Warning(
+                    $"DTO property '{type.FullName}.{prop.Name}' is a get-only mutable collection. Add an init accessor so System.Text.Json replaces the collection during DTO deserialization; otherwise collection values can be merged with initializer defaults.",
+                    $"{type.FullName}.{prop.Name}"));
+            }
 
             IReadOnlyList<AtsCallbackParameterInfo>? callbackParameters = null;
             AtsTypeRef? callbackReturnType = null;
@@ -1100,7 +1110,7 @@ public static class AtsCapabilityScanner
 
             var propDocumentation = GetXmlDocumentation(prop);
             var propDescription = propDocumentation?.Summary;
-            var isOptional = !prop.CanWrite || Nullable.GetUnderlyingType(prop.PropertyType) is not null;
+            var isOptional = IsOptionalDtoProperty(prop);
 
             properties.Add(new AtsDtoPropertyInfo
             {
@@ -1124,6 +1134,32 @@ public static class AtsCapabilityScanner
             Documentation = typeDocumentation,
             Properties = properties
         };
+    }
+
+    private static bool IsMutableCollectionType(Type type)
+    {
+        if (!type.IsGenericType)
+        {
+            return false;
+        }
+
+        var genericTypeDefinition = type.GetGenericTypeDefinition();
+        return genericTypeDefinition == typeof(List<>) ||
+            genericTypeDefinition == typeof(IList<>) ||
+            genericTypeDefinition == typeof(Dictionary<,>) ||
+            genericTypeDefinition == typeof(IDictionary<,>);
+    }
+
+    private static bool IsOptionalDtoProperty(PropertyInfo property)
+    {
+        if (property.GetCustomAttribute<RequiredMemberAttribute>() is not null)
+        {
+            return false;
+        }
+
+        return !property.CanWrite ||
+            Nullable.GetUnderlyingType(property.PropertyType) is not null ||
+            !CanWriteAfterInitialization(property);
     }
 
     private static void ScanStaticExportedValues(
@@ -1491,7 +1527,8 @@ public static class AtsCapabilityScanner
     private static ContextTypeCapabilitiesResult CreateContextTypeCapabilities(
         Type contextType,
         string assemblyName,
-        AssemblyExportedTypeCache assemblyExportedTypeCache)
+        AssemblyExportedTypeCache assemblyExportedTypeCache,
+        AspireExportData? assemblyExportAttr = null)
     {
         var capabilities = new List<AtsCapabilityInfo>();
         var diagnostics = new List<AtsDiagnostic>();
@@ -1508,10 +1545,10 @@ public static class AtsCapabilityScanner
         var lastDot = fullName.LastIndexOf('.');
         var package = lastDot >= 0 ? fullName[..lastDot] : assemblyName;
 
-        // Check for ExposeProperties and ExposeMethods flags
-        var exposeAllProperties = HasExposePropertiesAttribute(contextType);
-        var exposeAllMethods = HasExposeMethodsAttribute(contextType);
-        var typeExportAttr = GetAspireExportAttribute(contextType);
+        var typeExportAttr = assemblyExportAttr ?? GetAspireExportAttribute(contextType);
+        var exposeAllProperties = typeExportAttr?.ExposeProperties == true || HasExposePropertiesAttribute(contextType);
+        var exposeAllMethods = typeExportAttr?.ExposeMethods == true || HasExposeMethodsAttribute(contextType);
+        var nullabilityContext = new NullabilityInfoContext();
 
         // Scan properties
         foreach (var property in contextType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
@@ -1611,6 +1648,9 @@ public static class AtsCapabilityScanner
                     // Skip properties with unmapped types
                     continue;
                 }
+                var propertyNullability = nullabilityContext.Create(property);
+                var getterTypeRef = WithNullability(propertyTypeRef!, propType, propertyNullability.ReadState);
+                var setterTypeRef = WithNullability(propertyTypeRef!, propType, propertyNullability.WriteState);
 
                 // Create type ref for the context type with full inheritance info
                 var contextTypeRef = CreateHandleTypeRef(contextType);
@@ -1648,7 +1688,7 @@ public static class AtsCapabilityScanner
                                 DefaultValue = null
                             }
                         ],
-                        ReturnType = propertyTypeRef!,
+                        ReturnType = getterTypeRef,
                         TargetTypeId = typeId,
                         TargetType = contextTypeRef,
                         TargetParameterName = "context",
@@ -1692,7 +1732,7 @@ public static class AtsCapabilityScanner
                             new AtsParameterInfo
                             {
                                 Name = "value",
-                                Type = propertyTypeRef!,
+                                Type = setterTypeRef,
                                 IsOptional = false,
                                 IsNullable = false,
                                 IsCallback = false,
@@ -2540,6 +2580,32 @@ public static class AtsCapabilityScanner
         TypeId = AtsConstants.Void,
         Category = AtsTypeCategory.Primitive
     };
+
+    private static AtsTypeRef WithNullability(AtsTypeRef typeRef, Type declaredType, NullabilityState nullabilityState)
+    {
+        var isNullable = nullabilityState == NullabilityState.Nullable ||
+            Nullable.GetUnderlyingType(declaredType) is not null;
+        if (!isNullable)
+        {
+            return typeRef;
+        }
+
+        return new AtsTypeRef
+        {
+            TypeId = typeRef.TypeId,
+            ClrType = typeRef.ClrType,
+            Category = typeRef.Category,
+            IsInterface = typeRef.IsInterface,
+            IsNullable = true,
+            ElementType = typeRef.ElementType,
+            KeyType = typeRef.KeyType,
+            ValueType = typeRef.ValueType,
+            IsReadOnly = typeRef.IsReadOnly,
+            UnionTypes = typeRef.UnionTypes,
+            ImplementedInterfaces = typeRef.ImplementedInterfaces,
+            BaseType = typeRef.BaseType
+        };
+    }
 
     /// <summary>
     /// Creates an AtsTypeRef from a CLR type, optionally collecting enum types.

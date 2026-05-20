@@ -7,6 +7,7 @@ import {
     CertificateTrustScope,
     EndpointProperty,
     IconVariant,
+    InputType,
     OtlpProtocol,
     ProbeType,
     refExpr,
@@ -101,6 +102,16 @@ const generatedParam = await builder.addParameterWithGeneratedValue("generated-s
 }, {
     secret: true,
     persist: true,
+});
+const customInputParam = await builder.addParameter("custom-input");
+await customInputParam.withCustomInput({
+    inputType: InputType.Number,
+    label: "Worker Count",
+    placeholder: "Enter number (1-10)",
+    options: {
+        one: "One",
+        two: "Two",
+    },
 });
 
 // ===================================================================
@@ -376,7 +387,7 @@ await container.withPipelineConfiguration(async (configContext) => {
     const taggedSteps = await configPipeline.stepsByTag(WellKnownPipelineTags.BuildCompute);
 
     const _stepName: string = await allSteps[0].name();
-    const _description: string = await allSteps[0].description();
+    const _description: string | null = await allSteps[0].description();
 
     await allSteps[0].addTag("validated");
     await allSteps[0].dependsOn("restore");
