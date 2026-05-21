@@ -116,7 +116,7 @@ internal class CliUpdateNotifier(
         }
 
         var newerVersion = PackageUpdateHelpers.GetNewerVersion(logger, currentVersion, _availablePackages);
-        var updateCommand = newerVersion is null ? null : DotNetToolDetection.GetDotNetToolUpdateCommand() ?? "aspire update";
+        var updateCommand = newerVersion is null ? null : DotNetToolDetection.GetDotNetToolUpdateCommand() ?? "aspire update --self";
         // Derive the lane the recommendation comes from so doctor can show
         // 'Latest version is X (channel: stable)' vs '(channel: prerelease)'.
         // GetNewerVersion picks between newestStable and newestPrerelease

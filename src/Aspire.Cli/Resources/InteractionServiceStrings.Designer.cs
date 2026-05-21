@@ -457,11 +457,20 @@ namespace Aspire.Cli.Resources {
         }
 
         /// <summary>
-        ///   Looks up a localized string similar to [dim]To update, run: {0}[/].
+        ///   Looks up a localized string similar to [dim]To update this AppHost, run: {0}[/].
         /// </summary>
-        public static string ToUpdateRunCommand {
+        public static string ToUpdateAppHostRunCommand {
             get {
-                return ResourceManager.GetString("ToUpdateRunCommand", resourceCulture);
+                return ResourceManager.GetString("ToUpdateAppHostRunCommand", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to [dim]To update the Aspire CLI, run: {0}[/].
+        /// </summary>
+        public static string ToUpdateCliRunCommand {
+            get {
+                return ResourceManager.GetString("ToUpdateCliRunCommand", resourceCulture);
             }
         }
     }

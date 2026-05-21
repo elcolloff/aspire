@@ -197,9 +197,14 @@
         <target state="translated">Производится остановка Aspire.</target>
         <note />
       </trans-unit>
-      <trans-unit id="ToUpdateRunCommand">
-        <source>[dim]To update, run: {0}[/]</source>
-        <target state="translated">[dim]Для обновления выполните: {0}[/]</target>
+      <trans-unit id="ToUpdateAppHostRunCommand">
+        <source>[dim]To update this AppHost, run: {0}[/]</source>
+        <target state="new">[dim]To update this AppHost, run: {0}[/]</target>
+        <note>Do not translate [dim]. Also leave [/] as-is. {0} is the command to run</note>
+      </trans-unit>
+      <trans-unit id="ToUpdateCliRunCommand">
+        <source>[dim]To update the Aspire CLI, run: {0}[/]</source>
+        <target state="new">[dim]To update the Aspire CLI, run: {0}[/]</target>
         <note>Do not translate [dim]. Also leave [/] as-is. {0} is the command to run</note>
       </trans-unit>
       <trans-unit id="TrustingCertificates">

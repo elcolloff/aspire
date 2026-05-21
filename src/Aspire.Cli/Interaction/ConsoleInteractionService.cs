@@ -698,10 +698,11 @@ internal class ConsoleInteractionService : IInteractionService
         // Write to stderr to avoid corrupting stdout when JSON output is used
         _errorConsole.WriteLine();
         _errorConsole.MarkupLine(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.NewCliVersionAvailable, newerVersion.EscapeMarkup()));
+        _errorConsole.MarkupLine(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ToUpdateAppHostRunCommand, "aspire update"));
 
         if (!string.IsNullOrEmpty(updateCommand))
         {
-            _errorConsole.MarkupLine(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ToUpdateRunCommand, updateCommand.EscapeMarkup()));
+            _errorConsole.MarkupLine(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.ToUpdateCliRunCommand, updateCommand.EscapeMarkup()));
         }
 
         _errorConsole.MarkupLine(string.Format(CultureInfo.CurrentCulture, InteractionServiceStrings.MoreInfoNewCliVersion, MarkupHelpers.SafeLink(this, UpdateUrl)));

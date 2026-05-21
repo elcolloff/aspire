@@ -633,7 +633,7 @@ public class ConsoleInteractionServiceTests
 
         // Version strings are unlikely to have brackets, but the method should handle it
         var version = "13.2.0-preview [beta]";
-        var updateCommand = "aspire update --channel [stable]";
+        var updateCommand = "aspire update --self --channel [stable]";
 
         // Act - should not throw due to unescaped markup characters
         var exception = Record.Exception(() => interactionService.DisplayVersionUpdateNotification(version, updateCommand));
@@ -643,7 +643,9 @@ public class ConsoleInteractionServiceTests
         var outputString = output.ToString();
         Assert.Contains("A new version of Aspire is available:", outputString);
         Assert.Contains("13.2.0-preview [beta]", outputString);
-        Assert.Contains("aspire update --channel [stable]", outputString);
+        Assert.Contains("To update this AppHost, run: aspire update", outputString);
+        Assert.Contains("To update the Aspire CLI, run:", outputString);
+        Assert.Contains("aspire update --self --channel [stable]", outputString);
     }
 
     [Fact]
