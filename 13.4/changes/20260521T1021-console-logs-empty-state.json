@@ -1,0 +1,21 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [
+    "@nightt5879"
+  ],
+  "description": "The console logs panel now shows an empty state message after a brief delay when a resource has not emitted any output. The empty state is hidden immediately once logs arrive or the subscription changes.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📭",
+  "firstMergedAt": "2026-05-21T10:21:10Z",
+  "lastMergedAt": "2026-05-21T10:21:10Z",
+  "name": "Console logs empty state",
+  "owner": "JamesNK",
+  "prs": [
+    17340
+  ]
+}

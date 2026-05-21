@@ -1,0 +1,9 @@
+{
+  "author": "nightt5879",
+  "comment": "Dashboard improvement: shows empty state in console logs panel after brief delay when no output",
+  "mergedAt": "2026-05-21T10:21:10Z",
+  "number": 17340,
+  "runDate": "2026-05-21T11:13:23Z",
+  "status": "included",
+  "title": "Show empty state for console logs"
+}
