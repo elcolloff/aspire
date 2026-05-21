@@ -81,6 +81,7 @@ Before starting a release:
    | `SkipGitHubTasks` | Set `true` to skip dispatching the GH workflow | `false` |
    | `SkipReleaseAssets` | Set `true` to skip uploading aspire-cli-* assets to the GitHub release | `false` |
    | `GitHubTasksWorkflowRef` | Ref to load `release-github-tasks.yml` from when dispatching. Only affects the workflow source — the release branch/commit are passed via inputs. Override only when testing pipeline changes on a topic branch. | `main` |
+   
 4. Select the **Resources** button in the bottom right, then select the source build from the `aspire-build` dropdown
    - The picker shows all recent builds from the `microsoft-aspire`
      pipeline regardless of branch. Pick the build that corresponds to the
@@ -147,8 +148,8 @@ After automation completes:
 
 2. **Verify the release**:
    - Check the [GitHub Releases page](https://github.com/microsoft/aspire/releases)
-   - Verify packages on [NuGet.org](https://www.nuget.org/packages?q=owner%3Adotnet+aspire)
-   - Test installation: `dotnet new install Aspire.ProjectTemplates::VERSION`
+   - Verify packages on [NuGet.org](https://www.nuget.org/packages?q=owner%3Aaspire)
+   - Test installation: `dotnet new install Aspire.ProjectTemplates::VERSION` and `aspire update --self`
 
 3. **Communicate**:
    - Update any tracking issues
