@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Fixes CLI archive verifier build break by removing incompatible checks, adds GitHub CI coverage for the verifier, and fixes a latent sidecar scope-narrowing bug",
+  "mergedAt": "2026-05-21T07:01:34Z",
+  "number": 17346,
+  "runDate": "2026-05-21T07:20:55Z",
+  "status": "included",
+  "title": "Fix internal build break: remove failing TS-starter / bundle-layout verifier checks, add GitHub-CI coverage, fix latent sidecar-scope bug"
+}

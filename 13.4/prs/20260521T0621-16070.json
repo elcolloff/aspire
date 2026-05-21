@@ -1,0 +1,9 @@
+{
+  "author": "afscrome",
+  "comment": "New WithHidden() and WithHiddenOnCompletion() APIs for hiding implementation-detail resources from dashboard and CLI resource views",
+  "mergedAt": "2026-05-21T06:21:26Z",
+  "number": 16070,
+  "runDate": "2026-05-21T07:20:55Z",
+  "status": "included",
+  "title": "Add annotations & extension methods to hide resources"
+}

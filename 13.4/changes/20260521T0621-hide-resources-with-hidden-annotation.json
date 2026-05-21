@@ -1,0 +1,21 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [
+    "@afscrome"
+  ],
+  "description": "AppHost authors can now hide implementation-detail resources from default resource views using WithHidden() and WithHiddenOnCompletion() extension methods. Hidden resources remain in the app model and are addressable by name, but are excluded from dashboard and CLI resource lists unless explicitly requested — keeping views clean when resources like setup helpers, migration services, or certificate collections are implementation details rather than end-user concerns.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🙈",
+  "firstMergedAt": "2026-05-21T06:21:26Z",
+  "lastMergedAt": "2026-05-21T06:21:26Z",
+  "name": "Hide resources with WithHidden() and WithHiddenOnCompletion()",
+  "owner": "davidfowl",
+  "prs": [
+    16070
+  ]
+}
