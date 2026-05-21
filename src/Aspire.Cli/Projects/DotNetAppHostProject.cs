@@ -772,6 +772,13 @@ internal sealed class DotNetAppHostProject : IAppHostProject
     private static bool TryGetLaunchSettingsPath(FileInfo projectFile, out string launchSettingsPath)
     {
         var directory = projectFile.Directory!.FullName;
+
+        // Keep this lookup in sync with the SDK's `dotnet run` launch-settings discovery:
+        // first check Properties/launchSettings.json (or My Project/launchSettings.json for VB),
+        // then fall back to the flat <ProjectName>.run.json file. The shared reader owns parsing
+        // once a file is selected, but it intentionally does not encode the SDK's project-file
+        // discovery rules.
+        // https://github.com/dotnet/sdk/blob/main/src/Microsoft.DotNet.ProjectTools/LaunchSettings/LaunchSettings.cs
         var propertiesDirectoryName = projectFile.Extension.Equals(".vbproj", StringComparison.OrdinalIgnoreCase)
             ? "My Project"
             : "Properties";
