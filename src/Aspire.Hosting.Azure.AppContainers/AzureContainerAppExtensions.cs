@@ -725,10 +725,27 @@ public static class AzureContainerAppExtensions
     /// </para>
     /// <para>
     /// This is commonly combined with <c>AsExisting</c> on the environment and on the container registry to deploy
-    /// container apps into a pre-provisioned set of Azure resources without granting the deployment principal
-    /// permission to create new identities or role assignments. See
-    /// <see href="https://github.com/microsoft/aspire/issues/12977"/> for the scenario this addresses.
+    /// container apps into a pre-provisioned set of Azure resources without Aspire emitting any new identity or
+    /// role-assignment resources. See <see href="https://github.com/microsoft/aspire/issues/12977"/> for the
+    /// scenario this addresses.
     /// </para>
+    /// <para>
+    /// Only the combination of an existing environment, an existing container registry, and this method avoids
+    /// emitting any new identity or role-assignment resources in the env module. Other combinations still work but
+    /// will emit additional resources:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item><description>
+    ///   If the environment is marked <c>AsExisting</c> but no identity is supplied here, Aspire still emits a new
+    ///   <c>UserAssignedIdentity</c> and an <c>AcrPull</c> role assignment on the configured registry.
+    ///   </description></item>
+    ///   <item><description>
+    ///   If this method is used but the container registry is not existing (either the Aspire-generated default
+    ///   registry or a user-added registry without <c>AsExisting</c>), the registry itself is still provisioned.
+    ///   To wire the supplied identity to that newly-created registry, chain
+    ///   <c>.WithRoleAssignments(acr, ContainerRegistryBuiltInRole.AcrPull)</c> on the identity.
+    ///   </description></item>
+    /// </list>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> or <paramref name="identityBuilder"/> is <see langword="null"/>.</exception>
     [AspireExport]
