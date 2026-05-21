@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "CI workflow fix for aspire.dev repo itself, not product documentation",
+  "mergedAt": "2026-05-21T15:41:40Z",
+  "number": 1030,
+  "runDate": "2026-05-21T17:01:20Z",
+  "status": "excluded",
+  "title": "Fix workflow health manager app permissions"
+}

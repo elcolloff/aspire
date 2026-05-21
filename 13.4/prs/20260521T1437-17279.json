@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "VS Code extension improvement: prompts user for new project output location when running aspire new",
+  "mergedAt": "2026-05-21T14:37:21Z",
+  "number": 17279,
+  "runDate": "2026-05-21T17:01:20Z",
+  "status": "included",
+  "title": "Prompt for Aspire new project location in VS Code"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "TypeScript and other polyglot AppHosts can now resolve `ResourceCommandService` and programmatically invoke resource commands, closing the gap with C# AppHosts that could already do this via the service provider.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🎮",
+  "firstMergedAt": "2026-05-21T14:47:05Z",
+  "lastMergedAt": "2026-05-21T14:47:05Z",
+  "name": "Resource command service for polyglot AppHosts",
+  "owner": "sebastienros",
+  "prs": [
+    17330
+  ]
+}

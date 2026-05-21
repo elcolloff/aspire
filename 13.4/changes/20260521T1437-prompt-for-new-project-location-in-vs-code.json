@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "When launching `aspire new` from the VS Code extension, users are now prompted to choose where the new project should be created — either in a named subdirectory or directly in the selected folder. The resolved output path is shared consistently between the extension and CLI.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📁",
+  "firstMergedAt": "2026-05-21T14:37:21Z",
+  "lastMergedAt": "2026-05-21T14:37:21Z",
+  "name": "Prompt for new project location in VS Code",
+  "owner": "adamint",
+  "prs": [
+    17279
+  ]
+}

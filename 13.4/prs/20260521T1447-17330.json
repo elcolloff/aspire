@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "New feature: polyglot AppHosts can now resolve and invoke ResourceCommandService",
+  "mergedAt": "2026-05-21T14:47:05Z",
+  "number": 17330,
+  "runDate": "2026-05-21T17:01:20Z",
+  "status": "included",
+  "title": "Expose resource command service to polyglot apphosts"
+}

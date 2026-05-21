@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Improvement: better HTTPS dev-cert error messages in polyglot AppHosts pointing to aspire certs trust",
+  "mergedAt": "2026-05-21T15:17:57Z",
+  "number": 17348,
+  "runDate": "2026-05-21T17:01:20Z",
+  "status": "included",
+  "title": "Advise `aspire certs trust` in polyglot HTTPS dev-cert errors"
+}

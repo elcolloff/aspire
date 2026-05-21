@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "When a polyglot AppHost (TypeScript, Python, etc.) fails to start due to a missing or untrusted HTTPS developer certificate, the error message now advises running `aspire certs trust` instead of `dotnet dev-certs`, since the .NET SDK is not always on PATH in polyglot environments.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔐",
+  "firstMergedAt": "2026-05-21T15:17:57Z",
+  "lastMergedAt": "2026-05-21T15:17:57Z",
+  "name": "Advise `aspire certs trust` in polyglot HTTPS dev-cert errors",
+  "owner": "mitchdenny",
+  "prs": [
+    17348
+  ]
+}
