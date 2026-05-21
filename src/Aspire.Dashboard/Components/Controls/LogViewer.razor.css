@@ -28,14 +28,16 @@
 }
 
 ::deep .console-empty-message {
+    gap: 8px;
+    color: #fff;
+    user-select: none;
+    font-family: var(--body-font);
+    font-weight: 600;
+    padding: calc(var(--design-unit) * 5px);
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 20px 24px;
-    color: var(--console-font-color);
-    cursor: default;
-    opacity: 0.72;
-    user-select: none;
+    height: auto !important;
+    justify-content: center;
 }
 
 ::deep .ansi-fg-black {

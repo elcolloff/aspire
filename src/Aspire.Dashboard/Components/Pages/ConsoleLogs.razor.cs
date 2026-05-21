@@ -27,6 +27,8 @@ namespace Aspire.Dashboard.Components.Pages;
 
 public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry, IAsyncDisposable, IPageWithSessionAndUrlState<ConsoleLogs.ConsoleLogsViewModel, ConsoleLogs.ConsoleLogsPageState>
 {
+    private static readonly TimeSpan s_noLogsMessageDelay = TimeSpan.FromSeconds(1.5);
+
     [DebuggerDisplay("Resource = {Resource.Name}, IsCancellationRequested = {CancellationToken.IsCancellationRequested}")]
     private sealed class ConsoleLogsSubscription
     {
@@ -415,7 +417,7 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
         {
             _logEntries.Clear(keepActivePauseEntries: false);
         }
-        StopNoLogsMessageDelay();
+        ResetNoLogsMessage();
 
         await InvokeAsync(_logViewerRef.SafeRefreshDataAsync);
 
@@ -664,17 +666,15 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
 
     private void StartNoLogsMessageDelay()
     {
-        StopNoLogsMessageDelay();
+        ResetNoLogsMessage();
 
         _showNoLogsMessageCts = new();
         _ = ShowNoLogsMessageAfterDelayAsync(_showNoLogsMessageCts.Token);
     }
 
-    private void StopNoLogsMessageDelay()
+    private void ResetNoLogsMessage()
     {
         _showNoLogsMessageCts?.Cancel();
-        _showNoLogsMessageCts?.Dispose();
-        _showNoLogsMessageCts = null;
         _showNoLogsMessage = false;
     }
 
@@ -682,7 +682,7 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.Delay(s_noLogsMessageDelay, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -1021,7 +1021,8 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
     public async ValueTask DisposeAsync()
     {
         _aiContext?.Dispose();
-        StopNoLogsMessageDelay();
+        ResetNoLogsMessage();
+        _showNoLogsMessageCts?.Dispose();
 
         _consoleLogsFiltersChangedSubscription?.Dispose();
 
