@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents ResourceCommandService support in polyglot AppHosts; matched to changelog entry for #17330",
+  "mergedAt": "2026-05-21T18:54:27Z",
+  "number": 1031,
+  "runDate": "2026-05-21T20:43:08Z",
+  "status": "included",
+  "title": "[docs] Document ResourceCommandService support in polyglot (TypeScript) apphosts"
+}

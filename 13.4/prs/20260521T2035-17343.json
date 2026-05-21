@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Engineering back-merge of release/13.3 to main; meaningful fix (stop forcing MSBuild server) already tracked under #17313",
+  "mergedAt": "2026-05-21T20:35:41Z",
+  "number": 17343,
+  "runDate": "2026-05-21T20:43:08Z",
+  "status": "excluded",
+  "title": "Merge release/13.3 to main after v13.3.5 release (supersedes #17337)"
+}
