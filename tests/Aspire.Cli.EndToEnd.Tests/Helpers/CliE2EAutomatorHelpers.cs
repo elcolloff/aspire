@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Globalization;
 using System.Xml.Linq;
+using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.Utils;
 using Hex1b.Automation;
 using Xunit;
@@ -77,6 +79,11 @@ internal static class CliE2EAutomatorHelpers
         }
     }
 
+    internal static Task WaitUntilAppHostStoppedSuccessfullyAsync(this Hex1bTerminalAutomator auto, TimeSpan timeout)
+    {
+        return auto.WaitUntilTextAsync(GetAppHostStoppedSuccessfullySuffix(), timeout: timeout);
+    }
+
     /// <summary>
     /// Installs the Aspire CLI inside a Docker container using the given install strategy.
     /// Handles all modes: LocalHive, PullRequest, and InstallScript.
@@ -135,6 +142,198 @@ internal static class CliE2EAutomatorHelpers
         }
 
         await auto.VerifyAspireCliVersionAsync(strategy, counter);
+    }
+
+    private static string GetAppHostStoppedSuccessfullySuffix()
+    {
+        const string appHostMarker = "__AspireAppHost__";
+
+        var formattedMessage = string.Format(CultureInfo.CurrentCulture, StopCommandStrings.AppHostStoppedSuccessfully, appHostMarker);
+        var markerIndex = formattedMessage.IndexOf(appHostMarker, StringComparison.Ordinal);
+        var suffixStart = markerIndex + appHostMarker.Length;
+        if (markerIndex < 0 || suffixStart == formattedMessage.Length)
+        {
+            throw new InvalidOperationException($"Unable to derive a waitable suffix from {nameof(StopCommandStrings.AppHostStoppedSuccessfully)}.");
+        }
+
+        return formattedMessage[suffixStart..];
+    }
+
+    /// <summary>
+    /// Creates a C# empty AppHost using the direct <c>aspire new aspire-empty</c> command.
+    /// Handles CLI versions where C# is implicit and newer versions that prompt for the AppHost language.
+    /// </summary>
+    internal static async Task AspireNewCSharpEmptyAppHostAsync(
+        this Hex1bTerminalAutomator auto,
+        string projectName,
+        SequenceCounter counter,
+        string? outputPath = null,
+        string? channel = null,
+        bool useLocalhostTld = false,
+        TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(2);
+        var command = BuildAspireNewEmptyAppHostCommand(
+            "aspire-empty",
+            projectName,
+            outputPath,
+            channel,
+            useLocalhostTld);
+
+        await auto.TypeAsync(command);
+        await auto.EnterAsync();
+        await auto.WaitForAspireNewEmptyAppHostCompletionAsync(
+            projectName,
+            "C#",
+            counter,
+            AppHostLanguagePromptSelection.DefaultCSharp,
+            effectiveTimeout);
+    }
+
+    /// <summary>
+    /// Creates a TypeScript empty AppHost using the direct <c>aspire new aspire-ts-empty</c> command.
+    /// </summary>
+    internal static async Task AspireNewTypeScriptEmptyAppHostAsync(
+        this Hex1bTerminalAutomator auto,
+        string projectName,
+        SequenceCounter counter,
+        string? outputPath = null,
+        string? channel = null,
+        bool useLocalhostTld = false,
+        TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(2);
+        var command = BuildAspireNewEmptyAppHostCommand(
+            "aspire-ts-empty",
+            projectName,
+            outputPath,
+            channel,
+            useLocalhostTld);
+
+        await auto.TypeAsync(command);
+        await auto.EnterAsync();
+        await auto.WaitForAspireNewEmptyAppHostCompletionAsync(
+            projectName,
+            "TypeScript",
+            counter,
+            AppHostLanguagePromptSelection.TypeScript,
+            effectiveTimeout);
+    }
+
+    private static string BuildAspireNewEmptyAppHostCommand(
+        string templateName,
+        string projectName,
+        string? outputPath,
+        string? channel,
+        bool useLocalhostTld)
+    {
+        var output = string.IsNullOrWhiteSpace(outputPath) ? projectName : outputPath;
+        var channelArgument = string.IsNullOrWhiteSpace(channel)
+            ? string.Empty
+            : $" --channel {AspireCliShellCommandHelpers.QuoteBashArg(channel)}";
+        var localhostTldValue = useLocalhostTld ? "true" : "false";
+
+        return
+            $"aspire new {AspireCliShellCommandHelpers.QuoteBashArg(templateName)} " +
+            $"--name {AspireCliShellCommandHelpers.QuoteBashArg(projectName)} " +
+            $"--output {AspireCliShellCommandHelpers.QuoteBashArg(output)}" +
+            $"{channelArgument} --localhost-tld {localhostTldValue}";
+    }
+
+    private static async Task WaitForAspireNewEmptyAppHostCompletionAsync(
+        this Hex1bTerminalAutomator auto,
+        string projectName,
+        string languageDisplayName,
+        SequenceCounter counter,
+        AppHostLanguagePromptSelection languagePromptSelection,
+        TimeSpan effectiveTimeout)
+    {
+        var languagePrompt = new CellPatternSearcher()
+            .Find("Which language would you like to use?");
+        var agentInitPrompt = new CellPatternSearcher()
+            .Find("configure AI agent environments");
+        var result = AspireNewEmptyAppHostResult.None;
+
+        await auto.WaitUntilAsync(snapshot =>
+        {
+            if (languagePrompt.Search(snapshot).Count > 0)
+            {
+                result = AspireNewEmptyAppHostResult.LanguagePrompt;
+                return true;
+            }
+
+            if (agentInitPrompt.Search(snapshot).Count > 0)
+            {
+                result = AspireNewEmptyAppHostResult.AgentInitPrompt;
+                return true;
+            }
+
+            var successPrompt = new CellPatternSearcher()
+                .FindPattern(counter.Value.ToString())
+                .RightText(" OK] $ ");
+            if (successPrompt.Search(snapshot).Count > 0)
+            {
+                result = AspireNewEmptyAppHostResult.SuccessPrompt;
+                return true;
+            }
+
+            var errorPrompt = new CellPatternSearcher()
+                .FindPattern(counter.Value.ToString())
+                .RightText(" ERR:");
+            if (errorPrompt.Search(snapshot).Count > 0)
+            {
+                result = AspireNewEmptyAppHostResult.ErrorPrompt;
+                return true;
+            }
+
+            return false;
+        }, timeout: effectiveTimeout, description: $"{languageDisplayName} empty AppHost creation prompt or completion");
+
+        switch (result)
+        {
+            case AspireNewEmptyAppHostResult.LanguagePrompt:
+                await auto.SelectAppHostLanguageAsync(languagePromptSelection);
+                await auto.DeclineAgentInitPromptAsync(counter, effectiveTimeout);
+                return;
+
+            case AspireNewEmptyAppHostResult.AgentInitPrompt:
+                await auto.DeclineAgentInitPromptAsync(counter, effectiveTimeout);
+                return;
+
+            case AspireNewEmptyAppHostResult.SuccessPrompt:
+                counter.Increment();
+                return;
+
+            case AspireNewEmptyAppHostResult.ErrorPrompt:
+                throw new InvalidOperationException($"aspire new failed while creating {languageDisplayName} empty AppHost project '{projectName}'.");
+
+            default:
+                throw new InvalidOperationException($"Unexpected aspire new result while creating {languageDisplayName} empty AppHost project '{projectName}': {result}.");
+        }
+    }
+
+    private static async Task SelectAppHostLanguageAsync(
+        this Hex1bTerminalAutomator auto,
+        AppHostLanguagePromptSelection languagePromptSelection)
+    {
+        switch (languagePromptSelection)
+        {
+            case AppHostLanguagePromptSelection.DefaultCSharp:
+                await auto.EnterAsync();
+                return;
+
+            case AppHostLanguagePromptSelection.TypeScript:
+                await auto.DownAsync();
+                await auto.WaitUntilAsync(
+                    s => new CellPatternSearcher().Find("> TypeScript (Node.js)").Search(s).Count > 0,
+                    timeout: TimeSpan.FromSeconds(5),
+                    description: "TypeScript AppHost language selected");
+                await auto.EnterAsync();
+                return;
+
+            default:
+                throw new InvalidOperationException($"Unexpected AppHost language prompt selection: {languagePromptSelection}.");
+        }
     }
 
     /// <summary>
@@ -580,7 +779,7 @@ internal static class CliE2EAutomatorHelpers
 
         await auto.TypeAsync(
             $"DASHBOARD_URL=$(sed -n " +
-            "'s/.*\"dashboardUrl\"[[:space:]]*:[[:space:]]*\"\\(https\\?:\\/\\/localhost:[0-9]*\\).*/\\1/p' " +
+            "'s/.*\"dashboardUrl\"[[:space:]]*:[[:space:]]*\"\\(https\\?:\\/\\/[a-z.]*localhost:[0-9]*\\).*/\\1/p' " +
             $"\"{jsonFile}\" | head -1)");
         await auto.EnterAsync();
         await auto.WaitForSuccessPromptAsync(counter);
@@ -825,6 +1024,59 @@ internal static class CliE2EAutomatorHelpers
         return null;
     }
 
+    /// <summary>
+    /// Sends a JSON-RPC initialize/initialized/tools-call sequence to <c>aspire agent mcp</c> and verifies the response.
+    /// </summary>
+    /// <param name="auto">The terminal automator.</param>
+    /// <param name="counter">The prompt sequence counter.</param>
+    /// <param name="toolName">The MCP tool name to invoke (e.g. <c>list_structured_logs</c>).</param>
+    /// <param name="expectedMarker">A string expected in the tool call output (e.g. <c>STRUCTURED LOGS DATA</c>).</param>
+    /// <param name="mcpArgs">Additional arguments to pass to <c>aspire agent mcp</c> (e.g. <c>--dashboard-url "..."</c>).</param>
+    internal static async Task CallAgentMcpToolAsync(
+        this Hex1bTerminalAutomator auto,
+        SequenceCounter counter,
+        string toolName,
+        string expectedMarker,
+        string? mcpArgs = null)
+    {
+        var argsFragment = mcpArgs is not null ? $" {mcpArgs}" : string.Empty;
+
+        // Send JSON-RPC messages to the MCP server via a compound command.
+        // The sleeps ensure proper protocol timing between initialize, initialized notification, and tool call.
+        await auto.TypeAsync(
+            "{ " +
+            "echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"e2e-test\",\"version\":\"0.1.0\"}}}'; " +
+            "sleep 3; " +
+            "echo '{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}'; " +
+            "sleep 1; " +
+            $"echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{{\"name\":\"{toolName}\",\"arguments\":{{}}}}}}'; " +
+            "sleep 15; " +
+            $"}} | aspire agent mcp{argsFragment} > /tmp/mcp_out.txt 2>/tmp/mcp_err.txt || true");
+        await auto.EnterAsync();
+        await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromSeconds(60));
+
+        // Dump output for debugging visibility in the recording
+        await auto.TypeAsync("cat /tmp/mcp_out.txt | head -50");
+        await auto.EnterAsync();
+        await auto.WaitForSuccessPromptAsync(counter);
+
+        // Check that the response contains the expected data marker
+        await auto.TypeAsync(
+            $"if grep -q '{expectedMarker}' /tmp/mcp_out.txt; then echo 'MCP_DATA_PRESENT'; " +
+            $"elif grep -q '{toolName}' /tmp/mcp_out.txt; then echo 'MCP_TOOL_FOUND_BUT_NO_DATA'; " +
+            "else echo 'MCP_DATA_MISSING'; fi");
+        await auto.EnterAsync();
+        await auto.WaitUntilTextAsync("MCP_DATA_PRESENT", timeout: TimeSpan.FromSeconds(10));
+        await auto.WaitForAnyPromptAsync(counter);
+
+        // Verify the initialize response was received (confirms MCP handshake worked)
+        await auto.TypeAsync(
+            "grep -q 'aspire-mcp-server' /tmp/mcp_out.txt && echo 'MCP_INIT_OK' || echo 'MCP_INIT_MISSING'");
+        await auto.EnterAsync();
+        await auto.WaitUntilTextAsync("MCP_INIT_OK", timeout: TimeSpan.FromSeconds(10));
+        await auto.WaitForAnyPromptAsync(counter);
+    }
+
     private static bool ShouldPreserveLocalWorkspace()
     {
         return TestContext.Current?.KeyValueStorage.TryGetValue("PreserveWorkspaceOnFailure", out var value) == true &&
@@ -834,5 +1086,20 @@ internal static class CliE2EAutomatorHelpers
     private static bool ShouldCaptureWorkspaceDiagnostics()
     {
         return CliE2ETestHelpers.IsRunningInCI || ShouldPreserveLocalWorkspace();
+    }
+
+    private enum AspireNewEmptyAppHostResult
+    {
+        None,
+        LanguagePrompt,
+        AgentInitPrompt,
+        SuccessPrompt,
+        ErrorPrompt
+    }
+
+    private enum AppHostLanguagePromptSelection
+    {
+        DefaultCSharp,
+        TypeScript
     }
 }
