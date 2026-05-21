@@ -104,8 +104,6 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
     [CascadingParameter]
     public required ViewportInformation ViewportInformation { get; set; }
 
-    internal List<FieldTelemetryFilter> Filters => _filters;
-
     protected override void OnInitialized()
     {
         TelemetryContextProvider.Initialize(TelemetryContext);
@@ -191,18 +189,28 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
     {
         Debug.Assert(_spanWaterfallViewModels != null);
 
-        var durationFilters = _filters.Where(f => f.Enabled && f.Field == KnownTraceFields.DurationField).ToList();
-        var contextualFilters = _filters.Where(f => f.Field != KnownTraceFields.DurationField).ToList();
+        return ApplySpanFilters(_spanWaterfallViewModels, _filter, _selectedSpanType.Id?.Filter, _filters, GetResourceName);
+    }
+
+    internal static IEnumerable<SpanWaterfallViewModel> ApplySpanFilters(
+        IReadOnlyList<SpanWaterfallViewModel> spanWaterfallViewModels,
+        string filter,
+        TelemetryFilter? typeFilter,
+        IReadOnlyList<FieldTelemetryFilter> filters,
+        Func<OtlpResourceView, string> getResourceName)
+    {
+        var durationFilters = filters.Where(f => f.Enabled && f.Field == KnownTraceFields.DurationField).ToList();
+        var contextualFilters = filters.Where(f => f.Field != KnownTraceFields.DurationField).ToList();
 
         var visibleViewModels = new HashSet<SpanWaterfallViewModel>();
-        foreach (var viewModel in _spanWaterfallViewModels)
+        foreach (var viewModel in spanWaterfallViewModels)
         {
             if (viewModel.IsHidden || visibleViewModels.Contains(viewModel))
             {
                 continue;
             }
 
-            if (viewModel.MatchesFilter(_filter, _selectedSpanType.Id?.Filter, contextualFilters, GetResourceName, out var matchedDescendents))
+            if (viewModel.MatchesFilter(filter, typeFilter, contextualFilters, getResourceName, out var matchedDescendents))
             {
                 visibleViewModels.Add(viewModel);
                 foreach (var descendent in matchedDescendents.Where(d => !d.IsHidden))
@@ -214,13 +222,13 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
 
         if (durationFilters.Count == 0)
         {
-            return _spanWaterfallViewModels.Where(visibleViewModels.Contains);
+            return spanWaterfallViewModels.Where(visibleViewModels.Contains);
         }
 
         // Duration filters are intended to remove profiling noise. Apply them after
         // context-preserving filters so short descendant spans stay hidden even when
         // their parent span matched another filter.
-        return _spanWaterfallViewModels.Where(vm => visibleViewModels.Contains(vm) && durationFilters.All(f => f.Apply(vm.Span)));
+        return spanWaterfallViewModels.Where(vm => visibleViewModels.Contains(vm) && durationFilters.All(f => f.Apply(vm.Span)));
     }
 
     private string? GetPageTitle()

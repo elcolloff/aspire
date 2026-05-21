@@ -164,21 +164,31 @@ internal sealed class TelemetryApiService(
 
         if (GetMinimumDuration(minDurationMs) is { } minimumDuration)
         {
-            var filteredTraces = traces
-                .Select(t => (Trace: t, Spans: GetSpansMatchingMinimumDuration(t.Spans, minimumDuration).ToList()))
-                .Where(t => t.Spans.Count > 0)
-                .ToList();
+            var returnedTraceSpans = new Queue<List<OtlpSpan>>();
+            totalCount = 0;
 
-            totalCount = filteredTraces.Count;
-
-            // Apply limit (take from end for most recent)
-            if (filteredTraces.Count > effectiveLimit)
+            foreach (var trace in traces)
             {
-                filteredTraces = filteredTraces.Skip(filteredTraces.Count - effectiveLimit).ToList();
+                var matchingSpans = GetSpansMatchingMinimumDuration(trace.Spans, minimumDuration).ToList();
+                if (matchingSpans.Count == 0)
+                {
+                    continue;
+                }
+
+                totalCount++;
+
+                if (effectiveLimit > 0)
+                {
+                    returnedTraceSpans.Enqueue(matchingSpans);
+                    if (returnedTraceSpans.Count > effectiveLimit)
+                    {
+                        returnedTraceSpans.Dequeue();
+                    }
+                }
             }
 
-            spans = filteredTraces.SelectMany(t => t.Spans).ToList();
-            returnedCount = filteredTraces.Count;
+            spans = returnedTraceSpans.SelectMany(s => s).ToList();
+            returnedCount = returnedTraceSpans.Count;
         }
         else
         {

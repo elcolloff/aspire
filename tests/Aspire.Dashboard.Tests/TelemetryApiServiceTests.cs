@@ -328,6 +328,26 @@ public class TelemetryApiServiceTests
     }
 
     [Fact]
+    public void GetTraces_WithLimitAndMinimumDurationMs_ReturnsMostRecentMatchingTraces()
+    {
+        var repository = CreateRepository();
+        AddSpans(repository, count: 3, startMinuteSpacing: 10);
+
+        var service = CreateService(repository);
+
+        var result = service.GetTraces(resourceNames: null, hasError: null, limit: 2, minDurationMs: 50);
+
+        Assert.NotNull(result);
+        Assert.Equal(3, result.TotalCount);
+        Assert.Equal(2, result.ReturnedCount);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
+        Assert.DoesNotContain("span1", json);
+        Assert.Contains("span2", json);
+        Assert.Contains("span3", json);
+    }
+
+    [Fact]
     public void GetTraces_WithMinimumDurationMs_FiltersShortSpans()
     {
         var repository = CreateRepository();

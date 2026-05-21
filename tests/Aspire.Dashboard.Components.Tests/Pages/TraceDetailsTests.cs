@@ -440,18 +440,22 @@ public partial class TraceDetailsTests : DashboardTestContext
             builder.AddCascadingValue(viewport);
         });
 
-        cut.Instance.Filters.Add(new FieldTelemetryFilter
-        {
-            Field = KnownTraceFields.DurationField,
-            Condition = FilterCondition.GreaterThanOrEqual,
-            Value = "2"
-        });
-        var filteredData = await cut.Instance.GetData(new GridItemsProviderRequest<SpanWaterfallViewModel>());
-
-        cut.Instance.Filters.Clear();
         var unfilteredData = await cut.Instance.GetData(new GridItemsProviderRequest<SpanWaterfallViewModel>());
+        var filteredItems = TraceDetail.ApplySpanFilters(
+            unfilteredData.Items.ToList(),
+            filter: string.Empty,
+            typeFilter: null,
+            [
+                new FieldTelemetryFilter
+                {
+                    Field = KnownTraceFields.DurationField,
+                    Condition = FilterCondition.GreaterThanOrEqual,
+                    Value = "2"
+                }
+            ],
+            getResourceName: _ => string.Empty).ToList();
 
-        Assert.Collection(filteredData.Items,
+        Assert.Collection(filteredItems,
             item => Assert.Equal("Test span. Id: 1-1", item.Span.Name),
             item => Assert.Equal("Test span. Id: 1-3", item.Span.Name),
             item => Assert.Equal("Test span. Id: 1-5", item.Span.Name));
