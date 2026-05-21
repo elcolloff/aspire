@@ -616,6 +616,13 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         var projectDirectory = effectiveAppHostFile.Directory!;
         var runCommand = NormalizeCommand(info.RunCommand);
 
+        // The SDK emits RunCommand="dotnet" for executable .NETCoreApp projects without an apphost,
+        // with RunArguments shaped as:
+        //   exec "<TargetPath>" [StartArguments...]
+        // Treat that as a direct-launchable SDK run command instead of looking for a literal
+        // "dotnet" executable next to the project. DotNetCliRunner later substitutes Aspire's
+        // resolved dotnet muxer so private SDK selection stays consistent.
+        // https://github.com/dotnet/sdk/blob/main/src/Tasks/Microsoft.NET.Build.Tasks/targets/Microsoft.NET.Sdk.targets
         if (IsDotNetMuxerCommand(runCommand))
         {
             if (runArguments.Count < 2 || !string.Equals(runArguments[0], "exec", StringComparison.Ordinal))
