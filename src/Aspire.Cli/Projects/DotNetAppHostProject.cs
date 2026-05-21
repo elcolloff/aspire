@@ -747,9 +747,19 @@ internal sealed class DotNetAppHostProject : IAppHostProject
                 env["ASPNETCORE_URLS"] = profile.ApplicationUrl;
             }
 
-            foreach (var (name, value) in profile.EnvironmentVariables)
+            if (profile.EnvironmentVariables is not null)
             {
-                env[name] = Environment.ExpandEnvironmentVariables(value);
+                foreach (var (name, value) in profile.EnvironmentVariables)
+                {
+                    if (value is null)
+                    {
+                        // `System.Text.Json` will deserialize `"FOO": null` into a null dictionary
+                        // value even though the value type is non-nullable. Skip those entries.
+                        continue;
+                    }
+
+                    env[name] = Environment.ExpandEnvironmentVariables(value);
+                }
             }
 
             if (!hasExplicitApplicationArgs && !hasRunArguments && !string.IsNullOrEmpty(profile.CommandLineArgs))
@@ -810,8 +820,11 @@ internal sealed class DotNetAppHostProject : IAppHostProject
 
     private static bool TryGetDefaultSupportedLaunchProfile(AppHostLaunchSettings? launchSettings, out string profileName, out AppHostLaunchProfile profile)
     {
-        if (launchSettings is null)
+        if (launchSettings?.Profiles is null)
         {
+            // launchSettings.json with `"profiles": null` (or no profiles map at all) deserializes
+            // the Profiles property to null even though it is declared non-nullable. Treat that
+            // shape the same as a missing launchSettings.json and fall through to `dotnet run`.
             profileName = null!;
             profile = null!;
             return false;
@@ -819,6 +832,13 @@ internal sealed class DotNetAppHostProject : IAppHostProject
 
         foreach (var (candidateProfileName, candidateProfile) in launchSettings.Profiles)
         {
+            // A profile entry can be explicitly null in JSON (e.g. `"http": null`). Skip those
+            // rather than crashing inside IsSupportedLaunchProfile when reading CommandName.
+            if (candidateProfile is null)
+            {
+                continue;
+            }
+
             if (IsSupportedLaunchProfile(candidateProfile))
             {
                 profileName = candidateProfileName;

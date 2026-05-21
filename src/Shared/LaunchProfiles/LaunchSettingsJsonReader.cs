@@ -6,6 +6,14 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Aspire.Hosting;
 
+/// <summary>
+/// Low-level reader that deserializes a <c>launchSettings.json</c> file into a caller-supplied
+/// type using the provided <see cref="JsonTypeInfo{TLaunchSettings}"/>. Unlike <c>LaunchSettingsReader</c>,
+/// this reader does not depend on <c>Aspire.Hosting</c>'s <c>LaunchSettings</c> shape and surfaces
+/// JSON parse failures as <see cref="InvalidDataException"/> so callers outside <c>Aspire.Hosting</c>
+/// (for example the CLI, which uses its own <c>AppHostLaunchSettings</c> type) can adapt the error
+/// without taking a dependency on <c>DistributedApplicationException</c>.
+/// </summary>
 internal static class LaunchSettingsJsonReader
 {
     internal static TLaunchSettings? GetLaunchSettingsFromDirectory<TLaunchSettings>(

@@ -697,6 +697,129 @@ public class DotNetAppHostProjectTests(ITestOutputHelper outputHelper) : IDispos
     }
 
     [Fact]
+    public async Task RunAsync_ProjectAppHostFallsBackToDotnetRunWhenLaunchSettingsProfilesIsNull()
+    {
+        var appHostFile = CreateProjectAppHost();
+        var appHostCommand = CreateBuiltAppHostCommand("AppHost");
+        var appHostCommandJson = JsonSerializer.Serialize(appHostCommand.FullName);
+        Directory.CreateDirectory(Path.Combine(appHostFile.DirectoryName!, "Properties"));
+        File.WriteAllText(Path.Combine(appHostFile.DirectoryName!, "Properties", "launchSettings.json"), """
+            {
+              "profiles": null
+            }
+            """);
+
+        var runner = new TestDotNetCliRunner
+        {
+            BuildAsyncCallback = (_, _, _, _) => 0,
+            GetProjectItemsAndPropertiesAsyncCallback = (_, _, _, _, _) =>
+            {
+                return (0, JsonDocument.Parse($$"""
+                    {
+                      "Properties": {
+                        "MSBuildVersion": "17.0.0",
+                        "IsAspireHost": "true",
+                        "AspireHostingSDKVersion": "{{VersionHelper.GetDefaultTemplateVersion()}}",
+                        "RunCommand": {{appHostCommandJson}},
+                        "TargetFramework": "net10.0"
+                      },
+                      "Items": {}
+                    }
+                    """));
+            },
+            RunAppHostCommandAsyncCallback = (_, _, _, _, _, _, _, _) => throw new InvalidOperationException("direct AppHost launch should not be used when launch settings do not contain a usable profile.")
+        };
+        var project = CreateDotNetAppHostProject(runner);
+
+        runner.RunAsyncCallback = (projectFile, watch, noBuild, noRestore, args, _, _, _, _) =>
+        {
+            Assert.Equal(appHostFile.FullName, projectFile.FullName);
+            Assert.False(watch);
+            Assert.True(noBuild);
+            Assert.False(noRestore);
+            Assert.Empty(args);
+            return Task.FromResult(104);
+        };
+
+        var exitCode = await project.RunAsync(new AppHostProjectContext
+        {
+            AppHostFile = appHostFile,
+            NoBuild = false,
+            NoRestore = false,
+            WorkingDirectory = _workspace.WorkspaceRoot,
+            EnvironmentVariables = new Dictionary<string, string>()
+        }, CancellationToken.None);
+
+        Assert.Equal(104, exitCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProjectAppHostDirectLaunchSkipsNullLaunchSettingsProfileAndEnvironmentValues()
+    {
+        var appHostFile = CreateProjectAppHost();
+        var appHostCommand = CreateBuiltAppHostCommand("AppHost");
+        var appHostCommandJson = JsonSerializer.Serialize(appHostCommand.FullName);
+        Directory.CreateDirectory(Path.Combine(appHostFile.DirectoryName!, "Properties"));
+        File.WriteAllText(Path.Combine(appHostFile.DirectoryName!, "Properties", "launchSettings.json"), """
+            {
+              "profiles": {
+                "null-profile": null,
+                "http": {
+                  "commandName": "Project",
+                  "environmentVariables": {
+                    "NULL_ENV": null,
+                    "CUSTOM_ENV": "custom-value"
+                  }
+                }
+              }
+            }
+            """);
+
+        var runner = new TestDotNetCliRunner
+        {
+            BuildAsyncCallback = (_, _, _, _) => 0,
+            GetProjectItemsAndPropertiesAsyncCallback = (_, _, _, _, _) =>
+            {
+                return (0, JsonDocument.Parse($$"""
+                    {
+                      "Properties": {
+                        "MSBuildVersion": "17.0.0",
+                        "IsAspireHost": "true",
+                        "AspireHostingSDKVersion": "{{VersionHelper.GetDefaultTemplateVersion()}}",
+                        "RunCommand": {{appHostCommandJson}},
+                        "TargetFramework": "net10.0"
+                      },
+                      "Items": {}
+                    }
+                    """));
+            },
+            RunAsyncCallback = (_, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("dotnet run should not be used when a later launch profile is usable.")
+        };
+        var project = CreateDotNetAppHostProject(runner);
+
+        runner.RunAppHostCommandAsyncCallback = (_, command, _, _, env, _, _, _) =>
+        {
+            Assert.Equal(appHostCommand.FullName, command);
+            Assert.NotNull(env);
+            Assert.Equal("http", env["DOTNET_LAUNCH_PROFILE"]);
+            Assert.Equal("custom-value", env["CUSTOM_ENV"]);
+            Assert.False(env.ContainsKey("NULL_ENV"));
+            return Task.FromResult(105);
+        };
+
+        var exitCode = await project.RunAsync(new AppHostProjectContext
+        {
+            AppHostFile = appHostFile,
+            NoBuild = false,
+            NoRestore = false,
+            WorkingDirectory = _workspace.WorkspaceRoot,
+            EnvironmentVariables = new Dictionary<string, string>()
+        }, CancellationToken.None);
+
+        Assert.Equal(105, exitCode);
+    }
+
+    [Fact]
     public async Task RunAsync_SingleFileAppHostUsingCliBundlePassesBundleEnvironmentToRunner()
     {
         var appHostFile = CreateSingleFileAppHost(useCliBundle: true);

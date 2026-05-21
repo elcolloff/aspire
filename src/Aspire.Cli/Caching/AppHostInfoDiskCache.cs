@@ -130,9 +130,10 @@ internal sealed class AppHostInfoDiskCache : IAppHostInfoDiskCache
 
             if (entry.ExitCode == 0 && entry.IsAspireHost && string.IsNullOrWhiteSpace(entry.RunCommand))
             {
-                // v1 has not shipped yet, so we keep the schema marker stable. Local pre-merge cache
-                // entries created before RunCommand was added should be treated as misses so the direct
-                // launch path can refresh the SDK run command instead of permanently falling back.
+                // Treat entries that successfully inspected an AppHost but are missing RunCommand
+                // as schema-incompatible misses, so the direct launch path can refresh the SDK run
+                // command instead of permanently falling back. The schema marker stays stable
+                // because adding RunCommand is backward compatible for non-AppHost entries.
                 _logger.LogTrace("AppHost info cache entry for {Project} is missing RunCommand", projectFile.FullName);
                 return null;
             }
