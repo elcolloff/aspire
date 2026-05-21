@@ -15,6 +15,7 @@ namespace Aspire.Cli.Projects;
 /// </summary>
 internal sealed class GuestRuntime
 {
+    private const string ArgsPlaceholder = "{args}";
     private readonly RuntimeSpec _spec;
     private readonly ILogger _logger;
     private readonly FileLoggerProvider? _fileLoggerProvider;
@@ -36,6 +37,8 @@ internal sealed class GuestRuntime
         _fileLoggerProvider = fileLoggerProvider;
         _commandResolver = commandResolver ?? PathLookupHelper.FindFullPathFromPath;
         _profilingTelemetry = profilingTelemetry;
+
+        ValidateCommandSpecs(_spec);
     }
 
     /// <summary>
@@ -353,7 +356,7 @@ internal sealed class GuestRuntime
 
         foreach (var arg in args)
         {
-            if (arg == "{args}")
+            if (arg == ArgsPlaceholder)
             {
                 if (additionalArgs is { Length: > 0 })
                 {
@@ -367,16 +370,9 @@ internal sealed class GuestRuntime
                 .Replace("{appHostFile}", appHostFile?.FullName ?? "")
                 .Replace("{appHostDir}", directory.FullName);
 
-            if (replaced.Contains("{args}"))
+            if (replaced.Contains(ArgsPlaceholder, StringComparison.Ordinal))
             {
-                if (additionalArgs is { Length: > 0 })
-                {
-                    replaced = replaced.Replace("{args}", string.Join(" ", additionalArgs));
-                }
-                else
-                {
-                    replaced = replaced.Replace("{args}", "");
-                }
+                ThrowEmbeddedArgsPlaceholder();
             }
 
             if (!string.IsNullOrWhiteSpace(replaced))
@@ -385,11 +381,56 @@ internal sealed class GuestRuntime
             }
         }
 
-        if (additionalArgs is { Length: > 0 } && !args.Any(a => a.Contains("{args}")))
+        if (additionalArgs is { Length: > 0 } && !args.Contains(ArgsPlaceholder))
         {
             result.AddRange(additionalArgs);
         }
 
         return result.ToArray();
+    }
+
+    private static void ValidateCommandSpecs(RuntimeSpec spec)
+    {
+        ValidateCommandSpecs(spec.Initialize);
+        ValidateCommandSpec(spec.InstallDependencies);
+        ValidateCommandSpecs(spec.PreExecute);
+        ValidateCommandSpec(spec.Execute);
+        ValidateCommandSpec(spec.WatchExecute);
+        ValidateCommandSpec(spec.PublishExecute);
+    }
+
+    private static void ValidateCommandSpecs(CommandSpec[]? commandSpecs)
+    {
+        if (commandSpecs is null)
+        {
+            return;
+        }
+
+        foreach (var commandSpec in commandSpecs)
+        {
+            ValidateCommandSpec(commandSpec);
+        }
+    }
+
+    private static void ValidateCommandSpec(CommandSpec? commandSpec)
+    {
+        if (commandSpec is null)
+        {
+            return;
+        }
+
+        foreach (var arg in commandSpec.Args)
+        {
+            if (arg != ArgsPlaceholder &&
+                arg.Contains(ArgsPlaceholder, StringComparison.Ordinal))
+            {
+                ThrowEmbeddedArgsPlaceholder();
+            }
+        }
+    }
+
+    private static void ThrowEmbeddedArgsPlaceholder()
+    {
+        throw new InvalidOperationException("Runtime command specifications must use the {args} placeholder as a standalone argument so forwarded AppHost arguments remain separate process arguments.");
     }
 }
