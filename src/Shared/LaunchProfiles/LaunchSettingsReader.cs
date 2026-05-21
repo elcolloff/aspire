@@ -12,10 +12,18 @@ internal static class LaunchSettingsReader
     /// <param name="resourceIdentifier">A descriptive identifier used in error messages when JSON parsing fails.</param>
     /// <returns>The deserialized <see cref="LaunchSettings"/>, or <see langword="null"/> if the file does not exist.</returns>
     internal static LaunchSettings? GetLaunchSettingsFromDirectory(string? directoryPath, string resourceIdentifier)
-        => ReadWithDistributedApplicationException(() => LaunchSettingsJsonReader.GetLaunchSettingsFromDirectory(
-            directoryPath,
-            resourceIdentifier,
-            LaunchSettingsSerializerContext.Default.LaunchSettings));
+    {
+        var launchSettingsFilePath = directoryPath is null
+            ? Path.Combine("Properties", "launchSettings.json")
+            : Path.Combine(Path.GetFullPath(directoryPath), "Properties", "launchSettings.json");
+
+        if (!File.Exists(launchSettingsFilePath))
+        {
+            return null;
+        }
+
+        return ReadLaunchSettingsFile(launchSettingsFilePath, resourceIdentifier);
+    }
 
     /// <summary>
     /// Reads and deserializes launch settings from the specified file.

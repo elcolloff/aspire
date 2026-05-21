@@ -16,23 +16,6 @@ namespace Aspire.Hosting;
 /// </summary>
 internal static class LaunchSettingsJsonReader
 {
-    internal static TLaunchSettings? GetLaunchSettingsFromDirectory<TLaunchSettings>(
-        string? directoryPath,
-        string resourceIdentifier,
-        JsonTypeInfo<TLaunchSettings> jsonTypeInfo)
-    {
-        var launchSettingsFilePath = directoryPath is null
-            ? Path.Combine("Properties", "launchSettings.json")
-            : Path.Combine(Path.GetFullPath(directoryPath), "Properties", "launchSettings.json");
-
-        if (!File.Exists(launchSettingsFilePath))
-        {
-            return default;
-        }
-
-        return ReadLaunchSettingsFile(launchSettingsFilePath, resourceIdentifier, jsonTypeInfo);
-    }
-
     internal static TLaunchSettings? ReadLaunchSettingsFile<TLaunchSettings>(
         string launchSettingsFilePath,
         string resourceIdentifier,
