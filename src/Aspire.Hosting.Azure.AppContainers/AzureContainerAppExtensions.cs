@@ -479,6 +479,15 @@ public static class AzureContainerAppExtensions
                 "WithDelegatedSubnet call or stop marking the environment as existing.");
         }
 
+        if (appEnvResource.HasAnnotationOfType<AzureLogAnalyticsWorkspaceReferenceAnnotation>())
+        {
+            throw new InvalidOperationException(
+                $"The Azure Container App Environment '{appEnvResource.Name}' is marked as existing but is also " +
+                "configured with a Log Analytics workspace via WithAzureLogAnalyticsWorkspace. The existing managed " +
+                "environment already owns its Log Analytics workspace and Aspire cannot reconfigure it. Remove the " +
+                "WithAzureLogAnalyticsWorkspace call or stop marking the environment as existing.");
+        }
+
         // This tells azd to avoid creating infrastructure.
         var userPrincipalId = new ProvisioningParameter(AzureBicepResource.KnownParameters.UserPrincipalId, typeof(string)) { Value = new BicepValue<string>(string.Empty) };
         infra.Add(userPrincipalId);

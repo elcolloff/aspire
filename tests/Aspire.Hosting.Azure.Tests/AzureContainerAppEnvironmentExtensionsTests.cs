@@ -305,6 +305,30 @@ public class AzureContainerAppEnvironmentExtensionsTests
     }
 
     [Fact]
+    public async Task AsExisting_ThrowsWhenCombinedWithAzureLogAnalyticsWorkspace()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var environmentName = builder.AddParameter("environmentName");
+
+        var logAnalyticsWorkspace = builder.AddAzureLogAnalyticsWorkspace("log");
+
+        var env = builder.AddAzureContainerAppEnvironment("env")
+            .AsExisting(environmentName, (IResourceBuilder<ParameterResource>?)null)
+            .WithAzureLogAnalyticsWorkspace(logAnalyticsWorkspace);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AzureManifestUtils.GetManifestWithBicep(env.Resource));
+
+        Assert.Equal(
+            "The Azure Container App Environment 'env' is marked as existing but is also " +
+            "configured with a Log Analytics workspace via WithAzureLogAnalyticsWorkspace. The existing managed " +
+            "environment already owns its Log Analytics workspace and Aspire cannot reconfigure it. Remove the " +
+            "WithAzureLogAnalyticsWorkspace call or stop marking the environment as existing.",
+            ex.Message);
+    }
+
+    [Fact]
     public async Task WithAzureContainerRegistry_PublishSucceeds_WhenDefaultRegistryIsRedundant()
     {
         // Regression test for the publish-time error:
