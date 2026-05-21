@@ -397,7 +397,7 @@ with create_builder() as builder:
         service_provider = ctx.service_provider
         command_service = service_provider.get_resource_command_service()
 
-        return command_service.execute_command("mycontainer", "noop")
+        return command_service.execute_command(container, "noop")
 
     container.with_command("noop", "Noop", lambda *_args, **_kwargs: {"success": True})
     container.with_command("restart", "Restart", restart_command)

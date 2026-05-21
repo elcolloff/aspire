@@ -5453,10 +5453,10 @@ class ResourceCommandService:
         """The underlying object reference handle."""
         return self._handle
 
-    def execute_command(self, resource_id: str, command_name: str, *, timeout: int | None = None) -> ExecuteCommandResult:
+    def execute_command(self, resource: str | AbstractResource, command_name: str, *, timeout: int | None = None) -> ExecuteCommandResult:
         """Executes a command for the specified resource."""
         rpc_args: dict[str, typing.Any] = {'resourceCommandService': self._handle}
-        rpc_args['resourceId'] = resource_id
+        rpc_args['resource'] = resource
         rpc_args['commandName'] = command_name
         if timeout is not None:
             rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)

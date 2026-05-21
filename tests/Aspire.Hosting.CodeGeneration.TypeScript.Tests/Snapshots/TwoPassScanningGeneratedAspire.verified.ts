@@ -5806,23 +5806,23 @@ export interface ResourceCommandService {
     toJSON(): MarshalledHandle;
     /**
      * Executes a command for the specified resource.
-     * @param resourceId The resource id. This id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
+     * @param resource The resource builder or resource id. The resource id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
      * @param commandName The command name.
      * @param options Additional options.
      * @returns The command execution result.
      */
-    executeCommandAsync(resourceId: string, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult>;
+    executeCommandAsync(resource: string | CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource | Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult>;
 }
 
 export interface ResourceCommandServicePromise extends PromiseLike<ResourceCommandService> {
     /**
      * Executes a command for the specified resource.
-     * @param resourceId The resource id. This id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
+     * @param resource The resource builder or resource id. The resource id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
      * @param commandName The command name.
      * @param options Additional options.
      * @returns The command execution result.
      */
-    executeCommandAsync(resourceId: string, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult>;
+    executeCommandAsync(resource: string | CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource | Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult>;
 }
 
 // ============================================================================
@@ -5838,14 +5838,15 @@ class ResourceCommandServiceImpl implements ResourceCommandService {
 
     /**
      * Executes a command for the specified resource.
-     * @param resourceId The resource id. This id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
+     * @param resource The resource builder or resource id. The resource id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.
      * @param commandName The command name.
      * @param options Additional options.
      * @returns The command execution result.
      */
-    async executeCommandAsync(resourceId: string, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult> {
+    async executeCommandAsync(resource: string | CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource | Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult> {
         const cancellationToken = options?.cancellationToken;
-        const rpcArgs: Record<string, unknown> = { resourceCommandService: this._handle, resourceId, commandName };
+        resource = isPromiseLike(resource) ? await resource : resource;
+        const rpcArgs: Record<string, unknown> = { resourceCommandService: this._handle, resource, commandName };
         if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
         return await this._client.invokeCapability<ExecuteCommandResult>(
             'Aspire.Hosting/executeResourceCommand',
@@ -5870,8 +5871,8 @@ class ResourceCommandServicePromiseImpl implements ResourceCommandServicePromise
         return this._promise.then(onfulfilled, onrejected);
     }
 
-    executeCommandAsync(resourceId: string, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult> {
-        return this._promise.then(obj => obj.executeCommandAsync(resourceId, commandName, options));
+    executeCommandAsync(resource: string | CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource | Awaitable<CSharpAppResource | ComputeEnvironmentResource | ComputeResource | ContainerFilesDestinationResource | ContainerRegistryResource | ContainerResource | DotnetToolResource | ExecutableResource | ExternalServiceResource | ParameterResource | ProjectResource | Resource | ResourceWithArgs | ResourceWithConnectionString | ResourceWithContainerFiles | ResourceWithEndpoints | ResourceWithEnvironment | ResourceWithWaitSupport | TestDatabaseResource | TestRedisResource | TestVaultResource>, commandName: string, options?: ExecuteCommandAsyncOptions): Promise<ExecuteCommandResult> {
+        return this._promise.then(obj => obj.executeCommandAsync(resource, commandName, options));
     }
 
 }

@@ -695,7 +695,7 @@ await container.withCommand("restart", "Restart", async (ctx) => {
     const commandService = await serviceProvider.getResourceCommandService();
     const cancellationToken = await ctx.cancellationToken();
 
-    return await commandService.executeCommandAsync("mycontainer", "noop", { cancellationToken });
+    return await commandService.executeCommandAsync(container, "noop", { cancellationToken });
 });
 
 // withProcessCommand

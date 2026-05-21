@@ -28,21 +28,31 @@ internal static class ResourceCommandExports
     /// Executes a command for the specified resource.
     /// </summary>
     /// <param name="resourceCommandService">The resource command service handle.</param>
-    /// <param name="resourceId">The resource id. This id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.</param>
+    /// <param name="resource">The resource builder or resource id. The resource id can either exactly match the unique id of the resource or the displayed resource name if the resource name doesn't have duplicates.</param>
     /// <param name="commandName">The command name.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The command execution result.</returns>
     [AspireExport("executeResourceCommand", MethodName = "executeCommandAsync")]
     public static Task<ExecuteCommandResult> ExecuteCommandAsync(
         this ResourceCommandService resourceCommandService,
-        string resourceId,
+        [AspireUnion(typeof(string), typeof(IResourceBuilder<IResource>))] object resource,
         string commandName,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(resourceCommandService);
-        ArgumentException.ThrowIfNullOrWhiteSpace(resourceId);
+        ArgumentNullException.ThrowIfNull(resource);
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
 
-        return resourceCommandService.ExecuteCommandAsync(resourceId, commandName, cancellationToken);
+        if (resource is string stringResourceId && string.IsNullOrWhiteSpace(stringResourceId))
+        {
+            throw new ArgumentException("Resource id must not be null or whitespace.", nameof(resource));
+        }
+
+        return resource switch
+        {
+            string resourceId => resourceCommandService.ExecuteCommandAsync(resourceId, commandName, cancellationToken),
+            IResourceBuilder<IResource> resourceBuilder => resourceCommandService.ExecuteCommandAsync(resourceBuilder.Resource, commandName, cancellationToken),
+            _ => throw new ArgumentException("Resource must be a resource builder or resource id.", nameof(resource))
+        };
     }
 }

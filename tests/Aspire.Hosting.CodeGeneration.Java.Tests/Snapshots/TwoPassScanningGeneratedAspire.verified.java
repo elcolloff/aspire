@@ -17032,15 +17032,27 @@ public class ResourceCommandService extends HandleWrapperBase {
         super(handle, client);
     }
 
-    public ExecuteCommandResult executeCommandAsync(String resourceId, String commandName) {
-        return executeCommandAsync(resourceId, commandName, null);
+    public ExecuteCommandResult executeCommandAsync(String resource, String commandName, CancellationToken cancellationToken) {
+        return executeCommandAsync(AspireUnion.of(resource), commandName, cancellationToken);
+    }
+
+    public ExecuteCommandResult executeCommandAsync(IResource resource, String commandName, CancellationToken cancellationToken) {
+        return executeCommandAsync(AspireUnion.of(resource), commandName, cancellationToken);
+    }
+
+    public ExecuteCommandResult executeCommandAsync(ResourceBuilderBase resource, String commandName, CancellationToken cancellationToken) {
+        return executeCommandAsync(new IResource(resource.getHandle(), resource.getClient()), commandName, cancellationToken);
+    }
+
+    public ExecuteCommandResult executeCommandAsync(AspireUnion resource, String commandName) {
+        return executeCommandAsync(resource, commandName, null);
     }
 
     /** Executes a command for the specified resource. */
-    public ExecuteCommandResult executeCommandAsync(String resourceId, String commandName, CancellationToken cancellationToken) {
+    public ExecuteCommandResult executeCommandAsync(AspireUnion resource, String commandName, CancellationToken cancellationToken) {
         Map<String, Object> reqArgs = new HashMap<>();
         reqArgs.put("resourceCommandService", AspireClient.serializeValue(getHandle()));
-        reqArgs.put("resourceId", AspireClient.serializeValue(resourceId));
+        reqArgs.put("resource", AspireClient.serializeValue(resource));
         reqArgs.put("commandName", AspireClient.serializeValue(commandName));
         if (cancellationToken != null) {
             reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));

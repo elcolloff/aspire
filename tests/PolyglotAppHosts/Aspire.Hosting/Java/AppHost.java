@@ -227,7 +227,7 @@ void main() throws Exception {
             var serviceProvider = ctx.serviceProvider();
             var commandService = serviceProvider.getResourceCommandService();
             var cancellationToken = ctx.cancellationToken();
-            return commandService.executeCommandAsync("mycontainer", "noop", cancellationToken);
+            return commandService.executeCommandAsync(container, "noop", cancellationToken);
         });
         container.withHttpCommand("/health", "Health Check");
         var httpCmdOptions = new HttpCommandExportOptions();

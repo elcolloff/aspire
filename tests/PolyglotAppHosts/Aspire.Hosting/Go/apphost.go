@@ -497,7 +497,7 @@ func main() {
 		if err != nil {
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
-		result, err := commandService.ExecuteCommandAsync("mycontainer", "noop", &aspire.ExecuteCommandAsyncOptions{CancellationToken: cancellationToken})
+		result, err := commandService.ExecuteCommandAsync(container, "noop", &aspire.ExecuteCommandAsyncOptions{CancellationToken: cancellationToken})
 		if err != nil {
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
