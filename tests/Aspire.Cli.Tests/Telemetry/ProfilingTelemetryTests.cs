@@ -140,8 +140,12 @@ public class ProfilingTelemetryTests
 
             using (var selectPackageActivity = profilingTelemetry.StartAddSelectPackage("redis", "13.4.0"))
             {
-                selectPackageActivity.SetAddPackageMatchCount(1);
+                selectPackageActivity.SetAddPackageMatch(1, ProfilingTelemetry.Values.AddPackageMatchKindExact);
                 selectPackageActivity.SetAddSelectedPackage("Aspire.Hosting.Redis", "13.4.0", "daily");
+            }
+
+            using (profilingTelemetry.StartAddSelectPackagePrompt())
+            {
             }
 
             using (var stopRunningInstanceActivity = profilingTelemetry.StartAddStopExistingInstance())
@@ -199,9 +203,14 @@ public class ProfilingTelemetryTests
                 Assert.Equal("redis", selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddIntegrationName));
                 Assert.Equal(true, selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddVersionSpecified));
                 Assert.Equal(1, selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddPackageMatchCount));
+                Assert.Equal(ProfilingTelemetry.Values.AddPackageMatchKindExact, selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddPackageMatchKind));
                 Assert.Equal("Aspire.Hosting.Redis", selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddPackageId));
                 Assert.Equal("13.4.0", selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddPackageVersion));
                 Assert.Equal("daily", selectPackageActivity.GetTagItem(ProfilingTelemetry.Tags.AddPackageChannel));
+            },
+            promptActivity =>
+            {
+                Assert.Equal(ProfilingTelemetry.Activities.AddSelectPackagePrompt, promptActivity.OperationName);
             },
             stopRunningInstanceActivity =>
             {

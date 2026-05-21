@@ -52,6 +52,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string AddGetConfiguredChannel = "aspire/cli/add.get_configured_channel";
         public const string AddSearchPackages = "aspire/cli/add.search_packages";
         public const string AddSelectPackage = "aspire/cli/add.select_package";
+        public const string AddSelectPackagePrompt = "aspire/cli/add.select_package.prompt";
         public const string AddStopExistingInstance = "aspire/cli/add.stop_existing_instance";
         public const string AddPackage = "aspire/cli/add.package";
         public const string RunCommand = "aspire/cli/run";
@@ -175,6 +176,7 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string AddConfiguredChannel = "aspire.cli.add.configured_channel";
         public const string AddPackageSearchResultCount = "aspire.cli.add.package.search_result_count";
         public const string AddPackageMatchCount = "aspire.cli.add.package.match_count";
+        public const string AddPackageMatchKind = "aspire.cli.add.package.match_kind";
         public const string AddPackageId = "aspire.cli.add.package.id";
         public const string AddPackageVersion = "aspire.cli.add.package.version";
         public const string AddPackageChannel = "aspire.cli.add.package.channel";
@@ -240,6 +242,9 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         public const string GuestCommandPhaseExecute = "execute";
         public const string GuestCommandPhaseWatchExecute = "watch_execute";
         public const string GuestCommandPhasePublishExecute = "publish_execute";
+        public const string AddPackageMatchKindExact = "exact";
+        public const string AddPackageMatchKindFuzzy = "fuzzy";
+        public const string AddPackageMatchKindNone = "none";
     }
 
     public bool IsEnabled => IsProfilingEnabled(configuration);
@@ -503,6 +508,11 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
         var activity = StartActivity(Activities.AddSelectPackage);
         activity.SetAddPackageSelectionRequest(integrationName, version);
         return activity;
+    }
+
+    internal ActivityScope StartAddSelectPackagePrompt()
+    {
+        return StartActivity(Activities.AddSelectPackagePrompt);
     }
 
     internal ActivityScope StartAddStopExistingInstance()
@@ -909,7 +919,11 @@ internal sealed class ProfilingTelemetry(IConfiguration configuration) : IDispos
             SetTag(Tags.AddVersionSpecified, !string.IsNullOrEmpty(version));
         }
 
-        public void SetAddPackageMatchCount(int count) => SetTag(Tags.AddPackageMatchCount, count);
+        public void SetAddPackageMatch(int count, string matchKind)
+        {
+            SetTag(Tags.AddPackageMatchCount, count);
+            SetTag(Tags.AddPackageMatchKind, matchKind);
+        }
 
         public void SetAddPackageSearchResultCount(int count) => SetTag(Tags.AddPackageSearchResultCount, count);
 
