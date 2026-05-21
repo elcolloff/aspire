@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Adds profiling spans to aspire add command, grouped with existing CLI profiling entry",
+  "mergedAt": "2026-05-21T18:33:10Z",
+  "number": 17347,
+  "runDate": "2026-05-21T18:42:17Z",
+  "status": "included",
+  "title": "Add profiling spans for aspire add"
+}

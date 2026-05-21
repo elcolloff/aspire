@@ -5,17 +5,18 @@
   "breaking": false,
   "changeType": "Improvements",
   "communityContributors": [],
-  "description": "The hidden `--capture-profile` flag captures end-to-end startup profiling traces spanning the CLI, AppHost (including lifecycle hooks, DCP operations, and resource creation), TypeScript AppHost managed server, and DCP startup scopes. A dedicated OTLP provider exports all spans to a dashboard archive (`traces/profile.json`), making it possible to diagnose startup bottlenecks across the entire stack.",
+  "description": "The hidden `--capture-profile` flag captures end-to-end profiling traces spanning the CLI, AppHost (including lifecycle hooks, DCP operations, and resource creation), TypeScript AppHost managed server, and DCP startup scopes. Profiling spans are also instrumented for `aspire add`, covering package search, selection, and installation. A dedicated OTLP provider exports all spans to a dashboard archive (`traces/profile.json`), making it possible to diagnose startup and operation bottlenecks across the entire stack.",
   "docsPrs": [],
   "docsRequired": false,
   "emoji": "📡",
   "firstMergedAt": "2026-05-15T16:30:16Z",
-  "lastMergedAt": "2026-05-18T21:52:51Z",
+  "lastMergedAt": "2026-05-21T18:33:10Z",
   "name": "CLI startup self-profiling with trace export",
   "owner": "davidfowl",
   "prs": [
     17099,
     17177,
-    17165
+    17165,
+    17347
   ]
 }
