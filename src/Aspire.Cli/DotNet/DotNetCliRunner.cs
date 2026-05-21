@@ -189,7 +189,8 @@ internal sealed class DotNetCliRunner(
         return exitCode;
     }
 
-    // RunCommand comes from MSBuild as a command string, not a ProcessStartInfo executable path.
+    // This is a local normalization helper, not copied from the SDK. RunCommand comes from MSBuild
+    // as a command string, not a ProcessStartInfo executable path.
     // For the default SDK targets it is either the literal "dotnet" or a generated apphost path,
     // but custom targets can quote the path. Normalize only enough to decide whether to replace a
     // dotnet muxer command with the CLI's resolved SDK muxer.
