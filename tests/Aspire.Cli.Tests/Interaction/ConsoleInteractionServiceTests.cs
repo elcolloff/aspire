@@ -636,7 +636,7 @@ public class ConsoleInteractionServiceTests
         var updateCommand = "aspire update --self --channel [stable]";
 
         // Act - should not throw due to unescaped markup characters
-        var exception = Record.Exception(() => interactionService.DisplayVersionUpdateNotification(version, updateCommand));
+        var exception = Record.Exception(() => interactionService.DisplayVersionUpdateNotification(version, updateCommand, includeAppHostUpdateCommand: true));
 
         // Assert
         Assert.Null(exception);
@@ -646,6 +646,26 @@ public class ConsoleInteractionServiceTests
         Assert.Contains("To update this AppHost, run: aspire update", outputString);
         Assert.Contains("To update the Aspire CLI, run:", outputString);
         Assert.Contains("aspire update --self --channel [stable]", outputString);
+    }
+
+    [Fact]
+    public void DisplayVersionUpdateNotification_WithoutAppHostContext_DoesNotShowAppHostUpdateCommand()
+    {
+        var output = new StringBuilder();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(new StringWriter(output))
+        });
+
+        var interactionService = CreateInteractionService(console);
+
+        interactionService.DisplayVersionUpdateNotification("13.2.0", "aspire update --self");
+
+        var outputString = output.ToString();
+        Assert.Contains("To update the Aspire CLI, run: aspire update --self", outputString);
+        Assert.DoesNotContain("To update this AppHost, run:", outputString);
     }
 
     [Fact]
