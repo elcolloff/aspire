@@ -14,6 +14,7 @@ using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Aspire.Hosting;
+using Aspire.Hosting.Utils;
 using Aspire.Shared;
 using Aspire.Shared.UserSecrets;
 using Microsoft.Extensions.Logging;
@@ -326,6 +327,10 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             ConfigureSingleFileRunEnvironment(effectiveAppHostFile, env, args: context.UnmatchedTokens);
         }
 
+        var directRun = !isSingleFileAppHost && !watch && !isExtensionHost
+            ? await TryCreateDirectRunSpecAsync(effectiveAppHostFile, env, context.UnmatchedTokens, runOptions.NoLaunchProfile, cancellationToken)
+            : null;
+
         // Start the apphost - the runner will signal the backchannel when ready
         try
         {
@@ -341,6 +346,19 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             // noRestore is only relevant when noBuild is false because --no-build implies --no-restore.
             var noBuild = !watch || context.NoBuild;
             using var runDotnetActivity = _profilingTelemetry.StartAppHostRunDotnetLifetime(watch, noBuild, context.NoRestore);
+            if (directRun is not null)
+            {
+                return await _runner.RunAppHostAssemblyAsync(
+                    effectiveAppHostFile,
+                    directRun.TargetPath,
+                    directRun.WorkingDirectory,
+                    directRun.Arguments,
+                    directRun.Environment,
+                    backchannelCompletionSource,
+                    runOptions,
+                    cancellationToken);
+            }
+
             return await _runner.RunAsync(
                 effectiveAppHostFile,
                 watch,
@@ -510,6 +528,208 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             appHostCompatibilityCheck.AspireHostingVersion);
 
         return appHostCompatibilityCheck;
+    }
+
+    private async Task<DirectAppHostRunSpec?> TryCreateDirectRunSpecAsync(
+        FileInfo effectiveAppHostFile,
+        Dictionary<string, string> env,
+        string[] unmatchedTokens,
+        bool noLaunchProfile,
+        CancellationToken cancellationToken)
+    {
+        var info = await _appHostInfoResolver.GetAppHostInfoAsync(effectiveAppHostFile, cancellationToken).ConfigureAwait(false);
+        if (!TryResolveDirectRunTarget(info, effectiveAppHostFile, out var targetPath, out var workingDirectory))
+        {
+            return null;
+        }
+
+        var directEnv = new Dictionary<string, string>(env);
+        var arguments = new List<string>();
+
+        AppendParsedArguments(info.RunArguments, arguments);
+        if (!TryApplyProjectLaunchSettings(effectiveAppHostFile, directEnv, arguments, noLaunchProfile))
+        {
+            return null;
+        }
+
+        arguments.AddRange(unmatchedTokens);
+
+        return new DirectAppHostRunSpec(targetPath, workingDirectory, [.. arguments], directEnv);
+    }
+
+    private bool TryResolveDirectRunTarget(
+        AppHostProjectInfo info,
+        FileInfo effectiveAppHostFile,
+        out FileInfo targetPath,
+        out DirectoryInfo workingDirectory)
+    {
+        targetPath = null!;
+        workingDirectory = effectiveAppHostFile.Directory!;
+
+        if (HasMultipleTargetFrameworks(info))
+        {
+            _logger.LogDebug(
+                "Falling back to dotnet run for {Project}; direct AppHost launch does not support multi-targeted projects ({TargetFrameworks}).",
+                effectiveAppHostFile.FullName,
+                info.TargetFrameworks);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(info.TargetPath))
+        {
+            _logger.LogDebug(
+                "Falling back to dotnet run for {Project}; MSBuild did not provide TargetPath.",
+                effectiveAppHostFile.FullName);
+            return false;
+        }
+
+        var projectDirectory = effectiveAppHostFile.Directory!;
+        var resolvedTargetPath = ResolvePath(info.TargetPath, projectDirectory);
+        if (!resolvedTargetPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug(
+                "Falling back to dotnet run for {Project}; TargetPath {TargetPath} is not a managed assembly.",
+                effectiveAppHostFile.FullName,
+                resolvedTargetPath);
+            return false;
+        }
+
+        if (!File.Exists(resolvedTargetPath))
+        {
+            _logger.LogDebug(
+                "Falling back to dotnet run for {Project}; TargetPath {TargetPath} does not exist.",
+                effectiveAppHostFile.FullName,
+                resolvedTargetPath);
+            return false;
+        }
+
+        var runtimeConfigPath = Path.ChangeExtension(resolvedTargetPath, ".runtimeconfig.json");
+        if (!File.Exists(runtimeConfigPath))
+        {
+            _logger.LogDebug(
+                "Falling back to dotnet run for {Project}; runtimeconfig {RuntimeConfigPath} does not exist.",
+                effectiveAppHostFile.FullName,
+                runtimeConfigPath);
+            return false;
+        }
+
+        targetPath = new FileInfo(resolvedTargetPath);
+
+        if (!string.IsNullOrWhiteSpace(info.RunWorkingDirectory))
+        {
+            workingDirectory = new DirectoryInfo(ResolvePath(info.RunWorkingDirectory, projectDirectory));
+        }
+
+        return true;
+    }
+
+    private static bool HasMultipleTargetFrameworks(AppHostProjectInfo info)
+        => info.TargetFrameworks?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length > 1;
+
+    private static string ResolvePath(string path, DirectoryInfo baseDirectory)
+        => Path.IsPathFullyQualified(path) ? path : Path.GetFullPath(Path.Combine(baseDirectory.FullName, path));
+
+    private bool TryApplyProjectLaunchSettings(
+        FileInfo effectiveAppHostFile,
+        Dictionary<string, string> env,
+        List<string> arguments,
+        bool noLaunchProfile)
+    {
+        if (noLaunchProfile)
+        {
+            return true;
+        }
+
+        try
+        {
+            var launchSettings = LaunchSettingsJsonReader.GetLaunchSettingsFromDirectory(
+                effectiveAppHostFile.DirectoryName,
+                $"AppHost project '{effectiveAppHostFile.FullName}'",
+                AppHostLaunchSettingsSerializerContext.Default.AppHostLaunchSettings);
+            if (!TryGetFirstProjectLaunchProfile(launchSettings, out var profileName, out var profile))
+            {
+                return true;
+            }
+
+            // Project launchSettings.json uses the .NET launch profile shape:
+            //   { "profiles": { "https": { "commandName": "Project",
+            //       "applicationUrl": "https://localhost:1234;http://localhost:5678",
+            //       "commandLineArgs": "--flag \"two words\"",
+            //       "environmentVariables": { "DOTNET_ENVIRONMENT": "Development" } } } }
+            // `dotnet run` selects the first Project profile in file order when no profile is
+            // explicitly named, then exposes that selection to the AppHost via DOTNET_LAUNCH_PROFILE.
+            // See https://learn.microsoft.com/aspnet/core/fundamentals/environments#lsj and
+            // https://json.schemastore.org/launchsettings.json.
+            env["DOTNET_LAUNCH_PROFILE"] = profileName;
+
+            if (!string.IsNullOrWhiteSpace(profile.ApplicationUrl))
+            {
+                env["ASPNETCORE_URLS"] = profile.ApplicationUrl;
+            }
+
+            foreach (var (name, value) in profile.EnvironmentVariables)
+            {
+                env[name] = value;
+            }
+
+            if (!string.IsNullOrEmpty(profile.CommandLineArgs))
+            {
+                AppendParsedArguments(profile.CommandLineArgs, arguments);
+            }
+
+            return true;
+        }
+        catch (InvalidDataException ex)
+        {
+            _logger.LogDebug(ex, "Falling back to dotnet run because launch settings could not be parsed for {Project}.", effectiveAppHostFile.FullName);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            _logger.LogDebug(ex, "Falling back to dotnet run because launch settings could not be read for {Project}.", effectiveAppHostFile.FullName);
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogDebug(ex, "Falling back to dotnet run because launch settings could not be read for {Project}.", effectiveAppHostFile.FullName);
+            return false;
+        }
+    }
+
+    private static bool TryGetFirstProjectLaunchProfile(AppHostLaunchSettings? launchSettings, out string profileName, out AppHostLaunchProfile profile)
+    {
+        if (launchSettings is null)
+        {
+            profileName = null!;
+            profile = null!;
+            return false;
+        }
+
+        foreach (var (candidateProfileName, candidateProfile) in launchSettings.Profiles)
+        {
+            if (IsProjectLaunchProfile(candidateProfile))
+            {
+                profileName = candidateProfileName;
+                profile = candidateProfile;
+                return true;
+            }
+        }
+
+        profileName = null!;
+        profile = null!;
+        return false;
+    }
+
+    private static bool IsProjectLaunchProfile(AppHostLaunchProfile profile)
+        => string.IsNullOrEmpty(profile.CommandName) ||
+            string.Equals(profile.CommandName, "Project", StringComparison.OrdinalIgnoreCase);
+
+    private static void AppendParsedArguments(string? rawArguments, List<string> arguments)
+    {
+        if (!string.IsNullOrWhiteSpace(rawArguments))
+        {
+            arguments.AddRange(CommandLineArgsParser.Parse(rawArguments));
+        }
     }
 
     internal static void ConfigureSingleFileRunEnvironment(
@@ -917,4 +1137,9 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         return null;
     }
 
+    private sealed record DirectAppHostRunSpec(
+        FileInfo TargetPath,
+        DirectoryInfo WorkingDirectory,
+        string[] Arguments,
+        Dictionary<string, string> Environment);
 }

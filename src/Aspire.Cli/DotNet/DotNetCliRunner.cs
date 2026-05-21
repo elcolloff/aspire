@@ -31,6 +31,7 @@ internal interface IDotNetCliRunner
     Task<(int ExitCode, bool IsAspireHost, string? AspireHostingVersion)> GetAppHostInformationAsync(FileInfo projectFile, ProcessInvocationOptions options, CancellationToken cancellationToken);
     Task<(int ExitCode, JsonDocument? Output)> GetProjectItemsAndPropertiesAsync(FileInfo projectFile, string[] items, string[] properties, ProcessInvocationOptions options, CancellationToken cancellationToken);
     Task<int> RunAsync(FileInfo projectFile, bool watch, bool noBuild, bool noRestore, string[] args, IDictionary<string, string>? env, TaskCompletionSource<IAppHostCliBackchannel>? backchannelCompletionSource, ProcessInvocationOptions options, CancellationToken cancellationToken);
+    Task<int> RunAppHostAssemblyAsync(FileInfo projectFile, FileInfo appHostAssembly, DirectoryInfo workingDirectory, string[] args, IDictionary<string, string>? env, TaskCompletionSource<IAppHostCliBackchannel>? backchannelCompletionSource, ProcessInvocationOptions options, CancellationToken cancellationToken);
     Task<(int ExitCode, string? TemplateVersion)> InstallTemplateAsync(string packageName, string version, FileInfo? nugetConfigFile, string? nugetSource, bool force, ProcessInvocationOptions options, CancellationToken cancellationToken);
     Task<int> NewProjectAsync(string templateName, string name, string outputPath, string[] extraArgs, ProcessInvocationOptions options, CancellationToken cancellationToken);
     Task<int> RestoreAsync(FileInfo projectFilePath, ProcessInvocationOptions options, CancellationToken cancellationToken);
@@ -693,11 +694,61 @@ internal sealed class DotNetCliRunner(
 
         cliArgs = [.. cliArgs.Where(arg => !string.IsNullOrWhiteSpace(arg))];
 
+        var finalEnv = CreateRunEnvironment(
+            env,
+            watch,
+            injectMsBuildServer: !noBuild,
+            backchannelCompletionSource);
+
+        return await ExecuteAsync(
+            args: cliArgs,
+            env: finalEnv,
+            projectFile: projectFile,
+            workingDirectory: projectFile.Directory!,
+            backchannelCompletionSource: backchannelCompletionSource,
+            options: options,
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<int> RunAppHostAssemblyAsync(
+        FileInfo projectFile,
+        FileInfo appHostAssembly,
+        DirectoryInfo workingDirectory,
+        string[] args,
+        IDictionary<string, string>? env,
+        TaskCompletionSource<IAppHostCliBackchannel>? backchannelCompletionSource,
+        ProcessInvocationOptions options,
+        CancellationToken cancellationToken)
+    {
+        using var activity = telemetry.StartDiagnosticActivity();
+
+        string[] cliArgs = ["exec", appHostAssembly.FullName, .. args];
+        var finalEnv = CreateRunEnvironment(
+            env,
+            watch: false,
+            injectMsBuildServer: false,
+            backchannelCompletionSource);
+
+        return await ExecuteAsync(
+            args: cliArgs,
+            env: finalEnv,
+            projectFile: projectFile,
+            workingDirectory: workingDirectory,
+            backchannelCompletionSource: backchannelCompletionSource,
+            options: options,
+            cancellationToken: cancellationToken);
+    }
+
+    private Dictionary<string, string> CreateRunEnvironment(
+        IDictionary<string, string>? env,
+        bool watch,
+        bool injectMsBuildServer,
+        TaskCompletionSource<IAppHostCliBackchannel>? backchannelCompletionSource)
+    {
         // We copy the dictionary here because we don't want to mutate the input.
         var finalEnv = env?.ToDictionary() ?? new Dictionary<string, string>();
 
-        // Inject DOTNET_CLI_USE_MSBUILD_SERVER when noBuild == false
-        if (!noBuild)
+        if (injectMsBuildServer)
         {
             finalEnv["DOTNET_CLI_USE_MSBUILD_SERVER"] = GetMsBuildServerValue();
         }
@@ -729,14 +780,7 @@ internal sealed class DotNetCliRunner(
             finalEnv[KnownConfigNames.UnixSocketPath] = socketPath;
         }
 
-        return await ExecuteAsync(
-            args: cliArgs,
-            env: finalEnv,
-            projectFile: projectFile,
-            workingDirectory: projectFile.Directory!,
-            backchannelCompletionSource: backchannelCompletionSource,
-            options: options,
-            cancellationToken: cancellationToken);
+        return finalEnv;
     }
 
     public async Task<(int ExitCode, string? TemplateVersion)> InstallTemplateAsync(string packageName, string version, FileInfo? nugetConfigFile, string? nugetSource, bool force, ProcessInvocationOptions options, CancellationToken cancellationToken)

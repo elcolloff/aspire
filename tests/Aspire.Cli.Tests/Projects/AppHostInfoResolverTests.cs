@@ -30,6 +30,11 @@ public sealed class AppHostInfoResolverTests(ITestOutputHelper outputHelper)
                 AspireHostingVersion = "9.5.0",
                 IsUsingCliBundle = true,
                 UserSecretsId = "secrets",
+                TargetPath = "/repo/bin/AppHost.dll",
+                RunWorkingDirectory = "/repo/src/AppHost",
+                RunArguments = "--from-msbuild",
+                TargetFramework = "net10.0",
+                TargetFrameworks = null,
             },
         };
         var resolver = new AppHostInfoResolver(runner, diskCache);
@@ -40,6 +45,10 @@ public sealed class AppHostInfoResolverTests(ITestOutputHelper outputHelper)
         Assert.Equal("9.5.0", info.AspireHostingVersion);
         Assert.True(info.IsUsingCliBundle);
         Assert.Equal("secrets", info.UserSecretsId);
+        Assert.Equal("/repo/bin/AppHost.dll", info.TargetPath);
+        Assert.Equal("/repo/src/AppHost", info.RunWorkingDirectory);
+        Assert.Equal("--from-msbuild", info.RunArguments);
+        Assert.Equal("net10.0", info.TargetFramework);
     }
 
     [Fact]
@@ -172,7 +181,11 @@ public sealed class AppHostInfoResolverTests(ITestOutputHelper outputHelper)
                 "IsAspireHost": "true",
                 "AspireHostingSDKVersion": "9.5.0",
                 "AspireUseCliBundle": "true",
-                "UserSecretsId": "secrets"
+                "UserSecretsId": "secrets",
+                "TargetPath": "/repo/bin/AppHost.dll",
+                "RunWorkingDirectory": "/repo/src/AppHost",
+                "RunArguments": "--from-msbuild",
+                "TargetFramework": "net10.0"
               },
               "Items": {}
             }

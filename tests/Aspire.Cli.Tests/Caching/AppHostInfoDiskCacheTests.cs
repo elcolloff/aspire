@@ -44,6 +44,10 @@ public class AppHostInfoDiskCacheTests(ITestOutputHelper outputHelper)
         AspireHostingVersion = "9.5.0",
         IsUsingCliBundle = false,
         UserSecretsId = "12345",
+        TargetPath = "/repo/bin/AppHost.dll",
+        RunWorkingDirectory = "/repo/src/AppHost",
+        RunArguments = "--from-msbuild",
+        TargetFramework = "net10.0",
     };
 
     [Fact]
@@ -65,6 +69,10 @@ public class AppHostInfoDiskCacheTests(ITestOutputHelper outputHelper)
         Assert.True(hit!.IsAspireHost);
         Assert.Equal("9.5.0", hit.AspireHostingVersion);
         Assert.Equal("12345", hit.UserSecretsId);
+        Assert.Equal("/repo/bin/AppHost.dll", hit.TargetPath);
+        Assert.Equal("/repo/src/AppHost", hit.RunWorkingDirectory);
+        Assert.Equal("--from-msbuild", hit.RunArguments);
+        Assert.Equal("net10.0", hit.TargetFramework);
     }
 
     [Fact]
