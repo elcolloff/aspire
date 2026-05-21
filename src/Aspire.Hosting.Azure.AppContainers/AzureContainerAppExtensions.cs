@@ -722,7 +722,7 @@ public static class AzureContainerAppExtensions
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> or <paramref name="identityBuilder"/> is <see langword="null"/>.</exception>
-    [AspireExport(Description = "Configures the container app environment to use a specific user-assigned managed identity for the AcrPull role on the container registry")]
+    [AspireExport]
     public static IResourceBuilder<AzureContainerAppEnvironmentResource> WithAcrPullIdentity(
         this IResourceBuilder<AzureContainerAppEnvironmentResource> builder,
         IResourceBuilder<AzureUserAssignedIdentityResource> identityBuilder)
