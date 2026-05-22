@@ -6,6 +6,7 @@ using Aspire.Dashboard.Api;
 using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Otlp.Model;
 using Aspire.Dashboard.Otlp.Storage;
+using Aspire.Otlp.Serialization;
 using Google.Protobuf.Collections;
 using OpenTelemetry.Proto.Logs.V1;
 using OpenTelemetry.Proto.Trace.V1;
@@ -254,9 +255,8 @@ public class TelemetryApiServiceTests
         Assert.Equal(1, result.TotalCount);
         Assert.Equal(1, result.ReturnedCount);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
-        Assert.DoesNotContain("short-span", json);
-        Assert.Contains("long-span", json);
+        var span = Assert.Single(GetAllSpans(result));
+        Assert.Equal("long-span", DecodeSpanId(span.SpanId));
     }
 
     [Fact]
@@ -301,10 +301,11 @@ public class TelemetryApiServiceTests
         Assert.Equal(2, result.TotalCount);
         Assert.Equal(2, result.ReturnedCount);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
-        Assert.DoesNotContain("short-span", json);
-        Assert.Contains("threshold-span", json);
-        Assert.Contains("long-span", json);
+        var spanIds = GetAllSpans(result).Select(s => DecodeSpanId(s.SpanId)).ToList();
+        Assert.Equal(2, spanIds.Count);
+        Assert.Contains("threshold-span", spanIds);
+        Assert.Contains("long-span", spanIds);
+        Assert.DoesNotContain("short-span", spanIds);
     }
 
     [Fact]
@@ -341,10 +342,11 @@ public class TelemetryApiServiceTests
         Assert.Equal(3, result.TotalCount);
         Assert.Equal(2, result.ReturnedCount);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
-        Assert.DoesNotContain("span1", json);
-        Assert.Contains("span2", json);
-        Assert.Contains("span3", json);
+        var spanIds = GetAllSpans(result).Select(s => DecodeSpanId(s.SpanId)).ToList();
+        Assert.Equal(2, spanIds.Count);
+        Assert.Contains("span2", spanIds);
+        Assert.Contains("span3", spanIds);
+        Assert.DoesNotContain("span1", spanIds);
     }
 
     [Fact]
@@ -367,10 +369,8 @@ public class TelemetryApiServiceTests
         Assert.Equal(1, result.TotalCount);
         Assert.Equal(1, result.ReturnedCount);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
-        Assert.DoesNotContain("short-trace-span", json);
-        Assert.DoesNotContain("mixed-short-span", json);
-        Assert.Contains("mixed-long-span", json);
+        var span = Assert.Single(GetAllSpans(result));
+        Assert.Equal("mixed-long-span", DecodeSpanId(span.SpanId));
     }
 
     [Fact]
@@ -400,9 +400,8 @@ public class TelemetryApiServiceTests
         Assert.Equal(1, result.TotalCount);
         Assert.Equal(1, result.ReturnedCount);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
-        Assert.DoesNotContain("short-error-span", json);
-        Assert.Contains("long-ok-span", json);
+        var span = Assert.Single(GetAllSpans(result));
+        Assert.Equal("long-ok-span", DecodeSpanId(span.SpanId));
     }
 
     [Fact]
@@ -652,5 +651,24 @@ public class TelemetryApiServiceTests
         return new TelemetryApiService(
             repository ?? CreateRepository(),
             peerResolvers ?? []);
+    }
+
+    private static List<OtlpSpanJson> GetAllSpans(TelemetryApiResponse result)
+    {
+        return result.Data?.ResourceSpans?
+            .SelectMany(rs => rs.ScopeSpans ?? [])
+            .SelectMany(ss => ss.Spans ?? [])
+            .ToList() ?? [];
+    }
+
+    // SpanId is serialized as lowercase hex per the OTLP/JSON spec
+    // (see https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding), and our
+    // CreateSpan test helper stores the friendly identifier as the raw UTF-8 bytes of
+    // the SpanId. Decode the hex back to text so assertions can compare against the
+    // original identifier the test supplied.
+    private static string DecodeSpanId(string? hexSpanId)
+    {
+        Assert.NotNull(hexSpanId);
+        return Encoding.UTF8.GetString(Convert.FromHexString(hexSpanId));
     }
 }

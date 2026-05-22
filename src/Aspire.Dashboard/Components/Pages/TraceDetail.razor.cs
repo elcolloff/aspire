@@ -199,9 +199,6 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
         IReadOnlyList<FieldTelemetryFilter> filters,
         Func<OtlpResourceView, string> getResourceName)
     {
-        var durationFilters = filters.Where(f => f.Enabled && f.Field == KnownTraceFields.DurationField).ToList();
-        var contextualFilters = filters.Where(f => f.Field != KnownTraceFields.DurationField).ToList();
-
         var visibleViewModels = new HashSet<SpanWaterfallViewModel>();
         foreach (var viewModel in spanWaterfallViewModels)
         {
@@ -210,7 +207,7 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
                 continue;
             }
 
-            if (viewModel.MatchesFilter(filter, typeFilter, contextualFilters, getResourceName, out var matchedDescendents))
+            if (viewModel.MatchesFilter(filter, typeFilter, filters, getResourceName, out var matchedDescendents))
             {
                 visibleViewModels.Add(viewModel);
                 foreach (var descendent in matchedDescendents.Where(d => !d.IsHidden))
@@ -220,15 +217,7 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
             }
         }
 
-        if (durationFilters.Count == 0)
-        {
-            return spanWaterfallViewModels.Where(visibleViewModels.Contains);
-        }
-
-        // Duration filters are intended to remove profiling noise. Apply them after
-        // context-preserving filters so short descendant spans stay hidden even when
-        // their parent span matched another filter.
-        return spanWaterfallViewModels.Where(vm => visibleViewModels.Contains(vm) && durationFilters.All(f => f.Apply(vm.Span)));
+        return spanWaterfallViewModels.Where(visibleViewModels.Contains);
     }
 
     private string? GetPageTitle()

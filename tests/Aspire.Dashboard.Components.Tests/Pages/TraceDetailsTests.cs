@@ -408,17 +408,21 @@ public partial class TraceDetailsTests : DashboardTestContext
                             Scope = CreateScope(),
                             Spans =
                             {
+                                // Root is short (1ms) so it doesn't match the duration filter on its own.
                                 CreateSpan(traceId: "1", spanId: "1-1",
                                     startTime: s_testTime,
-                                    endTime: s_testTime.AddMilliseconds(20)),
+                                    endTime: s_testTime.AddMilliseconds(1)),
+                                // 1-2 is also short, but it is the parent of a long span (1-3),
+                                // so it stays visible as part of the parent chain.
                                 CreateSpan(traceId: "1", spanId: "1-2",
                                     startTime: s_testTime.AddMilliseconds(1),
                                     endTime: s_testTime.AddMilliseconds(1),
                                     parentSpanId: "1-1"),
                                 CreateSpan(traceId: "1", spanId: "1-3",
                                     startTime: s_testTime.AddMilliseconds(2),
-                                    endTime: s_testTime.AddMilliseconds(7),
+                                    endTime: s_testTime.AddMilliseconds(20),
                                     parentSpanId: "1-2"),
+                                // Siblings of the matching chain do not match the filter and stay hidden.
                                 CreateSpan(traceId: "1", spanId: "1-4",
                                     startTime: s_testTime.AddMilliseconds(8),
                                     endTime: s_testTime.AddMilliseconds(9),
@@ -441,6 +445,10 @@ public partial class TraceDetailsTests : DashboardTestContext
         });
 
         var unfilteredData = await cut.Instance.GetData(new GridItemsProviderRequest<SpanWaterfallViewModel>());
+
+        // Duration >= 10ms only matches 1-3. Its parent chain (1-1, 1-2) stays visible for context,
+        // matching the behavior of other structured filters where ancestors of a matching span are
+        // shown so the trace remains navigable.
         var filteredItems = TraceDetail.ApplySpanFilters(
             unfilteredData.Items.ToList(),
             filter: string.Empty,
@@ -450,14 +458,37 @@ public partial class TraceDetailsTests : DashboardTestContext
                 {
                     Field = KnownTraceFields.DurationField,
                     Condition = FilterCondition.GreaterThanOrEqual,
-                    Value = "2"
+                    Value = "10"
                 }
             ],
             getResourceName: _ => string.Empty).ToList();
 
         Assert.Collection(filteredItems,
             item => Assert.Equal("Test span. Id: 1-1", item.Span.Name),
+            item => Assert.Equal("Test span. Id: 1-2", item.Span.Name),
+            item => Assert.Equal("Test span. Id: 1-3", item.Span.Name));
+
+        // When the root span matches the filter, all descendants stay visible (consistent with
+        // how other structured filters expose the full subtree of a matching span).
+        var rootMatchFilteredItems = TraceDetail.ApplySpanFilters(
+            unfilteredData.Items.ToList(),
+            filter: string.Empty,
+            typeFilter: null,
+            [
+                new FieldTelemetryFilter
+                {
+                    Field = KnownTraceFields.DurationField,
+                    Condition = FilterCondition.GreaterThanOrEqual,
+                    Value = "0"
+                }
+            ],
+            getResourceName: _ => string.Empty).ToList();
+
+        Assert.Collection(rootMatchFilteredItems,
+            item => Assert.Equal("Test span. Id: 1-1", item.Span.Name),
+            item => Assert.Equal("Test span. Id: 1-2", item.Span.Name),
             item => Assert.Equal("Test span. Id: 1-3", item.Span.Name),
+            item => Assert.Equal("Test span. Id: 1-4", item.Span.Name),
             item => Assert.Equal("Test span. Id: 1-5", item.Span.Name));
 
         Assert.Collection(unfilteredData.Items,
