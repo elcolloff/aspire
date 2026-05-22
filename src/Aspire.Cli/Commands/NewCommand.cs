@@ -13,7 +13,6 @@ using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Templating;
 using Aspire.Cli.Utils;
-using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 
 namespace Aspire.Cli.Commands;
@@ -46,20 +45,12 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
         Description = NewCommandStrings.SourceArgumentDescription,
         Recursive = true
     };
-    private static readonly Option<string?> s_versionOption = new("--version")
-    {
-        Description = NewCommandStrings.VersionArgumentDescription,
-        Recursive = true,
-        Hidden = true
-    };
-
     internal static readonly Option<bool?> s_suppressAgentInitOption = new("--suppress-agent-init")
     {
         Description = SharedCommandStrings.AgentInitOptionDescription,
         Recursive = true
     };
 
-    private readonly Option<string?> _channelOption;
     private readonly Option<string?> _languageOption;
 
     /// <summary>
@@ -81,8 +72,7 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
         ICliUpdateNotifier updateNotifier,
         CliExecutionContext executionContext,
         AgentInitCommand agentInitCommand,
-        ICliHostEnvironment hostEnvironment,
-        IConfiguration configuration)
+        ICliHostEnvironment hostEnvironment)
         : base("new", NewCommandStrings.Description, features, updateNotifier, executionContext, interactionService, telemetry)
     {
         _prompter = prompter;
@@ -94,23 +84,7 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
         Options.Add(s_nameOption);
         Options.Add(s_outputOption);
         Options.Add(s_sourceOption);
-        Options.Add(s_versionOption);
         Options.Add(s_suppressAgentInitOption);
-
-        // --channel is hidden and rejected at runtime; description text mentions
-        // the staging variant to preserve compatibility with any docs that referenced
-        // the prior wording while the option still parses.
-        var isStagingEnabled = KnownFeatures.IsStagingChannelEnabled(_features, configuration)
-            || string.Equals(ExecutionContext.IdentityChannel, PackageChannelNames.Staging, StringComparisons.ChannelName);
-        _channelOption = new Option<string?>("--channel")
-        {
-            Description = isStagingEnabled
-                ? NewCommandStrings.ChannelOptionDescriptionWithStaging
-                : NewCommandStrings.ChannelOptionDescription,
-            Recursive = true,
-            Hidden = true
-        };
-        Options.Add(_channelOption);
 
         _languageOption = new Option<string?>("--language")
         {
@@ -295,30 +269,6 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
     protected override async Task<CommandResult> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         using var activity = Telemetry.StartDiagnosticActivity(this.Name);
-
-        // --version and --channel are accepted for back-compat parsing but are no longer
-        // honored. `aspire new` now always installs the project templates package whose
-        // version matches the running CLI build, sourced from the CLI's identity channel
-        // (CliExecutionContext.IdentityChannel). Surfacing a hard error here — rather than
-        // silently ignoring the options — avoids users believing they have overridden the
-        // pinned version/channel when in fact they have not.
-        if (parseResult.GetValue(s_versionOption) is { } providedVersion && !string.IsNullOrWhiteSpace(providedVersion))
-        {
-            InteractionService.DisplayError(string.Format(
-                CultureInfo.CurrentCulture,
-                NewCommandStrings.VersionOptionNoLongerSupported,
-                VersionHelper.GetDefaultTemplateVersion()));
-            return CommandResult.Failure(CliExitCodes.InvalidCommand);
-        }
-
-        if (parseResult.GetValue(_channelOption) is { } providedChannel && !string.IsNullOrWhiteSpace(providedChannel))
-        {
-            InteractionService.DisplayError(string.Format(
-                CultureInfo.CurrentCulture,
-                NewCommandStrings.ChannelOptionNoLongerSupported,
-                ExecutionContext.IdentityChannel));
-            return CommandResult.Failure(CliExitCodes.InvalidCommand);
-        }
 
         var source = parseResult.GetValue(s_sourceOption);
         if (!string.IsNullOrWhiteSpace(source) && PackageSourceOverrideMappings.HasCredentialMaterial(source))

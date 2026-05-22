@@ -75,24 +75,6 @@ namespace Aspire.Cli.Resources {
             }
         }
         
-        public static string VersionArgumentDescription {
-            get {
-                return ResourceManager.GetString("VersionArgumentDescription", resourceCulture);
-            }
-        }
-        
-        public static string VersionOptionNoLongerSupported {
-            get {
-                return ResourceManager.GetString("VersionOptionNoLongerSupported", resourceCulture);
-            }
-        }
-        
-        public static string ChannelOptionNoLongerSupported {
-            get {
-                return ResourceManager.GetString("ChannelOptionNoLongerSupported", resourceCulture);
-            }
-        }
-        
         public static string TemplatePackageVersionNotFoundInChannel {
             get {
                 return ResourceManager.GetString("TemplatePackageVersionNotFoundInChannel", resourceCulture);
@@ -164,18 +146,6 @@ namespace Aspire.Cli.Resources {
         public static string SelectAProjectTemplate {
             get {
                 return ResourceManager.GetString("SelectAProjectTemplate", resourceCulture);
-            }
-        }
-        
-        public static string ChannelOptionDescription {
-            get {
-                return ResourceManager.GetString("ChannelOptionDescription", resourceCulture);
-            }
-        }
-        
-        public static string ChannelOptionDescriptionWithStaging {
-            get {
-                return ResourceManager.GetString("ChannelOptionDescriptionWithStaging", resourceCulture);
             }
         }
 
