@@ -6,7 +6,9 @@
   "changeType": "New features",
   "communityContributors": [],
   "description": "Adds `WithAcrPullIdentity` to `IResourceBuilder<AzureContainerAppEnvironmentResource>`, allowing a user-assigned managed identity to be used for pulling container images from Azure Container Registry instead of the auto-generated identity.",
-  "docsPrs": [],
+  "docsPrs": [
+    1045
+  ],
   "docsRequired": true,
   "emoji": "🪪",
   "firstMergedAt": "2026-05-22T03:48:24Z",

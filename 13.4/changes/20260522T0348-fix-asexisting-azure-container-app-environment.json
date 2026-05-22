@@ -6,7 +6,9 @@
   "changeType": "Bug fixes",
   "communityContributors": [],
   "description": "Fixes `AddAzureContainerAppEnvironment(...).AsExisting(...)` generating a new managed environment at publish time instead of referencing the existing one. The generated Bicep now correctly references the pre-existing environment when `AsExisting()` is used.",
-  "docsPrs": [],
+  "docsPrs": [
+    1045
+  ],
   "docsRequired": false,
   "emoji": "🔧",
   "firstMergedAt": "2026-05-22T03:48:24Z",

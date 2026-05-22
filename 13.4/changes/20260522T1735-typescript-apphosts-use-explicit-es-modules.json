@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "New TypeScript AppHosts are now scaffolded as `apphost.mts` using explicit ES module syntax, with the code generator emitting `.mts` SDK files. Existing `apphost.ts` projects continue to work unchanged, and `aspire init` in brownfield apps safely creates a nested `aspire-apphost/` package without modifying the root module settings.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🏗️",
+  "firstMergedAt": "2026-05-22T17:35:04Z",
+  "lastMergedAt": "2026-05-22T17:35:04Z",
+  "name": "TypeScript AppHosts use explicit ES modules (.mts)",
+  "owner": "sebastienros",
+  "prs": [
+    16984
+  ]
+}
