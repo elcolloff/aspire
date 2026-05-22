@@ -1445,8 +1445,9 @@ public class PrebuiltAppHostServerTests(ITestOutputHelper outputHelper)
     [Fact]
     public async Task PrepareAsync_WithSourceAndChannelHavingAspireMapping_TempConfigDropsChannelAspireMapping()
     {
-        // End-to-end check that `aspire new --source <pr> --channel <X>` does not let the channel's
-        // Aspire* feed remain co-eligible with the override at restore time. The unit-level
+        // End-to-end check that when scaffolding/restore receives both a `packageSourceOverride` and a channel
+        // whose mappings include an Aspire* entry, the channel's Aspire* feed is dropped at restore time so it
+        // cannot remain co-eligible with the override. The unit-level
         // TryCreateTemporaryNuGetConfig_* cases pin the generator; this case pins that PrepareAsync
         // wires that same temp config through to the actual restore invocation.
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -1530,9 +1531,9 @@ public class PrebuiltAppHostServerTests(ITestOutputHelper outputHelper)
     public async Task PrepareAsync_RestoreFailure_OutputIncludesSourceAndChannelContext()
     {
         // When restore fails, the displayed output is the only debugging surface most users see.
-        // Pin that --source and the requested channel are present so a failed
-        // `aspire new --source <X> --channel <Y>` doesn't require re-running with diagnostic logs
-        // just to recover which inputs were in play.
+        // Pin that the package source override and the requested channel are present in the
+        // output so that a scaffold/restore failure surfaces the inputs that were in play without
+        // requiring re-runs with diagnostic logs.
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         const string packageSourceOverride = "/tmp/aspire-pr-hive/packages";
 

@@ -336,30 +336,24 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task InitCommand_WhenDeprecatedCompatibilityOptionsProvided_SucceedsAndWarns()
+    public async Task InitCommand_WhenRemovedCompatibilityOptionsProvided_FailsToParse()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
-        var interactionService = new TestInteractionService();
-        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
-        {
-            options.InteractionServiceFactory = _ => interactionService;
-        });
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper);
         var serviceProvider = services.BuildServiceProvider();
         var initCommand = serviceProvider.GetRequiredService<InitCommand>();
 
-        Assert.True(initCommand.Options.Single(o => o.Name == "--source").Hidden);
-        Assert.True(initCommand.Options.Single(o => o.Name == "--version").Hidden);
-        Assert.True(initCommand.Options.Single(o => o.Name == "--channel").Hidden);
+        // --source/--version/--channel were removed in a hard break alongside template embedding.
+        // They must no longer be registered as options on the command surface.
+        Assert.DoesNotContain(initCommand.Options, o => o.Name == "--source");
+        Assert.DoesNotContain(initCommand.Options, o => o.Name == "--version");
+        Assert.DoesNotContain(initCommand.Options, o => o.Name == "--channel");
 
-        var parseResult = initCommand.Parse("init --source https://example.test/v3/index.json --version 13.0.0 --channel daily --suppress-agent-init");
+        var parseResult = initCommand.Parse("init --source https://example.test/v3/index.json --suppress-agent-init");
+        Assert.NotEmpty(parseResult.Errors);
         var exitCode = await parseResult.InvokeAsync().DefaultTimeout();
-
-        Assert.Equal(CliExitCodes.Success, exitCode);
-        Assert.True(File.Exists(Path.Combine(workspace.WorkspaceRoot.FullName, "apphost.cs")));
-        Assert.Contains(interactionService.DisplayedMessages, m => m.Message.Contains("`aspire init --source` is deprecated", StringComparison.Ordinal));
-        Assert.Contains(interactionService.DisplayedMessages, m => m.Message.Contains("`aspire init --version` is deprecated", StringComparison.Ordinal));
-        Assert.Contains(interactionService.DisplayedMessages, m => m.Message.Contains("`aspire init --channel` is deprecated", StringComparison.Ordinal));
+        Assert.NotEqual(CliExitCodes.Success, exitCode);
     }
 
     [Fact]

@@ -108,9 +108,6 @@
   <data name="AppHostCreatedRunOneOf" xml:space="preserve">
     <value>Aspire AppHost created! To complete setup, run one of:</value>
   </data>
-  <data name="DeprecatedOptionWarning" xml:space="preserve">
-    <value>`aspire init {0}` is deprecated and no longer affects generated AppHosts. It is accepted for compatibility and will be removed in a future version.</value>
-  </data>
   <data name="FileAlreadyExistsSkipping" xml:space="preserve">
     <value>{0} already exists — skipping.</value>
   </data>

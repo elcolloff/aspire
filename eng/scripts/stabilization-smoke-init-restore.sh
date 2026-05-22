@@ -205,17 +205,15 @@ echo "→ aspire new aspire-empty --name $PROJECT_NAME --output $PROJECT_DIR --l
 #   --language csharp        suppresses the language prompt
 #   --suppress-agent-init    suppresses the "configure AI agent environments" prompt
 #   --localhost-tld false    suppresses the localhost-tld prompt
-# --source seeds the scaffolded project's NuGet.config Aspire-package source mapping with
-# our local-stable feed (the templates themselves are embedded in the CLI binary, so
-# --source no longer influences template acquisition).
-# CWD is $WORK_DIR so the temp NuGet.config (with Aspire* source-mapped to local-stable) is
-# the one NuGet finds via its config walk.
+# The templates themselves are embedded in the CLI binary; `aspire new` no longer takes
+# `--source`, `--channel`, or `--version`. The local-stable feed is wired in via the
+# source-mapped NuGet.config written above — CWD is $WORK_DIR so NuGet's normal config walk
+# finds it during `aspire restore`.
 (
     cd "$WORK_DIR"
     run_aspire new aspire-empty \
         --name "$PROJECT_NAME" \
         --output "$PROJECT_DIR" \
-        --source "$LOCAL_FEED" \
         --language csharp \
         --suppress-agent-init \
         --localhost-tld false \

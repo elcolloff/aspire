@@ -374,10 +374,11 @@ public class AppHostServerProjectTests(ITestOutputHelper outputHelper) : IDispos
     {
         // Regression for finding #2 of the 2026-05-19 post-merge review: the DotNet-based
         // (in-repo / dogfood) AppHost path previously declared a packageSourceOverride parameter
-        // on PrepareAsync but ignored it during restore, so `aspire new --source <pr-hive>` was
-        // silently dropped in dev mode. The override now threads through CreateProjectFilesAsync
-        // and prepends to the RestoreAdditionalProjectSources list so the dogfood hive is the
-        // first source NuGet evaluates for any PackageReference fallback in this path.
+        // on PrepareAsync but ignored it during restore, so a scaffold path that supplied a PR hive
+        // as the override was silently dropped in dev mode. The override now threads through
+        // CreateProjectFilesAsync and prepends to the RestoreAdditionalProjectSources list so the
+        // dogfood hive is the first source NuGet evaluates for any PackageReference fallback in
+        // this path.
         var appPath = _workspace.WorkspaceRoot.FullName;
         const string overrideSource = "/tmp/aspire-pr-hive/packages";
         var aspireConfigPath = Path.Combine(appPath, AspireConfigFile.FileName);

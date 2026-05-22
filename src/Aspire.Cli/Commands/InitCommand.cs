@@ -45,21 +45,6 @@ internal sealed class InitCommand : BaseCommand
     private readonly TemplateNuGetConfigService _templateNuGetConfigService;
     private readonly EmbeddedTemplatePackageProvider _embeddedTemplatePackageProvider;
 
-    private static readonly Option<string?> s_sourceOption = new("--source", "-s")
-    {
-        Description = "Deprecated. Accepted for compatibility but no longer affects `aspire init`; this option will be removed in a future version.",
-        Recursive = true,
-        Hidden = true
-    };
-
-    private static readonly Option<string?> s_versionOption = new("--version")
-    {
-        Description = "Deprecated. Accepted for compatibility but no longer affects `aspire init`; this option will be removed in a future version.",
-        Recursive = true,
-        Hidden = true
-    };
-
-    private readonly Option<string?> _channelOption;
     private readonly Option<string?> _languageOption;
 
     public InitCommand(
@@ -90,20 +75,10 @@ internal sealed class InitCommand : BaseCommand
         _templateNuGetConfigService = templateNuGetConfigService;
         _embeddedTemplatePackageProvider = embeddedTemplatePackageProvider;
 
-        _channelOption = new Option<string?>("--channel")
-        {
-            Description = "Deprecated. Accepted for compatibility but no longer affects `aspire init`; this option will be removed in a future version.",
-            Recursive = true,
-            Hidden = true
-        };
-
         _languageOption = new Option<string?>("--language")
         {
             Description = InitCommandStrings.LanguageOptionDescription
         };
-        Options.Add(s_sourceOption);
-        Options.Add(s_versionOption);
-        Options.Add(_channelOption);
         Options.Add(_languageOption);
         Options.Add(NewCommand.s_suppressAgentInitOption);
     }
@@ -114,7 +89,6 @@ internal sealed class InitCommand : BaseCommand
 
         // Step 1: Get the language selection.
         var explicitLanguage = parseResult.GetValue(_languageOption);
-        DisplayDeprecatedOptionWarnings(parseResult);
 
         var projectSelection = await _languageService.GetOrPromptForProjectSelectionAsync(explicitLanguage, saveLanguageSelection: false, cancellationToken);
         var selectedProject = projectSelection.Project;
@@ -190,23 +164,6 @@ internal sealed class InitCommand : BaseCommand
         }
 
         return CommandResult.FromExitCode(agentInitResult.ExitCode);
-    }
-
-    private void DisplayDeprecatedOptionWarnings(ParseResult parseResult)
-    {
-        DisplayDeprecatedOptionWarningIfProvided(parseResult.GetValue(s_sourceOption), "--source");
-        DisplayDeprecatedOptionWarningIfProvided(parseResult.GetValue(s_versionOption), "--version");
-        DisplayDeprecatedOptionWarningIfProvided(parseResult.GetValue(_channelOption), "--channel");
-    }
-
-    private void DisplayDeprecatedOptionWarningIfProvided(string? value, string optionName)
-    {
-        if (value is not null)
-        {
-            InteractionService.DisplayMessage(
-                KnownEmojis.Warning,
-                string.Format(CultureInfo.CurrentCulture, InitCommandStrings.DeprecatedOptionWarning, optionName));
-        }
     }
 
     private static IReadOnlyList<string> GetAspireifyCommands(IReadOnlyList<SkillLocation> selectedLocations)

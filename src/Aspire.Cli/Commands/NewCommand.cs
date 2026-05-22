@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using Aspire.Cli.Configuration;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.NuGet;
-using Aspire.Cli.Packaging;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
@@ -38,11 +37,6 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
     internal static readonly Option<string?> s_outputOption = new("--output", "-o")
     {
         Description = NewCommandStrings.OutputArgumentDescription,
-        Recursive = true
-    };
-    private static readonly Option<string?> s_sourceOption = new("--source", "-s")
-    {
-        Description = NewCommandStrings.SourceArgumentDescription,
         Recursive = true
     };
     internal static readonly Option<bool?> s_suppressAgentInitOption = new("--suppress-agent-init")
@@ -83,7 +77,6 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
 
         Options.Add(s_nameOption);
         Options.Add(s_outputOption);
-        Options.Add(s_sourceOption);
         Options.Add(s_suppressAgentInitOption);
 
         _languageOption = new Option<string?>("--language")
@@ -270,13 +263,6 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
     {
         using var activity = Telemetry.StartDiagnosticActivity(this.Name);
 
-        var source = parseResult.GetValue(s_sourceOption);
-        if (!string.IsNullOrWhiteSpace(source) && PackageSourceOverrideMappings.HasCredentialMaterial(source))
-        {
-            InteractionService.DisplayError(NewCommandStrings.SourceWithCredentialsCannotBePersisted);
-            return CommandResult.Failure(CliExitCodes.InvalidCommand);
-        }
-
         // Resolve which templates are actually available at runtime (performs
         // async checks like SDK availability). This may be a subset of the
         // templates registered as subcommands.
@@ -301,7 +287,6 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
         {
             Name = parseResult.GetValue(s_nameOption),
             Output = parseResult.GetValue(s_outputOption),
-            Source = source,
             Version = VersionHelper.GetDefaultTemplateVersion(),
             Channel = ExecutionContext.IdentityChannel,
             Language = selectedLanguageId

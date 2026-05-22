@@ -141,12 +141,6 @@ namespace Aspire.Cli.Resources {
             }
         }
 
-        internal static string DeprecatedOptionWarning {
-            get {
-                return ResourceManager.GetString("DeprecatedOptionWarning", resourceCulture);
-            }
-        }
-
         internal static string FileAlreadyExistsSkipping {
             get {
                 return ResourceManager.GetString("FileAlreadyExistsSkipping", resourceCulture);

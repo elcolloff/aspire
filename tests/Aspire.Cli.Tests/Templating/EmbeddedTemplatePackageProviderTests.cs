@@ -5,6 +5,7 @@ using Aspire.Cli.Templating;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Cli.Utils;
 using Microsoft.AspNetCore.InternalTesting;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aspire.Cli.Tests.Templating;
 
@@ -15,7 +16,7 @@ public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var executionContext = CreateExecutionContext(workspace);
-        var provider = new EmbeddedTemplatePackageProvider(executionContext);
+        var provider = new EmbeddedTemplatePackageProvider(executionContext, NullLogger<EmbeddedTemplatePackageProvider>.Instance);
 
         var extracted = await provider.EnsureExtractedAsync(CancellationToken.None).DefaultTimeout();
 
@@ -43,7 +44,7 @@ public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var executionContext = CreateExecutionContext(workspace);
-        var provider = new EmbeddedTemplatePackageProvider(executionContext);
+        var provider = new EmbeddedTemplatePackageProvider(executionContext, NullLogger<EmbeddedTemplatePackageProvider>.Instance);
 
         var first = await provider.EnsureExtractedAsync(CancellationToken.None).DefaultTimeout();
         var firstWriteTime = File.GetLastWriteTimeUtc(first.FullName);
@@ -64,7 +65,7 @@ public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var executionContext = CreateExecutionContext(workspace);
-        var provider = new EmbeddedTemplatePackageProvider(executionContext);
+        var provider = new EmbeddedTemplatePackageProvider(executionContext, NullLogger<EmbeddedTemplatePackageProvider>.Instance);
 
         var tasks = Enumerable.Range(0, 8)
             .Select(_ => Task.Run(() => provider.EnsureExtractedAsync(CancellationToken.None)))

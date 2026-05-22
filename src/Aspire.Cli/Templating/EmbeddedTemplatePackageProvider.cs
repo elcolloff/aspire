@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Aspire.Cli.Utils;
+using Microsoft.Extensions.Logging;
 
 namespace Aspire.Cli.Templating;
 
@@ -28,7 +29,9 @@ namespace Aspire.Cli.Templating;
 /// payloads.
 /// </para>
 /// </remarks>
-internal sealed class EmbeddedTemplatePackageProvider(CliExecutionContext executionContext)
+internal sealed class EmbeddedTemplatePackageProvider(
+    CliExecutionContext executionContext,
+    ILogger<EmbeddedTemplatePackageProvider> logger)
 {
     // Must match the LogicalName in Aspire.Cli.csproj (_ResolveEmbeddedTemplatesNupkg target).
     private const string EmbeddedResourceName = "Aspire.ProjectTemplates.nupkg";
@@ -62,9 +65,11 @@ internal sealed class EmbeddedTemplatePackageProvider(CliExecutionContext execut
 
         if (File.Exists(targetPath))
         {
+            logger.LogDebug("Embedded templates nupkg already extracted at {TargetPath}; reusing.", targetPath);
             return new FileInfo(targetPath);
         }
 
+        logger.LogDebug("Extracting embedded templates nupkg for CLI version {CliVersion} to {TargetPath}.", cliVersion, targetPath);
         cacheDir.Create();
 
         var assembly = typeof(EmbeddedTemplatePackageProvider).Assembly;
@@ -87,16 +92,23 @@ internal sealed class EmbeddedTemplatePackageProvider(CliExecutionContext execut
             try
             {
                 File.Move(tempPath, targetPath);
+                logger.LogDebug("Extracted embedded templates nupkg to {TargetPath}.", targetPath);
             }
             catch (IOException) when (File.Exists(targetPath))
             {
-                // Another process beat us. The byte-for-byte identical payload is already
-                // there; drop our copy and use the existing file.
+                // Not redundant with the outer catch: the outer catch rethrows (a true
+                // extraction failure), but losing the rename race against another CLI
+                // process that wrote the byte-identical payload is a *success* path — we
+                // just drop our temp copy and return the winner's file. Without this
+                // inner handler, concurrent first-time extractions would surface as
+                // user-visible errors.
+                logger.LogDebug("Another process wrote {TargetPath} concurrently; using the existing file and discarding {TempPath}.", targetPath, tempPath);
                 TryDelete(tempPath);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex, "Failed to extract embedded templates nupkg to {TargetPath}.", targetPath);
             TryDelete(tempPath);
             throw;
         }
@@ -104,15 +116,16 @@ internal sealed class EmbeddedTemplatePackageProvider(CliExecutionContext execut
         return new FileInfo(targetPath);
     }
 
-    private static void TryDelete(string path)
+    private void TryDelete(string path)
     {
         try
         {
             File.Delete(path);
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort cleanup; a leftover .tmp-* file is harmless.
+            logger.LogDebug(ex, "Failed to delete temp file {Path}; ignoring.", path);
         }
     }
 }
