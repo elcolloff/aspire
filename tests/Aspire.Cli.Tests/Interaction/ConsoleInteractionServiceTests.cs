@@ -643,8 +643,8 @@ public class ConsoleInteractionServiceTests
         var outputString = output.ToString();
         Assert.Contains("A new version of Aspire is available:", outputString);
         Assert.Contains("13.2.0-preview [beta]", outputString);
-        Assert.Contains("To update this AppHost, run: aspire update", outputString);
-        Assert.Contains("To update the Aspire CLI, run:", outputString);
+        Assert.Contains("for this AppHost", outputString);
+        Assert.Contains("To update the Aspire CLI, use:", outputString);
         Assert.Contains("aspire update --self --channel [stable]", outputString);
     }
 
@@ -664,8 +664,8 @@ public class ConsoleInteractionServiceTests
         interactionService.DisplayVersionUpdateNotification("13.2.0", "aspire update --self");
 
         var outputString = output.ToString();
-        Assert.Contains("To update the Aspire CLI, run: aspire update --self", outputString);
-        Assert.DoesNotContain("To update this AppHost, run:", outputString);
+        Assert.Contains("To update the Aspire CLI, use: aspire update --self", outputString);
+        Assert.DoesNotContain("for this AppHost", outputString);
     }
 
     [Fact]
