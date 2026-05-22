@@ -2,19 +2,31 @@
 
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
-    <!-- This project is no longer packed as a NuGet template package. Instead its Build
-         emits a Aspire.ProjectTemplates.zip containing the substituted templates layout,
-         which Aspire.Cli embeds as a manifest resource and installs at runtime via
-         `dotnet new install <extracted-dir>` against a private DOTNET_CLI_HOME. See
-         Aspire.Cli.Templating.EmbeddedTemplatePackageProvider. -->
-    <IsPackable>false</IsPackable>
+    <OutputType>Library</OutputType>
+    <!-- This project ships TWO outputs from a single Build:
+         1) Aspire.ProjectTemplates.nupkg (NuGet template package) — consumed by
+            Aspire.Templates.Tests via a custom hive, and by anyone who wants to
+            install the templates outside of the Aspire CLI.
+         2) Aspire.ProjectTemplates.zip — embedded into aspire.dll as a manifest
+            resource by Aspire.Cli (see Aspire.Cli.Templating.EmbeddedTemplatePackageProvider).
+            The zip is what guarantees the CLI installs templates that match the CLI
+            build exactly, independent of NuGet feed resolution.
+
+         GeneratePackageOnBuild ensures the nupkg is produced during plain `dotnet build`
+         (CI separates Build/Pack phases, but plain `dotnet build` callers — and the
+         templates-tests build graph — rely on the nupkg appearing as a Build output).
+         The zip is produced unconditionally AfterTargets="Build". -->
+    <IsPackable>true</IsPackable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeContentInPack>true</IncludeContentInPack>
     <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <PackageType>Template</PackageType>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
     <EnableDefaultItems>false</EnableDefaultItems>
+    <Description>Aspire Template Pack for Microsoft Template Engine</Description>
     <UsingToolTemplateLocalizer>true</UsingToolTemplateLocalizer>
     <NoDefaultExcludes>true</NoDefaultExcludes>
-    <!-- This is not a normal library; suppress generation of an empty assembly. -->
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <NoWarn>$(NoWarn);CS2008</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -29,6 +41,7 @@
   <ItemGroup>
     <!-- Template config files: .template.config\*.json -->
     <TemplateConfigFiles Include="$(MSBuildThisFileDirectory)templates\**\.template.config\*.json">
+      <PackagePath>content/templates/%(RecursiveDir)</PackagePath>
       <DestinationFile>$(IntermediateOutputPath)content\templates\%(RecursiveDir)%(Filename)%(Extension)</DestinationFile>
     </TemplateConfigFiles>
 
@@ -36,26 +49,41 @@
 
     <!-- Template project files: *.csproj -->
     <TemplateProjectFiles Include="$(MSBuildThisFileDirectory)templates\**\*.csproj">
+      <PackagePath>content/templates/%(RecursiveDir)</PackagePath>
       <DestinationFile>$(IntermediateOutputPath)content\templates\%(RecursiveDir)%(Filename)%(Extension)</DestinationFile>
     </TemplateProjectFiles>
 
     <!-- Template project files: apphost.cs (singlefile only) -->
     <TemplateProjectFiles Include="$(MSBuildThisFileDirectory)templates\aspire-apphost-singlefile\**\apphost.cs">
+      <PackagePath>content/templates/aspire-apphost-singlefile/%(RecursiveDir)</PackagePath>
       <DestinationFile>$(IntermediateOutputPath)content\templates\aspire-apphost-singlefile\%(RecursiveDir)%(Filename)%(Extension)</DestinationFile>
     </TemplateProjectFiles>
 
     <TemplateProjectFilesObj Include="@(TemplateProjectFiles->'%(DestinationFile)')" />
 
     <TemplateFiles Include="$(MSBuildThisFileDirectory)templates\**\*"
-                   Exclude="$(MSBuildThisFileDirectory)templates\**\bin\**;$(MSBuildThisFileDirectory)templates\**\obj\**;$(MSBuildThisFileDirectory)templates\**\*.csproj;$(MSBuildThisFileDirectory)templates\aspire-apphost-singlefile\**\apphost.cs" />
+                   Exclude="$(MSBuildThisFileDirectory)templates\**\bin\**;$(MSBuildThisFileDirectory)templates\**\obj\**;$(MSBuildThisFileDirectory)templates\**\*.csproj;$(MSBuildThisFileDirectory)templates\aspire-apphost-singlefile\**\apphost.cs">
+      <PackagePath>content/templates/%(RecursiveDir)</PackagePath>
+    </TemplateFiles>
 
     <TemplateFilesObj Include="@(TemplateFiles->'$(IntermediateOutputPath)content\templates\%(RecursiveDir)%(Filename)%(Extension)')" />
   </ItemGroup>
 
-  <!-- Replace version placeholders in the staged template files, then zip the result so
-       Aspire.Cli can embed it as a manifest resource. Runs AfterTargets="Build" so that
-       a plain `dotnet build` of this project (and any project that ProjectReferences it)
-       produces the zip without needing a separate Pack phase. -->
+  <!-- When building a package, this target will run to copy all the templates into the intermediate directory,
+       replaces the package versions, and adds them to the package.-->
+  <Target Name="AddTemplatesToPackageAsContent"
+          AfterTargets="Build"
+          DependsOnTargets="ReplacePackageVersionOnTemplates">
+    <ItemGroup>
+      <Content Include="@(TemplateFilesObj);@(TemplateProjectFilesObj)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Zip the substituted templates layout so Aspire.Cli can embed it as a manifest
+       resource (see _ResolveEmbeddedTemplatesNupkg in Aspire.Cli.csproj). Runs
+       AfterTargets="Build" so the zip is available whether or not Pack runs in this
+       MSBuild invocation. ReplacePackageVersionOnTemplates is a dependency to ensure
+       the staged tree has already been version-substituted by the time we zip. -->
   <Target Name="ZipProjectTemplates"
           AfterTargets="Build"
           DependsOnTargets="ReplacePackageVersionOnTemplates"

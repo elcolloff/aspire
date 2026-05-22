@@ -764,11 +764,18 @@ internal sealed class DotNetCliRunner(
         var workingDirectory = nugetConfigFile?.Directory ?? executionContext.WorkingDirectory;
         var localSourcePath = ResolveLocalTemplateSourcePath(packageName, version, nugetSource, workingDirectory);
 
-        // dotnet new install <path> --force can register duplicate template packages for the same
-        // local source. Refresh local installs by uninstalling first, then reinstalling without --force.
-        if (localSourcePath is not null && force)
+        // Refresh local installs cleanly:
+        //   * Directory-shape source (.template.config tree): just pass --force. Each install
+        //     is fully scoped to a private DOTNET_CLI_HOME owned by the CLI version, so
+        //     there are no foreign duplicates to worry about and `dotnet new install <dir>`
+        //     without --force returns exit 106 ("already installed") on the second call.
+        //   * .nupkg shape: uninstall first then install without --force, because
+        //     `dotnet new install <path>.nupkg --force` can leave duplicate registrations
+        //     for the same local file in the template-engine state.
+        var localSourceIsDirectory = localSourcePath is not null && Directory.Exists(localSourcePath);
+        if (localSourcePath is not null && force && !localSourceIsDirectory)
         {
-            await UninstallTemplateAsync(packageName, workingDirectory, cancellationToken);
+            await UninstallTemplateAsync(packageName, options.DotnetCliHome, workingDirectory, cancellationToken);
             force = false;
         }
 
@@ -880,7 +887,7 @@ internal sealed class DotNetCliRunner(
         }
     }
 
-    private async Task UninstallTemplateAsync(string packageName, DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+    private async Task UninstallTemplateAsync(string packageName, DirectoryInfo? dotnetCliHome, DirectoryInfo workingDirectory, CancellationToken cancellationToken)
     {
         var exitCode = await ExecuteAsync(
             args: ["new", "uninstall", packageName],
@@ -893,7 +900,12 @@ internal sealed class DotNetCliRunner(
             backchannelCompletionSource: null,
             options: new ProcessInvocationOptions
             {
-                SuppressLogging = true
+                SuppressLogging = true,
+                // Forward DOTNET_CLI_HOME so the uninstall acts against the same private
+                // template-engine state the install will touch — otherwise the uninstall
+                // is a no-op against the user's global state and the subsequent install
+                // hits "already installed" without --force.
+                DotnetCliHome = dotnetCliHome,
             },
             cancellationToken: cancellationToken);
 

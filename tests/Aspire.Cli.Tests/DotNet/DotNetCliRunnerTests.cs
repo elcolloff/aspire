@@ -1900,6 +1900,57 @@ public class DotNetCliRunnerTests(ITestOutputHelper outputHelper)
         Assert.Null(result.TemplateVersion);
     }
 
+    [Fact]
+    public async Task InstallTemplateAsync_DirectorySource_PassesForceAndSkipsUninstall()
+    {
+        // Regression: previously the runner uninstalled-by-package-name then re-installed
+        // without --force. For directory-shape sources (the embedded-templates case)
+        // `dotnet new` keys the registration by the directory path, so the uninstall
+        // is a no-op and the second install returns exit 106 ("already installed").
+        // The runner must pass --force for directory installs and skip the uninstall.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var packageVersion = "13.3.0-local.1";
+        var templateDir = workspace.WorkspaceRoot.CreateSubdirectory("templates");
+        var templateConfig = Path.Combine(templateDir.FullName, "child", ".template.config");
+        Directory.CreateDirectory(templateConfig);
+        await File.WriteAllTextAsync(Path.Combine(templateConfig, "template.json"), "{}");
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper);
+        var provider = services.BuildServiceProvider();
+        var executionContext = CreateExecutionContext(workspace.WorkspaceRoot);
+        var observedArgs = new List<string[]>();
+        var (runner, factory) = DotNetCliRunnerTestHelper.CreateWithRetry(
+            provider,
+            executionContext,
+            (attempt, _) =>
+            {
+                return attempt switch
+                {
+                    1 => (0, $"Success: Aspire.ProjectTemplates@{packageVersion} installed the following templates:"),
+                    _ => (1, null),
+                };
+            });
+        factory.AssertionCallback = (args, _, _, _) => observedArgs.Add(args);
+
+        var result = await runner.InstallTemplateAsync(
+            "Aspire.ProjectTemplates",
+            packageVersion,
+            nugetConfigFile: null,
+            nugetSource: templateDir.FullName,
+            force: true,
+            new ProcessInvocationOptions(),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(packageVersion, result.TemplateVersion);
+        Assert.Single(observedArgs);
+        Assert.Equal("new", observedArgs[0][0]);
+        Assert.Equal("install", observedArgs[0][1]);
+        Assert.Equal(templateDir.FullName, observedArgs[0][2]);
+        Assert.Contains("--force", observedArgs[0]);
+    }
+
     [Theory]
     [InlineData("Success: Aspire.ProjectTemplates@13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // .NET 10.0 SDK format with @ separator
     [InlineData("Success: Aspire.ProjectTemplates::13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // Older SDK format with :: separator
