@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Extension improvement: parser-backed AppHost resource detection replacing regex scanning",
+  "mergedAt": "2026-05-22T04:41:18Z",
+  "number": 17361,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "included",
+  "title": "Use parser-backed AppHost resource parsing"
+}

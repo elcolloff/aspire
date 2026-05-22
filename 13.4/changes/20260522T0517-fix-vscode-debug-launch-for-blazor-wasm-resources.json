@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes the VS Code extension incorrectly attempting to launch Blazor WebAssembly project output through the coreclr debugger. WASM runtimeconfig files lack a standard framework entry, so the extension now detects this case and skips the incompatible debug launch path.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-22T05:17:28Z",
+  "lastMergedAt": "2026-05-22T05:17:28Z",
+  "name": "Fix VS Code debug launch for Blazor WebAssembly resources",
+  "owner": "adamint",
+  "prs": [
+    17364
+  ]
+}

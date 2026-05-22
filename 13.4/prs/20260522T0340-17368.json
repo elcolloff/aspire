@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Dashboard bug fix: separate auth cookie names for HTTP vs HTTPS to fix browser token auth",
+  "mergedAt": "2026-05-22T03:40:42Z",
+  "number": 17368,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "included",
+  "title": "Fix browser token auth over HTTP"
+}

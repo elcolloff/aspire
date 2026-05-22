@@ -1,0 +1,9 @@
+{
+  "author": "javiercn",
+  "comment": "New Aspire.Hosting.Blazor integration for Blazor WebAssembly apps with service discovery and OTel",
+  "mergedAt": "2026-05-22T03:51:46Z",
+  "number": 15691,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "included",
+  "title": "Add Aspire.Hosting.Blazor integration for Blazor WebAssembly apps"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Test-only changes updating hardcoded strings to resource string references",
+  "mergedAt": "2026-05-22T04:02:37Z",
+  "number": 17373,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "excluded",
+  "title": "Use resource strings in PsCommand and LsCommand tests for stderr assertions"
+}

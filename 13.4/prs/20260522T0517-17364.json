@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Extension bug fix: VS Code debug launch incorrectly handling Blazor WASM project output",
+  "mergedAt": "2026-05-22T05:17:28Z",
+  "number": 17364,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "included",
+  "title": "Fix VS Code debug launch for Blazor WebAssembly resources"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes dashboard browser-token authentication when the frontend is reachable over both HTTPS and HTTP. The dashboard now uses separate auth cookie names for each scheme, preventing HTTPS cookies from shadowing the HTTP sign-in flow.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔑",
+  "firstMergedAt": "2026-05-22T03:40:42Z",
+  "lastMergedAt": "2026-05-22T03:40:42Z",
+  "name": "Fix browser token authentication over HTTP",
+  "owner": "adamint",
+  "prs": [
+    17368
+  ]
+}

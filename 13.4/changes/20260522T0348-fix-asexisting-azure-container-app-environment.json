@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes `AddAzureContainerAppEnvironment(...).AsExisting(...)` generating a new managed environment at publish time instead of referencing the existing one. The generated Bicep now correctly references the pre-existing environment when `AsExisting()` is used.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-22T03:48:24Z",
+  "lastMergedAt": "2026-05-22T03:48:24Z",
+  "name": "Fix AsExisting for Azure Container App Environment",
+  "owner": "eerhardt",
+  "prs": [
+    17365
+  ]
+}

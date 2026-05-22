@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Playground-only changes to TestShop sample app configuration",
+  "mergedAt": "2026-05-22T04:38:29Z",
+  "number": 17375,
+  "runDate": "2026-05-22T05:31:14Z",
+  "status": "excluded",
+  "title": "Restore Kestrel HTTP/2 config and remove health check from BasketService"
+}

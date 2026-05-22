@@ -1,0 +1,21 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [
+    "@javiercn"
+  ],
+  "description": "Introduces `Aspire.Hosting.Blazor`, a new integration that extends Aspire orchestration to Blazor WebAssembly applications. Blazor WASM clients can now use Aspire service discovery, send OpenTelemetry traces and logs to the Aspire dashboard, and participate in the same structured lifecycle as server-side resources.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🌐",
+  "firstMergedAt": "2026-05-22T03:51:46Z",
+  "lastMergedAt": "2026-05-22T03:51:46Z",
+  "name": "Blazor WebAssembly hosting integration",
+  "owner": "davidfowl",
+  "prs": [
+    15691
+  ]
+}
