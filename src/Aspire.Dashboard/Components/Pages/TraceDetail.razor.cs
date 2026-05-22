@@ -199,10 +199,39 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
         IReadOnlyList<FieldTelemetryFilter> filters,
         Func<OtlpResourceView, string> getResourceName)
     {
-        // Trace Detail filters preserve surrounding context: when a span matches, its
-        // ancestors and descendants remain visible so the waterfall is still navigable.
-        // Duration participates in the same structured-filter path as the other fields
-        // so users don't have to learn a second set of filtering semantics.
+        // Trace Detail has two different filter semantics; the agreed behavior is:
+        //
+        // 1. Context filters (name, kind, status, resource, attributes, etc.):
+        //    Preserve surrounding context. When a span matches, both its ancestors AND
+        //    its descendants stay visible so the waterfall remains navigable around the
+        //    interesting span. This is the existing tree-aware behavior implemented in
+        //    SpanWaterfallViewModel.MatchesFilter.
+        //
+        // 2. Duration filters are per-span "noise" filters. They hide spans below a
+        //    duration threshold so slow work stands out. The asymmetric rule is:
+        //
+        //      - Every span must INDIVIDUALLY satisfy the duration filter to be shown.
+        //      - A matching ancestor (e.g. a long root span) does NOT automatically
+        //        retain its short descendants; a descendant is only kept if it
+        //        independently meets the threshold. Otherwise "min duration" would be
+        //        a no-op for descendants whenever any ancestor was long enough.
+        //      - Ancestors of a matching descendant ARE retained for context so the
+        //        matching span has a navigable path back to the root, even when those
+        //        ancestors don't themselves satisfy the duration filter.
+        List<FieldTelemetryFilter>? durationFilters = null;
+        foreach (var candidate in filters)
+        {
+            if (candidate.Enabled && candidate.Field == KnownTraceFields.DurationField)
+            {
+                durationFilters ??= [];
+                durationFilters.Add(candidate);
+            }
+        }
+
+        var contextFilters = durationFilters is null
+            ? filters
+            : filters.Where(f => f.Field != KnownTraceFields.DurationField).ToList();
+
         var visibleViewModels = new HashSet<SpanWaterfallViewModel>();
         foreach (var viewModel in spanWaterfallViewModels)
         {
@@ -211,7 +240,11 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
                 continue;
             }
 
-            if (viewModel.MatchesFilter(filter, typeFilter, filters, getResourceName, out var matchedDescendents))
+            // Only context filters participate in the tree-aware subtree expansion.
+            // Routing the duration filter through here would re-introduce the
+            // "matching ancestor pulls in every descendant" behavior that defeats
+            // the per-span noise filter intent above.
+            if (viewModel.MatchesFilter(filter, typeFilter, contextFilters, getResourceName, out var matchedDescendents))
             {
                 visibleViewModels.Add(viewModel);
                 foreach (var descendent in matchedDescendents.Where(d => !d.IsHidden))
@@ -221,7 +254,54 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
             }
         }
 
-        return spanWaterfallViewModels.Where(visibleViewModels.Contains);
+        if (durationFilters is null)
+        {
+            return spanWaterfallViewModels.Where(visibleViewModels.Contains);
+        }
+
+        // Per-span noise filter pass. Narrow the context-visible set down to spans that
+        // INDIVIDUALLY satisfy every duration filter — short descendants of a long
+        // matching ancestor drop out here. Then walk parents of each direct match to
+        // keep the ancestor chain visible for navigation, but only ancestors that were
+        // already in the context-visible set, so the duration pass never widens what
+        // the context filters allowed.
+        var directMatches = visibleViewModels
+            .Where(vm => durationFilters.All(f => f.Apply(vm.Span)))
+            .ToList();
+
+        var finalVisible = new HashSet<SpanWaterfallViewModel>(directMatches);
+        var parentMap = BuildParentMap(spanWaterfallViewModels);
+
+        foreach (var match in directMatches)
+        {
+            var current = match;
+            while (parentMap.TryGetValue(current, out var parent) && visibleViewModels.Contains(parent) && finalVisible.Add(parent))
+            {
+                current = parent;
+            }
+        }
+
+        return spanWaterfallViewModels.Where(finalVisible.Contains);
+    }
+
+    private static Dictionary<SpanWaterfallViewModel, SpanWaterfallViewModel> BuildParentMap(IReadOnlyList<SpanWaterfallViewModel> spans)
+    {
+        var map = new Dictionary<SpanWaterfallViewModel, SpanWaterfallViewModel>();
+        foreach (var parent in spans)
+        {
+            AddChildren(parent);
+        }
+
+        return map;
+
+        void AddChildren(SpanWaterfallViewModel parent)
+        {
+            foreach (var child in parent.Children)
+            {
+                map[child] = parent;
+                AddChildren(child);
+            }
+        }
     }
 
     private string? GetPageTitle()
