@@ -588,7 +588,8 @@ public static class JavaScriptHostingExtensions
     /// <param name="builder">The JavaScript resource builder.</param>
     /// <param name="scriptName">
     /// The name of the <c>package.json</c> script to run in the published container.
-    /// For example, <c>start</c> runs <c>npm run start</c>.
+    /// For example, <c>start</c> invokes the configured package manager's run command for the <c>start</c> script,
+    /// such as <c>npm run start</c>, <c>pnpm run start</c>, <c>yarn run start</c>, or <c>bun run start</c>.
     /// </param>
     /// <param name="runScriptArguments">
     /// Optional arguments appended after the script name at runtime,
