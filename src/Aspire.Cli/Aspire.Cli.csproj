@@ -161,12 +161,20 @@
       <_EmbeddedTemplatesNupkgCandidate Include="$(_AllPackagesDir)**/Shipping/Aspire.ProjectTemplates.$(PackageVersion).nupkg" />
     </ItemGroup>
 
-    <!-- Fallback: if no outer build produced the nupkg, pack it now in the current
+    <!-- Fallback: if no outer build produced the nupkg, build it now in the current
          Configuration. This covers (a) inner-loop `dotnet build src/Aspire.Cli/...` from
          a clean tree and (b) the per-RID NativeAOT clipack flow where the outer build
-         skipped Aspire.ProjectTemplates via SkipManagedBuild. -->
+         skipped Aspire.ProjectTemplates via SkipManagedBuild.
+
+         IMPORTANT: Targets must include Build (not just Pack) because Aspire.ProjectTemplates
+         adds its template files to the Content item group via a target with
+         AfterTargets="Build". Running Pack alone produces an empty package (the package is
+         created but contains no template content, which surfaces at runtime as
+         "No templates were found in the package Aspire.ProjectTemplates@<ver>"). With
+         GeneratePackageOnBuild=true on Aspire.ProjectTemplates, Build chains into Pack
+         automatically. -->
     <MSBuild Projects="..\Aspire.ProjectTemplates\Aspire.ProjectTemplates.csproj"
-             Targets="Restore;Pack"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration)"
              Condition="'@(_EmbeddedTemplatesNupkgCandidate)' == ''" />
 
