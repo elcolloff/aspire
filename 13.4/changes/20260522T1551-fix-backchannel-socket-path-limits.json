@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes a failure for users with long or non-ASCII home directory paths that exceeded Unix domain socket path length limits. Backchannel sockets now use compact base64url identifiers under `~/.aspire/cli/bch/`, and the CLI retains fallback discovery for legacy socket formats.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📡",
+  "firstMergedAt": "2026-05-22T15:51:18Z",
+  "lastMergedAt": "2026-05-22T15:51:18Z",
+  "name": "Fix backchannel socket path limits for long home directories",
+  "owner": "karolz-ms",
+  "prs": [
+    17226
+  ]
+}

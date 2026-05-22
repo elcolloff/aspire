@@ -1,0 +1,9 @@
+{
+  "author": "karolz-ms",
+  "comment": "Bug fix for backchannel socket path limits on long or non-ASCII home directory paths",
+  "mergedAt": "2026-05-22T15:51:18Z",
+  "number": 17226,
+  "runDate": "2026-05-22T16:52:35Z",
+  "status": "included",
+  "title": "Shorten backchannel socket paths"
+}
