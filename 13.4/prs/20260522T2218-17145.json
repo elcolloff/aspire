@@ -1,0 +1,9 @@
+{
+  "author": "app/copilot-swe-agent",
+  "comment": "Consolidates generated polyglot SDK modules under .aspire/modules/ directory; breaking change for existing polyglot projects",
+  "mergedAt": "2026-05-22T22:18:35Z",
+  "number": 17145,
+  "runDate": "2026-05-22T22:28:29Z",
+  "status": "included",
+  "title": "Consolidate generated polyglot modules under .aspire"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Engineering improvement adding WinGet/Homebrew dogfood flows for PR builds; also fixes WinGet CLI first-run layout discovery bug",
+  "mergedAt": "2026-05-22T20:51:56Z",
+  "number": 17115,
+  "runDate": "2026-05-22T22:28:29Z",
+  "status": "included",
+  "title": "Add WinGet/Homebrew installer dogfood flows for PR builds"
+}

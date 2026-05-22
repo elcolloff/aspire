@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a first-run failure for WinGet-installed CLI where bundle extraction succeeded but layout discovery validated against the raw WinGet Links launcher path instead of the resolved symlink target, causing the post-flip validation to fail with 'Bundle extraction failed'.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-22T20:51:56Z",
+  "lastMergedAt": "2026-05-22T20:51:56Z",
+  "name": "Fix WinGet-installed CLI first-run layout discovery failure",
+  "owner": "radical",
+  "prs": [
+    17115
+  ]
+}

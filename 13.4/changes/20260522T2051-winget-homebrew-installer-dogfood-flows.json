@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "GitHub Actions CI now builds and publishes WinGet manifests and Homebrew cask artifacts for PR builds, enabling anyone to test the WinGet or Homebrew install path of any open PR locally before it merges. Also adds an osx-x64 native CLI archive so Homebrew cask generation can hash both macOS architectures.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🍺",
+  "firstMergedAt": "2026-05-22T20:51:56Z",
+  "lastMergedAt": "2026-05-22T20:51:56Z",
+  "name": "WinGet and Homebrew installer dogfood flows for PR builds",
+  "owner": "radical",
+  "prs": [
+    17115
+  ]
+}

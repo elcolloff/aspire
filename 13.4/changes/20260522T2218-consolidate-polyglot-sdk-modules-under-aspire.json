@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": true,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Generated polyglot SDK modules are now consolidated under `.aspire/modules/` instead of being split across `.modules/` and `.aspire/`, reducing clutter in project root directories. All generated language references (TypeScript imports, Go replace directives, Python editable paths, Java source lists, Rust module paths) are updated automatically.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "📂",
+  "firstMergedAt": "2026-05-22T22:18:35Z",
+  "lastMergedAt": "2026-05-22T22:18:35Z",
+  "name": "Polyglot SDK modules consolidated under .aspire directory",
+  "owner": "eerhardt",
+  "prs": [
+    17145
+  ]
+}
