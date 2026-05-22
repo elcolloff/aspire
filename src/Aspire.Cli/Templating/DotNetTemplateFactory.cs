@@ -457,14 +457,15 @@ internal class DotNetTemplateFactory(
     {
         try
         {
-            // The templates package is embedded in the CLI binary. Extract once per CLI
-            // version to a cache directory and install from the on-disk nupkg, so the
-            // installed templates always match the running CLI build and we never depend
-            // on NuGet feed reachability or local hive layout.
-            FileInfo extractedTemplatesNupkg;
+            // The templates archive is embedded in the CLI binary. Extract once per CLI
+            // version to a private cache directory and install from there into a sibling
+            // private DOTNET_CLI_HOME so the installed templates always match the running
+            // CLI build, never depend on NuGet feed reachability or local hive layout,
+            // and never pollute the user's global template index.
+            EmbeddedTemplatesLocation embeddedLocation;
             try
             {
-                extractedTemplatesNupkg = await embeddedTemplatePackageProvider.EnsureExtractedAsync(cancellationToken);
+                embeddedLocation = await embeddedTemplatePackageProvider.EnsureExtractedAsync(cancellationToken);
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
             {
@@ -485,12 +486,13 @@ internal class DotNetTemplateFactory(
                         packageName: TemplateNuGetConfigService.TemplatesPackageName,
                         version: VersionHelper.GetDefaultSdkVersion(),
                         nugetConfigFile: null,
-                        nugetSource: extractedTemplatesNupkg.FullName,
+                        nugetSource: embeddedLocation.TemplatesDirectory.FullName,
                         force: true,
                         options: new ProcessInvocationOptions
                         {
                             StandardOutputCallback = installCollector.AppendOutput,
                             StandardErrorCallback = installCollector.AppendOutput,
+                            DotnetCliHome = embeddedLocation.DotnetCliHomeDirectory,
                         },
                         cancellationToken: cancellationToken);
                 },
@@ -503,7 +505,7 @@ internal class DotNetTemplateFactory(
                 return new TemplateResult(CliExitCodes.FailedToInstallTemplates);
             }
 
-            interactionService.DisplayMessage(KnownEmojis.Package, string.Format(CultureInfo.CurrentCulture, TemplatingStrings.UsingProjectTemplatesVersion, installedVersion ?? VersionHelper.GetDefaultSdkVersion()));
+            interactionService.DisplayMessage(KnownEmojis.Package, string.Format(CultureInfo.CurrentCulture, TemplatingStrings.UsingProjectTemplatesVersion, string.IsNullOrEmpty(installedVersion) ? VersionHelper.GetDefaultSdkVersion() : installedVersion));
 
             var newProjectCollector = new OutputCollector();
             var newProjectExitCode = await interactionService.ShowStatusAsync(
@@ -514,6 +516,9 @@ internal class DotNetTemplateFactory(
                     {
                         StandardOutputCallback = newProjectCollector.AppendOutput,
                         StandardErrorCallback = newProjectCollector.AppendOutput,
+                        // Reuse the same private DOTNET_CLI_HOME so `dotnet new <template>`
+                        // resolves against the templates we just installed there.
+                        DotnetCliHome = embeddedLocation.DotnetCliHomeDirectory,
                     };
 
                     var result = await runner.NewProjectAsync(

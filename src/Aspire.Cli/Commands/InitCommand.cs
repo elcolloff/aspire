@@ -305,17 +305,18 @@ internal sealed class InitCommand : BaseCommand
             return CliExitCodes.Success;
         }
 
-        // Install the Aspire.ProjectTemplates package that is embedded in the CLI binary.
-        // The embedded payload is the templates package produced by this CLI's build, so
-        // the templates are by construction matched to the CLI — independent of the
-        // identity channel, the NuGet feed reachability, or any local hive layout.
+        // Install the Aspire.ProjectTemplates that are embedded in the CLI binary. The
+        // embedded payload is the templates produced by this CLI's build, so the
+        // templates are by construction matched to the CLI — independent of the identity
+        // channel, the NuGet feed reachability, or any local hive layout. We install
+        // into a private DOTNET_CLI_HOME so the global template index is untouched.
         // `dotnet new` does not install templates implicitly, so we install on every
-        // invocation (the runner uninstall-then-installs to keep the local file path
-        // entry fresh; this is fast and idempotent).
-        FileInfo extractedTemplatesNupkg;
+        // invocation (the runner uninstall-then-installs to keep the local entry fresh;
+        // this is fast and idempotent).
+        EmbeddedTemplatesLocation embeddedLocation;
         try
         {
-            extractedTemplatesNupkg = await _embeddedTemplatePackageProvider.EnsureExtractedAsync(cancellationToken);
+            embeddedLocation = await _embeddedTemplatePackageProvider.EnsureExtractedAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
@@ -332,12 +333,13 @@ internal sealed class InitCommand : BaseCommand
                     packageName: TemplateNuGetConfigService.TemplatesPackageName,
                     version: VersionHelper.GetDefaultSdkVersion(),
                     nugetConfigFile: null,
-                    nugetSource: extractedTemplatesNupkg.FullName,
+                    nugetSource: embeddedLocation.TemplatesDirectory.FullName,
                     force: true,
                     options: new ProcessInvocationOptions
                     {
                         StandardOutputCallback = installCollector.AppendOutput,
                         StandardErrorCallback = installCollector.AppendOutput,
+                        DotnetCliHome = embeddedLocation.DotnetCliHomeDirectory,
                     },
                     cancellationToken: cancellationToken);
             });
@@ -360,7 +362,10 @@ internal sealed class InitCommand : BaseCommand
                     appHostDirName,
                     appHostDirPath,
                     extraArgs: [],
-                    options: new ProcessInvocationOptions(),
+                    options: new ProcessInvocationOptions
+                    {
+                        DotnetCliHome = embeddedLocation.DotnetCliHomeDirectory,
+                    },
                     cancellationToken: cancellationToken);
             });
 

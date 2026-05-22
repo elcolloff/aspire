@@ -12,7 +12,7 @@ namespace Aspire.Cli.Tests.Templating;
 public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper)
 {
     [Fact]
-    public async Task EnsureExtractedAsync_ExtractsEmbeddedPackage_ToVersionScopedCacheDirectory()
+    public async Task EnsureExtractedAsync_ExtractsEmbeddedArchive_ToVersionScopedCacheDirectory()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var executionContext = CreateExecutionContext(workspace);
@@ -20,44 +20,45 @@ public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper
 
         var extracted = await provider.EnsureExtractedAsync(CancellationToken.None).DefaultTimeout();
 
-        Assert.True(extracted.Exists, $"Expected extracted nupkg at {extracted.FullName}");
+        Assert.True(extracted.TemplatesDirectory.Exists, $"Expected templates dir at {extracted.TemplatesDirectory.FullName}");
+        Assert.True(extracted.DotnetCliHomeDirectory.Exists, $"Expected cli-home dir at {extracted.DotnetCliHomeDirectory.FullName}");
+
+        // Layout: {AspireHomeDirectory}/templates/{cli-version}/{templates|cli-home}/...
         var expectedVersionDir = VersionHelper.GetDefaultTemplateVersion().Replace('+', '_');
-        var expectedFileName = $"Aspire.ProjectTemplates.{VersionHelper.GetDefaultTemplateVersion()}.nupkg";
-        Assert.Equal(expectedFileName, extracted.Name);
+        Assert.Equal("templates", extracted.TemplatesDirectory.Name);
+        Assert.Equal("cli-home", extracted.DotnetCliHomeDirectory.Name);
+        var versionDir = extracted.TemplatesDirectory.Parent!;
+        Assert.Equal(expectedVersionDir, versionDir.Name);
+        Assert.Equal("templates", versionDir.Parent!.Name);
+        Assert.Equal(executionContext.AspireHomeDirectory.FullName, versionDir.Parent!.Parent!.FullName);
 
-        // Path layout: {AspireHomeDirectory}/templates/{cli-version}/Aspire.ProjectTemplates.{cli-version}.nupkg
-        var parentDir = extracted.Directory!;
-        Assert.Equal(expectedVersionDir, parentDir.Name);
-        Assert.Equal("templates", parentDir.Parent!.Name);
-        Assert.Equal(executionContext.AspireHomeDirectory.FullName, parentDir.Parent!.Parent!.FullName);
-
-        // Nupkg payloads start with the ZIP magic bytes "PK\x03\x04".
-        var bytes = await File.ReadAllBytesAsync(extracted.FullName).DefaultTimeout();
-        Assert.True(bytes.Length > 0);
-        Assert.Equal(0x50, bytes[0]);
-        Assert.Equal(0x4B, bytes[1]);
-        Assert.Equal(0x03, bytes[2]);
-        Assert.Equal(0x04, bytes[3]);
+        // At least one extracted template should contain a .template.config folder, which
+        // is what `dotnet new install <dir>` keys on.
+        var templateConfigs = extracted.TemplatesDirectory.EnumerateDirectories(".template.config", SearchOption.AllDirectories).ToArray();
+        Assert.NotEmpty(templateConfigs);
     }
 
     [Fact]
-    public async Task EnsureExtractedAsync_SecondCall_ReturnsExistingFileWithoutRewriting()
+    public async Task EnsureExtractedAsync_SecondCall_ReturnsSamePathsWithoutRewriting()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var executionContext = CreateExecutionContext(workspace);
         var provider = new EmbeddedTemplatePackageProvider(executionContext, NullLogger<EmbeddedTemplatePackageProvider>.Instance);
 
         var first = await provider.EnsureExtractedAsync(CancellationToken.None).DefaultTimeout();
-        var firstWriteTime = File.GetLastWriteTimeUtc(first.FullName);
+        var sentinelPath = Path.Combine(first.TemplatesDirectory.FullName, ".aspire-extracted");
+        Assert.True(File.Exists(sentinelPath), $"Sentinel missing at {sentinelPath}");
+        var firstWriteTime = File.GetLastWriteTimeUtc(sentinelPath);
 
         // Sleep just enough that a rewrite would produce a distinguishable timestamp on
         // file systems with low-resolution mtime (HFS+ / FAT). 1.1s covers the worst case.
         await Task.Delay(TimeSpan.FromMilliseconds(1100), TestContext.Current.CancellationToken);
 
         var second = await provider.EnsureExtractedAsync(CancellationToken.None).DefaultTimeout();
-        var secondWriteTime = File.GetLastWriteTimeUtc(second.FullName);
+        var secondWriteTime = File.GetLastWriteTimeUtc(sentinelPath);
 
-        Assert.Equal(first.FullName, second.FullName);
+        Assert.Equal(first.TemplatesDirectory.FullName, second.TemplatesDirectory.FullName);
+        Assert.Equal(first.DotnetCliHomeDirectory.FullName, second.DotnetCliHomeDirectory.FullName);
         Assert.Equal(firstWriteTime, secondWriteTime);
     }
 
@@ -74,12 +75,13 @@ public class EmbeddedTemplatePackageProviderTests(ITestOutputHelper outputHelper
 
         var results = await Task.WhenAll(tasks).DefaultTimeout();
 
-        var distinctPaths = results.Select(r => r.FullName).Distinct().ToArray();
+        var distinctPaths = results.Select(r => r.TemplatesDirectory.FullName).Distinct().ToArray();
         Assert.Single(distinctPaths);
-        Assert.All(results, r => Assert.True(r.Exists));
+        Assert.All(results, r => Assert.True(r.TemplatesDirectory.Exists));
 
         // Verify no .tmp-* leftovers were stranded by losing racers.
-        var leftovers = results[0].Directory!.EnumerateFiles("*.tmp-*").ToArray();
+        var versionDir = results[0].TemplatesDirectory.Parent!;
+        var leftovers = versionDir.EnumerateDirectories("*.tmp-*").ToArray();
         Assert.Empty(leftovers);
     }
 

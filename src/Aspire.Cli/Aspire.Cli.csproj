@@ -115,6 +115,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aspire.TypeSystem\Aspire.TypeSystem.csproj" />
+    <!-- Build (but don't consume) Aspire.ProjectTemplates so its ZipProjectTemplates target
+         emits the templates zip we embed below. We don't reference the dll; the templates
+         project is a build-only producer of Aspire.ProjectTemplates.zip. -->
+    <ProjectReference Include="..\Aspire.ProjectTemplates\Aspire.ProjectTemplates.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      Condition="'$(SkipEmbeddedTemplatesNupkg)' != 'true' and '$(IsCliToolProject)' != 'true' and '$(_AspireCliIsOuterRestoreOnlyBuild)' != 'true'" />
   </ItemGroup>
 
   <!-- Skip templates when this is the outer "restore-only" Aspire.Cli build that runs as
@@ -122,7 +129,7 @@
        aspire.dll is discarded; only the inner clipack Publish (which sets RuntimeIdentifier
        and Configuration=Release) produces the shipped binary. Without this guard both the
        outer Debug build and the inner Release+RID build trigger Aspire.ProjectTemplates
-       Build+Pack concurrently in separate processes, and the two parallel
+       Build concurrently in separate processes, and the two parallel
        `dotnet replace-text.cs` invocations race on the shared file-based-program cache
        under ~/.dotnet -> MSB3073 (exit code 1). See PR #17372 for the original log.
        Note: SkipManagedBuild propagates through clipack's <MSBuild Properties=...> call
@@ -132,71 +139,29 @@
     <_AspireCliIsOuterRestoreOnlyBuild Condition="'$(SkipManagedBuild)' == 'true' and '$(RuntimeIdentifier)' == ''">true</_AspireCliIsOuterRestoreOnlyBuild>
   </PropertyGroup>
 
-  <!-- Embed the Aspire.ProjectTemplates nupkg as a manifest resource so the CLI binary
-       always ships templates that match the CLI build by construction. At runtime the CLI
-       extracts this nupkg to a per-CLI-version cache dir and runs `dotnet new install
-       <path>`, eliminating all NuGet-based template resolution. See
+  <!-- Embed the Aspire.ProjectTemplates zip as a manifest resource so the CLI binary always
+       ships templates that match the CLI build by construction. At runtime the CLI extracts
+       this zip to a per-CLI-version cache dir and runs `dotnet new install <extracted-dir>`
+       against a private DOTNET_CLI_HOME, eliminating all NuGet-based template resolution
+       and leaving the user's global template index untouched. See
        Aspire.Cli.Templating.EmbeddedTemplatePackageProvider.
 
-       Lookup strategy: glob across every config's Shipping/ folder under
-       $(ArtifactsPackagesDir). This deliberately tolerates a cross-config match —
-       in build-packages.yml CI the outer build runs Debug (producing
-       Debug/Shipping/Aspire.ProjectTemplates.<ver>.nupkg) and the clipack step then
-       builds Aspire.Cli with Configuration=Release+RuntimeIdentifier. We want that inner
-       Release build to *reuse* the Debug-config nupkg, not trigger a second pack of
-       Aspire.ProjectTemplates into Release/Shipping (which would pollute the
-       built-nugets artifact — see PR #17372 follow-up). Only if no nupkg exists anywhere
-       (e.g. inner-loop Aspire.Cli build in isolation, or the native-archive flow where
-       SkipManagedBuild=true skipped the templates project) do we fall back to an
-       explicit Pack call. -->
+       The zip is produced by the ZipProjectTemplates target in
+       ..\Aspire.ProjectTemplates\Aspire.ProjectTemplates.csproj, which runs
+       AfterTargets="Build". The ProjectReference above guarantees that target has executed
+       before this one. -->
   <Target Name="_ResolveEmbeddedTemplatesNupkg"
           BeforeTargets="AssignTargetPaths;PrepareResources"
           Condition="'$(SkipEmbeddedTemplatesNupkg)' != 'true' and '$(IsCliToolProject)' != 'true' and '$(_AspireCliIsOuterRestoreOnlyBuild)' != 'true'">
     <PropertyGroup>
-      <!-- $(ArtifactsPackagesDir) is config-specific (e.g. artifacts/packages/Release/), so
-           we step up one level to scan all configs' Shipping/ subfolders. -->
-      <_AllPackagesDir>$([System.IO.Path]::GetFullPath('$(ArtifactsPackagesDir)..\'))</_AllPackagesDir>
+      <_EmbeddedTemplatesZipPath>$([System.IO.Path]::GetFullPath('$(ArtifactsBinDir)Aspire.ProjectTemplates\$(Configuration)\$(DefaultTargetFramework)\Aspire.ProjectTemplates.zip'))</_EmbeddedTemplatesZipPath>
     </PropertyGroup>
+
+    <Error Condition="!Exists('$(_EmbeddedTemplatesZipPath)')"
+           Text="Could not find Aspire.ProjectTemplates.zip at '$(_EmbeddedTemplatesZipPath)'. The Aspire.ProjectTemplates ProjectReference should have produced it during Build; this likely indicates a build ordering or property-mismatch problem. Set SkipEmbeddedTemplatesNupkg=true to opt out (CLI will fail at runtime when invoking 'aspire new' / 'aspire init')." />
+
     <ItemGroup>
-      <_EmbeddedTemplatesNupkgCandidate Include="$(_AllPackagesDir)**/Shipping/Aspire.ProjectTemplates.$(PackageVersion).nupkg" />
-    </ItemGroup>
-
-    <!-- Fallback: if no outer build produced the nupkg, build and pack it now in the
-         current Configuration. This covers (a) inner-loop `dotnet build src/Aspire.Cli/...`
-         from a clean tree, (b) the per-RID NativeAOT clipack flow where the outer build
-         skipped Aspire.ProjectTemplates via SkipManagedBuild, and (c) Arcade's full
-         `build.sh -build -pack` flow where the build phase and pack phase are separate
-         MSBuild invocations and the build phase doesn't pack (so the templates package
-         isn't on disk yet when Aspire.Cli's build runs, even though the templates
-         project has technically been "built").
-
-         IMPORTANT: Targets must be Restore;Build;Pack (in that order).
-           * Build is required because Aspire.ProjectTemplates populates its Content item
-             group via a target with AfterTargets="Build". Skipping Build produces an
-             empty package — surfaces at runtime as "No templates were found in the
-             package Aspire.ProjectTemplates@<ver>".
-           * Pack is required because Arcade's build phase suppresses
-             GeneratePackageOnBuild, so we cannot rely on Build alone to produce the
-             nupkg on disk. -->
-    <MSBuild Projects="..\Aspire.ProjectTemplates\Aspire.ProjectTemplates.csproj"
-             Targets="Restore;Build;Pack"
-             Properties="Configuration=$(Configuration)"
-             Condition="'@(_EmbeddedTemplatesNupkgCandidate)' == ''" />
-
-    <ItemGroup Condition="'@(_EmbeddedTemplatesNupkgCandidate)' == ''">
-      <_EmbeddedTemplatesNupkgCandidate Include="$(_AllPackagesDir)**/Shipping/Aspire.ProjectTemplates.$(PackageVersion).nupkg" />
-    </ItemGroup>
-
-    <Error Condition="'@(_EmbeddedTemplatesNupkgCandidate)' == ''"
-           Text="Could not find Aspire.ProjectTemplates.$(PackageVersion).nupkg under '$(ArtifactsPackagesDir)*/Shipping/'. Build Aspire.ProjectTemplates first (it has GeneratePackageOnBuild=true), or set SkipEmbeddedTemplatesNupkg=true to opt out (CLI will fail at runtime when invoking 'aspire new' / 'aspire init')." />
-
-    <PropertyGroup>
-      <!-- Prefer the first match. When the outer build packed in one config and this inner
-           build runs in another, taking the first match avoids re-packing. -->
-      <_EmbeddedTemplatesNupkgPath>@(_EmbeddedTemplatesNupkgCandidate->'%(Identity)', ';')</_EmbeddedTemplatesNupkgPath>
-    </PropertyGroup>
-    <ItemGroup>
-      <EmbeddedResource Include="@(_EmbeddedTemplatesNupkgCandidate->'%(Identity)')" LogicalName="Aspire.ProjectTemplates.nupkg" KeepDuplicates="false" />
+      <EmbeddedResource Include="$(_EmbeddedTemplatesZipPath)" LogicalName="Aspire.ProjectTemplates.zip" KeepDuplicates="false" />
     </ItemGroup>
   </Target>
 

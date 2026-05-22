@@ -58,6 +58,15 @@ internal sealed class ProcessInvocationOptions
     /// Useful for background operations like NuGet package cache refreshes.
     /// </summary>
     public bool SuppressLogging { get; set; }
+
+    /// <summary>
+    /// When set, overrides <c>DOTNET_CLI_HOME</c> for the spawned <c>dotnet</c>
+    /// process. Used by template-engine operations (<c>dotnet new install</c> /
+    /// <c>dotnet new &lt;template&gt;</c>) so the engine's per-user state is
+    /// confined to a CLI-managed private directory and never touches
+    /// <c>~/.templateengine</c> or the user's other dotnet caches.
+    /// </summary>
+    public DirectoryInfo? DotnetCliHome { get; set; }
 }
 
 internal sealed class DotNetCliRunner(
@@ -101,6 +110,25 @@ internal sealed class DotNetCliRunner(
         var finalEnv = env?.ToDictionary() ?? new Dictionary<string, string>();
         ConfigureDotNetEnvironment(finalEnv);
         processActivity.AddContextToEnvironment(finalEnv);
+
+        // Honor a per-call DOTNET_CLI_HOME override (used by template-engine operations to
+        // confine installed templates and engine state to an Aspire-owned private directory).
+        // Setting both DOTNET_CLI_HOME and HOME / USERPROFILE keeps every dotnet/templateengine
+        // path lookup in sync — DOTNET_CLI_HOME alone is not always sufficient on all platforms
+        // because some template-engine layers fall back to HOME/USERPROFILE.
+        if (options.DotnetCliHome is { } cliHome)
+        {
+            cliHome.Create();
+            finalEnv["DOTNET_CLI_HOME"] = cliHome.FullName;
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                finalEnv["USERPROFILE"] = cliHome.FullName;
+            }
+            else
+            {
+                finalEnv["HOME"] = cliHome.FullName;
+            }
+        }
 
         // Resolve the dotnet executable path, preferring the private SDK installation if available.
         var dotnetPath = ResolveDotNetPath(finalEnv);
@@ -734,24 +762,24 @@ internal sealed class DotNetCliRunner(
 
         // NOTE: The change to @ over :: for template version separator (now enforced in .NET 10.0 SDK).
         var workingDirectory = nugetConfigFile?.Directory ?? executionContext.WorkingDirectory;
-        var localPackagePath = ResolveLocalTemplatePackagePath(packageName, version, nugetSource, workingDirectory);
+        var localSourcePath = ResolveLocalTemplateSourcePath(packageName, version, nugetSource, workingDirectory);
 
-        // dotnet new install <path>.nupkg --force can register duplicate template packages for the same
-        // local file. Refresh local packages by uninstalling first, then reinstalling without --force.
-        if (localPackagePath is not null && force)
+        // dotnet new install <path> --force can register duplicate template packages for the same
+        // local source. Refresh local installs by uninstalling first, then reinstalling without --force.
+        if (localSourcePath is not null && force)
         {
             await UninstallTemplateAsync(packageName, workingDirectory, cancellationToken);
             force = false;
         }
 
-        List<string> cliArgs = ["new", "install", localPackagePath?.FullName ?? $"{packageName}@{version}"];
+        List<string> cliArgs = ["new", "install", localSourcePath ?? $"{packageName}@{version}"];
 
         if (force)
         {
             cliArgs.Add("--force");
         }
 
-        if (localPackagePath is null && nugetSource is not null)
+        if (localSourcePath is null && nugetSource is not null)
         {
             cliArgs.Add("--nuget-source");
             cliArgs.Add(nugetSource);
@@ -829,11 +857,11 @@ internal sealed class DotNetCliRunner(
             //
             if (!TryParsePackageVersionFromStdout(stdout, out var parsedVersion))
             {
-                if (localPackagePath is not null)
+                if (localSourcePath is not null)
                 {
                     logger.LogError(
-                        "dotnet new install reported success for local template package {LocalPackagePath} but the expected \"Success: {PackageName}\" line was not present in stdout; treating as a failed install. Stdout: {Stdout}, Stderr: {Stderr}",
-                        localPackagePath.FullName,
+                        "dotnet new install reported success for local template source {LocalSourcePath} but the expected \"Success: {PackageName}\" line was not present in stdout; treating as a failed install. Stdout: {Stdout}, Stderr: {Stderr}",
+                        localSourcePath,
                         packageName,
                         stdout,
                         stderr);
@@ -875,7 +903,21 @@ internal sealed class DotNetCliRunner(
         }
     }
 
-    private static FileInfo? ResolveLocalTemplatePackagePath(string packageName, string version, string? nugetSource, DirectoryInfo workingDirectory)
+    /// <summary>
+    /// If <paramref name="nugetSource"/> points to a local file or directory that
+    /// <c>dotnet new install</c> can consume directly, returns the absolute path to
+    /// pass to the install command. Returns <see langword="null"/> when the source is
+    /// a remote URL or a directory without a usable template payload.
+    /// </summary>
+    /// <remarks>
+    /// Three local shapes are recognized, in order:
+    /// <list type="number">
+    ///   <item>A <c>.nupkg</c> file path — passed straight through.</item>
+    ///   <item>A directory containing <c>&lt;packageName&gt;.&lt;version&gt;.nupkg</c> — the nupkg path is returned.</item>
+    ///   <item>A directory that contains one or more templates (recognizable by a nested <c>.template.config</c> folder) — the directory itself is returned. This is the shape produced by <see cref="Templating.EmbeddedTemplatePackageProvider"/>, where the templates have been extracted from the CLI's embedded archive.</item>
+    /// </list>
+    /// </remarks>
+    private static string? ResolveLocalTemplateSourcePath(string packageName, string version, string? nugetSource, DirectoryInfo workingDirectory)
     {
         if (string.IsNullOrWhiteSpace(nugetSource))
         {
@@ -899,7 +941,7 @@ internal sealed class DotNetCliRunner(
 
         if (File.Exists(sourcePath) && string.Equals(Path.GetExtension(sourcePath), ".nupkg", StringComparison.OrdinalIgnoreCase))
         {
-            return new FileInfo(sourcePath);
+            return sourcePath;
         }
 
         if (!Directory.Exists(sourcePath))
@@ -911,13 +953,35 @@ internal sealed class DotNetCliRunner(
         var packagePath = Directory.EnumerateFiles(sourcePath, "*.nupkg", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(path => string.Equals(Path.GetFileName(path), expectedFileName, StringComparison.OrdinalIgnoreCase));
 
-        return packagePath is null ? null : new FileInfo(packagePath);
+        if (packagePath is not null)
+        {
+            return packagePath;
+        }
+
+        // A directory containing a .template.config tree anywhere underneath is consumable by
+        // `dotnet new install <dir>` directly — this is the embedded-templates extraction
+        // shape. Probe at most two levels deep so we don't walk arbitrary subtrees.
+        if (Directory.EnumerateDirectories(sourcePath, ".template.config", SearchOption.AllDirectories).Any())
+        {
+            return sourcePath;
+        }
+
+        return null;
     }
 
     internal static bool TryParsePackageVersionFromStdout(string stdout, [NotNullWhen(true)] out string? version)
     {
         var lines = stdout.Split(Environment.NewLine);
-        var successLine = lines.SingleOrDefault(x => x.StartsWith("Success: Aspire.ProjectTemplates"));
+
+        // dotnet new install emits one of:
+        //   "Success: Aspire.ProjectTemplates@13.4.0 installed the following templates: ..."   (nupkg)
+        //   "Success: Aspire.ProjectTemplates::13.4.0 installed the following templates: ..."  (older SDKs, :: separator)
+        //   "Success: /tmp/abc/.../templates installed the following templates: ..."           (folder-based install)
+        // For folder-based installs the second whitespace-delimited chunk is a path with no
+        // version, which means we can't derive a version from stdout — the caller falls back
+        // to the CLI's own template version. Accept any "Success: ..." prefix so we recognize
+        // both cases; let the version-parse path harmlessly return null for the folder shape.
+        var successLine = lines.SingleOrDefault(x => x.StartsWith("Success: ", StringComparison.Ordinal));
 
         if (successLine is null)
         {
@@ -936,16 +1000,10 @@ internal sealed class DotNetCliRunner(
             _ => null
         };
 
-        if (templateVersion is not null)
-        {
-            version = templateVersion;
-            return true;
-        }
-        else
-        {
-            version = null;
-            return false;
-        }
+        // Folder-based installs hit `_ => null` above. Still report success — the caller
+        // already has the CLI's own version to display.
+        version = templateVersion ?? string.Empty;
+        return true;
     }
 
     public async Task<int> NewProjectAsync(string templateName, string name, string outputPath, string[] extraArgs, ProcessInvocationOptions options, CancellationToken cancellationToken)

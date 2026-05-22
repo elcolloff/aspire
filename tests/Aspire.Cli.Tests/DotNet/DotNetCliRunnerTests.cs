@@ -1901,16 +1901,15 @@ public class DotNetCliRunnerTests(ITestOutputHelper outputHelper)
     }
 
     [Theory]
-    [InlineData("Success: Aspire.ProjectTemplates@13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // New .NET 10.0 SDK format with @ separator
-    [InlineData("Success: Aspire.ProjectTemplates::13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // Old SDK format with :: separator
-    [InlineData("Some other output", false, null)] // Missing success line
-    [InlineData("Success: Aspire.ProjectTemplates installed the following templates:", false, null)] // Invalid format without version separator
+    [InlineData("Success: Aspire.ProjectTemplates@13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // .NET 10.0 SDK format with @ separator
+    [InlineData("Success: Aspire.ProjectTemplates::13.2.0-preview.1.26101.12 installed the following templates:", true, "13.2.0-preview.1.26101.12")] // Older SDK format with :: separator
+    [InlineData("Success: /tmp/abc/templates installed the following templates:", true, "")] // Folder-based install: success line has no parseable version
+    [InlineData("Success: Aspire.ProjectTemplates installed the following templates:", true, "")] // Success line present but no @/:: version separator — treated as success with empty version
+    [InlineData("Some other output", false, null)] // Missing success line entirely
     public void TryParsePackageVersionFromStdout_ParsesCorrectly(string stdout, bool expectedResult, string? expectedVersion)
     {
-        // Act
         var result = DotNetCliRunner.TryParsePackageVersionFromStdout(stdout, out var version);
 
-        // Assert
         Assert.Equal(expectedResult, result);
         Assert.Equal(expectedVersion, version);
     }

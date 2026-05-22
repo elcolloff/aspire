@@ -1,32 +1,41 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.IO.Compression;
 using Aspire.Cli.Utils;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Cli.Templating;
 
 /// <summary>
-/// Materializes the Aspire.ProjectTemplates package that is embedded in the CLI assembly
-/// (see <c>Aspire.Cli.csproj</c> EmbeddedResource entry) to a stable on-disk path that
-/// can be handed to <c>dotnet new install</c>.
+/// Materializes the Aspire.ProjectTemplates archive that is embedded in the CLI assembly
+/// (see <c>Aspire.Cli.csproj</c> EmbeddedResource entry) to a stable on-disk directory
+/// that can be handed to <c>dotnet new install</c>, alongside a private
+/// <c>DOTNET_CLI_HOME</c> so the template install is fully isolated from the user's
+/// global template index.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Embedding the templates package inside the CLI binary eliminates all NuGet-based
-/// resolution of templates. The package shipped inside any given CLI build is, by
-/// construction, the templates package produced by the same build — so the version,
-/// SHA, and channel of the templates can never drift from the CLI. Every acquisition
-/// scenario (workspace build, localhive, PR build, daily, staging, stable) shares a
-/// single deterministic path.
+/// Embedding the templates archive inside the CLI binary eliminates all NuGet-based
+/// resolution of templates. The archive shipped inside any given CLI build is, by
+/// construction, the templates produced by the same build — so the version, SHA, and
+/// channel of the templates can never drift from the CLI. Every acquisition scenario
+/// (workspace build, localhive, PR build, daily, staging, stable) shares a single
+/// deterministic path.
 /// </para>
 /// <para>
-/// Extraction is lazy and idempotent. The nupkg is written to
-/// <c>{AspireHomeDirectory}/templates/{cli-version}/Aspire.ProjectTemplates.{cli-version}.nupkg</c>
-/// the first time it is requested and reused on every subsequent invocation of the
-/// same CLI build. Concurrent extractions from multiple processes are safe because
-/// the final rename is atomic and equally-versioned binaries write byte-identical
-/// payloads.
+/// Extraction is lazy and idempotent. The archive is extracted to
+/// <c>{AspireHomeDirectory}/templates/{cli-version}/templates/</c> the first time it is
+/// requested and reused on every subsequent invocation of the same CLI build. The
+/// sibling <c>{AspireHomeDirectory}/templates/{cli-version}/cli-home/</c> directory is
+/// used as a private <c>DOTNET_CLI_HOME</c> so all template-engine state (installed
+/// packages, template indexes, settings) lives under Aspire's own home and never
+/// touches <c>~/.templateengine</c> or the user's other dotnet caches.
+/// </para>
+/// <para>
+/// Concurrent extractions from multiple processes are safe: the extraction happens into
+/// a sibling temp directory which is then atomically renamed into place; equally-versioned
+/// binaries write byte-identical payloads, so the rename winner does not matter.
 /// </para>
 /// </remarks>
 internal sealed class EmbeddedTemplatePackageProvider(
@@ -34,21 +43,22 @@ internal sealed class EmbeddedTemplatePackageProvider(
     ILogger<EmbeddedTemplatePackageProvider> logger)
 {
     // Must match the LogicalName in Aspire.Cli.csproj (_ResolveEmbeddedTemplatesNupkg target).
-    private const string EmbeddedResourceName = "Aspire.ProjectTemplates.nupkg";
+    private const string EmbeddedResourceName = "Aspire.ProjectTemplates.zip";
 
-    private const string PackageId = "Aspire.ProjectTemplates";
+    // Sentinel file that signals a fully-extracted templates directory. Created last so
+    // partial extractions are recoverable by ignoring directories without the sentinel.
+    private const string ExtractionCompleteMarker = ".aspire-extracted";
 
     /// <summary>
-    /// Returns the on-disk path to the embedded templates nupkg, extracting it on the
-    /// first call. The path is stable for the lifetime of the running CLI binary, keyed
-    /// by the CLI's informational version so a different CLI build never reuses another
-    /// build's extracted payload.
+    /// Returns the on-disk paths of the extracted templates directory and the private
+    /// <c>DOTNET_CLI_HOME</c> to use for template-engine operations, extracting the
+    /// embedded archive on first call.
     /// </summary>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when the templates package is not embedded in the CLI assembly. This only
+    /// Thrown when the templates archive is not embedded in the CLI assembly. This only
     /// happens for builds produced with <c>SkipEmbeddedTemplatesNupkg=true</c>.
     /// </exception>
-    public async Task<FileInfo> EnsureExtractedAsync(CancellationToken cancellationToken)
+    public async Task<EmbeddedTemplatesLocation> EnsureExtractedAsync(CancellationToken cancellationToken)
     {
         var cliVersion = VersionHelper.GetDefaultTemplateVersion();
 
@@ -57,29 +67,28 @@ internal sealed class EmbeddedTemplatePackageProvider(
         // directory so the on-disk path is uniform regardless of build SHA suffix shape.
         var versionDirName = cliVersion.Replace('+', '_');
 
-        var cacheDir = new DirectoryInfo(Path.Combine(
+        var rootDir = new DirectoryInfo(Path.Combine(
             executionContext.AspireHomeDirectory.FullName,
             "templates",
             versionDirName));
 
-        // dotnet new install relies on the on-disk filename matching the canonical
-        // <PackageId>.<Version>.nupkg shape for local-path installs. When the file is
-        // named just "<PackageId>.nupkg", some host SDKs silently no-op the install
-        // (exit 0, no stdout, no templates registered) which then surfaces as a
-        // confusing "No templates or subcommands found matching <id>" exit 103 from
-        // the subsequent `dotnet new <id>` invocation. Always emit the versioned
-        // filename to avoid that footgun.
-        var packageFileName = $"{PackageId}.{cliVersion}.nupkg";
-        var targetPath = Path.Combine(cacheDir.FullName, packageFileName);
+        var templatesDir = new DirectoryInfo(Path.Combine(rootDir.FullName, "templates"));
+        var cliHomeDir = new DirectoryInfo(Path.Combine(rootDir.FullName, "cli-home"));
 
-        if (File.Exists(targetPath))
+        var sentinelPath = Path.Combine(templatesDir.FullName, ExtractionCompleteMarker);
+        if (File.Exists(sentinelPath))
         {
-            logger.LogDebug("Embedded templates nupkg already extracted at {TargetPath}; reusing.", targetPath);
-            return new FileInfo(targetPath);
+            logger.LogDebug("Embedded templates already extracted at {TemplatesDir}; reusing.", templatesDir.FullName);
+            // Ensure the private CLI home directory exists; it is created lazily here in
+            // case a previous CLI version extracted templates but the cli-home dir was
+            // pruned externally.
+            cliHomeDir.Create();
+            return new EmbeddedTemplatesLocation(templatesDir, cliHomeDir);
         }
 
-        logger.LogDebug("Extracting embedded templates nupkg for CLI version {CliVersion} to {TargetPath}.", cliVersion, targetPath);
-        cacheDir.Create();
+        logger.LogDebug("Extracting embedded templates for CLI version {CliVersion} to {TemplatesDir}.", cliVersion, templatesDir.FullName);
+        rootDir.Create();
+        cliHomeDir.Create();
 
         var assembly = typeof(EmbeddedTemplatePackageProvider).Assembly;
         await using var resourceStream = assembly.GetManifestResourceStream(EmbeddedResourceName)
@@ -87,54 +96,70 @@ internal sealed class EmbeddedTemplatePackageProvider(
                 $"Embedded resource '{EmbeddedResourceName}' was not found in the CLI assembly. " +
                 $"This build was produced with SkipEmbeddedTemplatesNupkg=true; rebuild without that property.");
 
-        // Write to a sibling temp file and rename so concurrent CLI processes never see
-        // a partially-written nupkg. Equally-versioned binaries write byte-identical
-        // payloads so the rename winner does not matter.
-        var tempPath = targetPath + ".tmp-" + Path.GetRandomFileName();
+        // Extract into a sibling temp directory and rename so concurrent CLI processes
+        // never see a partially-populated templates tree. Equally-versioned binaries write
+        // byte-identical payloads so the rename winner does not matter.
+        var tempDirPath = templatesDir.FullName + ".tmp-" + Path.GetRandomFileName();
         try
         {
-            await using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            Directory.CreateDirectory(tempDirPath);
+            using (var zip = new ZipArchive(resourceStream, ZipArchiveMode.Read, leaveOpen: false))
             {
-                await resourceStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+                zip.ExtractToDirectory(tempDirPath, overwriteFiles: true);
             }
+
+            // Write the sentinel last so a crash mid-extract leaves the directory
+            // unmarked and we retry on the next run.
+            await File.WriteAllTextAsync(Path.Combine(tempDirPath, ExtractionCompleteMarker), cliVersion, cancellationToken).ConfigureAwait(false);
 
             try
             {
-                File.Move(tempPath, targetPath);
-                logger.LogDebug("Extracted embedded templates nupkg to {TargetPath}.", targetPath);
+                Directory.Move(tempDirPath, templatesDir.FullName);
+                logger.LogDebug("Extracted embedded templates to {TemplatesDir}.", templatesDir.FullName);
             }
-            catch (IOException) when (File.Exists(targetPath))
+            catch (IOException) when (File.Exists(sentinelPath))
             {
-                // Not redundant with the outer catch: the outer catch rethrows (a true
-                // extraction failure), but losing the rename race against another CLI
-                // process that wrote the byte-identical payload is a *success* path — we
-                // just drop our temp copy and return the winner's file. Without this
-                // inner handler, concurrent first-time extractions would surface as
-                // user-visible errors.
-                logger.LogDebug("Another process wrote {TargetPath} concurrently; using the existing file and discarding {TempPath}.", targetPath, tempPath);
-                TryDelete(tempPath);
+                // Lost the rename race against another CLI process that wrote the
+                // byte-identical payload — that's a success path. Drop our copy and use
+                // the existing directory.
+                logger.LogDebug("Another process populated {TemplatesDir} concurrently; using the existing tree and discarding {TempDir}.", templatesDir.FullName, tempDirPath);
+                TryDeleteDirectory(tempDirPath);
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to extract embedded templates nupkg to {TargetPath}.", targetPath);
-            TryDelete(tempPath);
+            logger.LogError(ex, "Failed to extract embedded templates to {TemplatesDir}.", templatesDir.FullName);
+            TryDeleteDirectory(tempDirPath);
             throw;
         }
 
-        return new FileInfo(targetPath);
+        return new EmbeddedTemplatesLocation(templatesDir, cliHomeDir);
     }
 
-    private void TryDelete(string path)
+    private void TryDeleteDirectory(string path)
     {
         try
         {
-            File.Delete(path);
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
         }
         catch (Exception ex)
         {
-            // Best-effort cleanup; a leftover .tmp-* file is harmless.
-            logger.LogDebug(ex, "Failed to delete temp file {Path}; ignoring.", path);
+            // Best-effort cleanup; a leftover .tmp-* directory is harmless.
+            logger.LogDebug(ex, "Failed to delete temp directory {Path}; ignoring.", path);
         }
     }
 }
+
+/// <summary>
+/// On-disk locations produced by <see cref="EmbeddedTemplatePackageProvider"/>.
+/// </summary>
+/// <param name="TemplatesDirectory">Directory containing the extracted template tree;
+/// suitable to pass to <c>dotnet new install</c>.</param>
+/// <param name="DotnetCliHomeDirectory">Private <c>DOTNET_CLI_HOME</c> to set on
+/// <c>dotnet new install</c> and subsequent <c>dotnet new &lt;template&gt;</c>
+/// invocations so the template engine's per-user state is fully isolated from the
+/// global user profile.</param>
+internal readonly record struct EmbeddedTemplatesLocation(DirectoryInfo TemplatesDirectory, DirectoryInfo DotnetCliHomeDirectory);
