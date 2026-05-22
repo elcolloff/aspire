@@ -655,6 +655,9 @@ public class TelemetryApiServiceTests
 
     private static List<OtlpSpanJson> GetAllSpans(TelemetryApiResponse result)
     {
+        // These tests care about which OTLP spans are returned, not the complete JSON
+        // serialization shape. Assert over the structured response model so a formatting
+        // change can't hide a filtering regression or create snapshot churn.
         return result.Data?.ResourceSpans?
             .SelectMany(rs => rs.ScopeSpans ?? [])
             .SelectMany(ss => ss.Spans ?? [])

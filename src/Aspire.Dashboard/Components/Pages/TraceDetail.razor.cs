@@ -199,6 +199,10 @@ public partial class TraceDetail : ComponentBase, IComponentWithTelemetry, IDisp
         IReadOnlyList<FieldTelemetryFilter> filters,
         Func<OtlpResourceView, string> getResourceName)
     {
+        // Trace Detail filters preserve surrounding context: when a span matches, its
+        // ancestors and descendants remain visible so the waterfall is still navigable.
+        // Duration participates in the same structured-filter path as the other fields
+        // so users don't have to learn a second set of filtering semantics.
         var visibleViewModels = new HashSet<SpanWaterfallViewModel>();
         foreach (var viewModel in spanWaterfallViewModels)
         {
