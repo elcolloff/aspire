@@ -40,7 +40,7 @@ const commonExcludePatterns = [
 
     // Generated/Cache
     '**/.angular/**',
-    '**/.aspire/**',
+    '**/.aspire/modules/**',
     '**/.azurite/**',
 ];
 
