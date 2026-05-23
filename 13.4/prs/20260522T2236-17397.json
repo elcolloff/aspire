@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Notable bug fix for polyglot endpoint callback deadlocks",
+  "mergedAt": "2026-05-22T22:36:52Z",
+  "number": 17397,
+  "runDate": "2026-05-23T00:39:38Z",
+  "status": "included",
+  "title": "Fix polyglot endpoint callback deadlocks"
+}

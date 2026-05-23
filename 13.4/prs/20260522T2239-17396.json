@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Trivial 1-line Homebrew cask comment normalization, no user-facing impact",
+  "mergedAt": "2026-05-22T22:39:54Z",
+  "number": 17396,
+  "runDate": "2026-05-23T00:39:38Z",
+  "status": "excluded",
+  "title": "Use canonical \"no zap\" comment instead of \"zap trash: []\" placeholder in Homebrew cask"
+}

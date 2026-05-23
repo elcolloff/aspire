@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed deadlocks that occurred in polyglot AppHosts when endpoint callback functions (withEndpointCallback, withHttpEndpointCallback, withHttpsEndpointCallback) made nested ATS/RPC mutations. The fix also hardens the ASPIREEXPORT010 analyzer to catch future exported methods that could cause the same issue.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔓",
+  "firstMergedAt": "2026-05-22T22:36:52Z",
+  "lastMergedAt": "2026-05-22T22:36:52Z",
+  "name": "Fix polyglot endpoint callback deadlocks",
+  "owner": "sebastienros",
+  "prs": [
+    17397
+  ]
+}

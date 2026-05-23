@@ -1,0 +1,9 @@
+{
+  "author": "maddymontaquila",
+  "comment": "New feature: TypeScript withEnvironment now supports ExternalServiceResource",
+  "mergedAt": "2026-05-23T00:04:02Z",
+  "number": 17393,
+  "runDate": "2026-05-23T00:39:38Z",
+  "status": "included",
+  "title": "Add external service support to TypeScript withEnvironment"
+}
