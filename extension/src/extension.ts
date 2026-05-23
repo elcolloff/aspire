@@ -36,6 +36,7 @@ import { AppHostFilePresenceWatcher } from './editor/AppHostFilePresenceWatcher'
 import { getSupportedLanguageIds } from './editor/parsers/AppHostResourceParser';
 import { readGitCommitSha } from './utils/versionInfo';
 import { collectResourceCommandArguments } from './views/ResourceCommandArguments';
+import { createResourceCommandArgumentLoader } from './views/ResourceCommandArgumentsLoader';
 import { ResourceCommandJson } from './views/AppHostDataRepository';
 
 let aspireExtensionContext = new AspireExtensionContext();
@@ -137,7 +138,15 @@ export async function activate(context: vscode.ExtensionContext) {
   const codeLensRegistration = vscode.languages.registerCodeLensProvider(languageFilters, codeLensProvider);
   const codeLensDebugPipelineStepRegistration = vscode.commands.registerCommand('aspire-vscode.codeLensDebugPipelineStep', (stepName: string) => editorCommandProvider.tryExecuteDoAppHost(false, stepName));
   const codeLensResourceActionRegistration = vscode.commands.registerCommand('aspire-vscode.codeLensResourceAction', async (resourceName: string, action: string, appHostPath: string, resourceCommand?: ResourceCommandJson) => {
-    const commandArguments = await collectResourceCommandArguments(action, resourceCommand, { secretWarningState: context.globalState });
+    const commandArguments = await collectResourceCommandArguments(action, resourceCommand, {
+      secretWarningState: context.globalState,
+      loadDynamicArguments: createResourceCommandArgumentLoader({
+        terminalProvider,
+        resourceName,
+        commandName: action,
+        appHostPath: appHostPath || undefined,
+      }),
+    });
     if (commandArguments === undefined) {
       return;
     }

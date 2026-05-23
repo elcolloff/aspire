@@ -1,6 +1,8 @@
 import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import * as cliModule from '../debugger/languages/cli';
+import { AspireTerminalProvider } from '../utils/AspireTerminalProvider';
 import {
     buildResourceCommandCliArgs,
     collectResourceCommandArguments,
@@ -11,6 +13,7 @@ import {
     resourceCommandSecretWarningSuppressedKey,
     ResourceCommandArgumentValue,
 } from '../views/ResourceCommandArguments';
+import { createResourceCommandArgumentLoader } from '../views/ResourceCommandArgumentsLoader';
 import { ResourceCommandArgumentInputJson } from '../views/AppHostDataRepository';
 
 function makeInput(overrides: Partial<ResourceCommandArgumentInputJson> = {}): ResourceCommandArgumentInputJson {
@@ -308,6 +311,64 @@ suite('ResourceCommandArguments', () => {
         }
         finally {
             warningStub.restore();
+        }
+    });
+
+    test('shared dynamic argument loader invokes load-arguments with current values', async () => {
+        const withProgressStub = sinon.stub(vscode.window, 'withProgress').callsFake((_options: any, task: any) => task(undefined, undefined));
+        const warningStub = sinon.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+        const stdinEnd = sinon.spy();
+        const terminalProvider = {
+            getAspireCliExecutablePath: async () => 'aspire',
+        } as AspireTerminalProvider;
+
+        let capturedCommand: string | undefined;
+        let capturedArgs: string[] | undefined;
+        const spawnStub = sinon.stub(cliModule, 'spawnCliProcess').callsFake((_terminalProvider, command, args, options) => {
+            capturedCommand = command;
+            capturedArgs = args;
+            queueMicrotask(() => {
+                options?.lineCallback?.('A new version of Aspire is available.');
+                options?.lineCallback?.('[{"name":"item","inputType":"Choice","options":{"banana":"Banana"}}]');
+                options?.exitCallback?.(0);
+            });
+
+            return { stdin: { end: stdinEnd } } as any;
+        });
+
+        try {
+            const loader = createResourceCommandArgumentLoader({
+                terminalProvider,
+                resourceName: 'argument-commands',
+                commandName: 'dependent-arguments',
+                appHostPath: '/repo/AppHost.csproj',
+            });
+
+            const loadedInputs = await loader([
+                { input: makeInput({ name: 'category', inputType: 'Choice' }), value: 'fruit' },
+            ]);
+
+            assert.strictEqual(capturedCommand, 'aspire');
+            assert.deepStrictEqual(capturedArgs, [
+                'resource',
+                'argument-commands',
+                'dependent-arguments',
+                '--load-arguments',
+                '--apphost',
+                '/repo/AppHost.csproj',
+                '--',
+                '--category=fruit',
+            ]);
+            assert.strictEqual(stdinEnd.calledOnce, true);
+            assert.strictEqual(warningStub.called, false);
+            assert.strictEqual(withProgressStub.calledOnce, true);
+            assert.strictEqual(loadedInputs?.[0]?.name, 'item');
+            assert.strictEqual(loadedInputs?.[0]?.options?.banana, 'Banana');
+        }
+        finally {
+            spawnStub.restore();
+            warningStub.restore();
+            withProgressStub.restore();
         }
     });
 
