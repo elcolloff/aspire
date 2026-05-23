@@ -339,6 +339,169 @@ public class AddJavaScriptAppTests
     }
 
     [Fact]
+    public async Task VerifyNpmWorkspaceDockerfileUsesWorkspaceRootContext()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+
+        var appDir = CreateWorkspaceApp(tempDir.Path, "apps", "web");
+        File.WriteAllText(Path.Combine(tempDir.Path, "package.json"), """
+            {
+              "workspaces": [
+                "apps/*"
+              ]
+            }
+            """);
+        File.WriteAllText(Path.Combine(tempDir.Path, "package-lock.json"), "{}");
+        File.WriteAllText(Path.Combine(tempDir.Path, ".nvmrc"), "20");
+
+        var npmApp = builder.AddJavaScriptApp("web", appDir)
+            .WithNpm()
+            .WithBuildScript("build");
+
+        var manifest = await ManifestUtils.GetManifest(npmApp.Resource, tempDir.Path);
+
+        Assert.Equal(".", manifest["build"]?["context"]?.ToString());
+
+        var dockerBuildAnnotation = npmApp.Resource.Annotations.OfType<DockerfileBuildAnnotation>().Single();
+        Assert.Equal(Path.GetFullPath(tempDir.Path), dockerBuildAnnotation.ContextPath);
+
+        var dockerfileContents = await File.ReadAllTextAsync(Path.Combine(tempDir.Path, "web.Dockerfile"));
+        Assert.Contains("FROM node:20-slim", dockerfileContents);
+        Assert.Contains("COPY . .", dockerfileContents);
+        Assert.Contains("RUN --mount=type=cache,target=/root/.npm npm ci", dockerfileContents);
+        Assert.Contains("WORKDIR /app/apps/web", dockerfileContents);
+        Assert.Contains("RUN npm run build", dockerfileContents);
+        Assert.DoesNotContain("COPY package*.json ./", dockerfileContents);
+    }
+
+    [Fact]
+    public async Task VerifyNpmScriptWorkspaceDockerfileUsesWorkspaceRootForProductionDependencies()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+
+        var appDir = CreateWorkspaceApp(tempDir.Path, "apps", "web");
+        File.WriteAllText(Path.Combine(tempDir.Path, "package.json"), """
+            {
+              "workspaces": [
+                "apps/*"
+              ]
+            }
+            """);
+        File.WriteAllText(Path.Combine(tempDir.Path, "package-lock.json"), "{}");
+
+        var npmApp = builder.AddJavaScriptApp("web", appDir)
+            .WithNpm()
+            .WithBuildScript("build")
+            .PublishAsNpmScript();
+
+        await ManifestUtils.GetManifest(npmApp.Resource, tempDir.Path);
+
+        var dockerfileContents = await File.ReadAllTextAsync(Path.Combine(tempDir.Path, "web.Dockerfile"));
+        Assert.Contains("FROM node:22-slim AS prod-deps", dockerfileContents);
+        Assert.Contains("RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev", dockerfileContents);
+        Assert.Contains("COPY --from=prod-deps /app /app", dockerfileContents);
+        Assert.Contains("WORKDIR /app/apps/web", dockerfileContents);
+        Assert.Contains("ENTRYPOINT [\"sh\",\"-c\",\"exec npm run start\"]", dockerfileContents);
+    }
+
+    [Fact]
+    public async Task VerifyYarnWorkspaceDockerfileUsesWorkspaceRootLockFile()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+
+        var appDir = CreateWorkspaceApp(tempDir.Path, "packages", "web");
+        File.WriteAllText(Path.Combine(tempDir.Path, "package.json"), """
+            {
+              "workspaces": {
+                "packages": [
+                  "packages/*"
+                ]
+              }
+            }
+            """);
+        File.WriteAllText(Path.Combine(tempDir.Path, "yarn.lock"), string.Empty);
+
+        var yarnApp = builder.AddJavaScriptApp("web", appDir)
+            .WithYarn()
+            .WithBuildScript("build");
+
+        await ManifestUtils.GetManifest(yarnApp.Resource, tempDir.Path);
+
+        var dockerBuildAnnotation = yarnApp.Resource.Annotations.OfType<DockerfileBuildAnnotation>().Single();
+        Assert.Equal(Path.GetFullPath(tempDir.Path), dockerBuildAnnotation.ContextPath);
+
+        var dockerfileContents = await File.ReadAllTextAsync(Path.Combine(tempDir.Path, "web.Dockerfile"));
+        Assert.Contains("COPY . .", dockerfileContents);
+        Assert.Contains("RUN --mount=type=cache,target=/root/.cache/yarn yarn install --frozen-lockfile", dockerfileContents);
+        Assert.Contains("WORKDIR /app/packages/web", dockerfileContents);
+        Assert.Contains("RUN yarn run build", dockerfileContents);
+        Assert.DoesNotContain("COPY package.json yarn.lock ./", dockerfileContents);
+    }
+
+    [Fact]
+    public async Task VerifyPnpmWorkspaceDockerfileUsesWorkspaceRootContext()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+
+        var appDir = CreateWorkspaceApp(tempDir.Path, "apps", "web");
+        File.WriteAllText(Path.Combine(tempDir.Path, "pnpm-workspace.yaml"), """
+            packages:
+              - apps/*
+            """);
+        File.WriteAllText(Path.Combine(tempDir.Path, "pnpm-lock.yaml"), string.Empty);
+
+        var pnpmApp = builder.AddJavaScriptApp("web", appDir)
+            .WithPnpm()
+            .WithBuildScript("build");
+
+        await ManifestUtils.GetManifest(pnpmApp.Resource, tempDir.Path);
+
+        var dockerBuildAnnotation = pnpmApp.Resource.Annotations.OfType<DockerfileBuildAnnotation>().Single();
+        Assert.Equal(Path.GetFullPath(tempDir.Path), dockerBuildAnnotation.ContextPath);
+
+        var dockerfileContents = await File.ReadAllTextAsync(Path.Combine(tempDir.Path, "web.Dockerfile"));
+        Assert.Contains("RUN corepack enable pnpm", dockerfileContents);
+        Assert.Contains("COPY . .", dockerfileContents);
+        Assert.Contains("RUN --mount=type=cache,target=/pnpm/store pnpm install --frozen-lockfile", dockerfileContents);
+        Assert.Contains("WORKDIR /app/apps/web", dockerfileContents);
+        Assert.Contains("RUN pnpm run build", dockerfileContents);
+        Assert.DoesNotContain("COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./", dockerfileContents);
+    }
+
+    [Fact]
+    public async Task VerifyUnmatchedAncestorWorkspaceDoesNotChangeDockerContext()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+
+        var appDir = CreateWorkspaceApp(tempDir.Path, "apps", "web");
+        File.WriteAllText(Path.Combine(tempDir.Path, "package.json"), """
+            {
+              "workspaces": [
+                "packages/*"
+              ]
+            }
+            """);
+
+        var npmApp = builder.AddJavaScriptApp("web", appDir)
+            .WithNpm()
+            .WithBuildScript("build");
+
+        await ManifestUtils.GetManifest(npmApp.Resource, tempDir.Path);
+
+        var dockerBuildAnnotation = npmApp.Resource.Annotations.OfType<DockerfileBuildAnnotation>().Single();
+        Assert.Equal(Path.GetFullPath(appDir), dockerBuildAnnotation.ContextPath);
+
+        var dockerfileContents = await File.ReadAllTextAsync(Path.Combine(tempDir.Path, "web.Dockerfile"));
+        Assert.Contains("COPY package*.json ./", dockerfileContents);
+        Assert.DoesNotContain("WORKDIR /app/apps/web", dockerfileContents);
+    }
+
+    [Fact]
     [RequiresFeature(TestFeature.Docker | TestFeature.DockerPluginBuildx)]
     [OuterloopTest("Builds a Docker image to verify the generated pnpm Dockerfile works")]
     public async Task VerifyPnpmDockerfileBuildSucceeds()
@@ -527,6 +690,21 @@ public class AddJavaScriptAppTests
             {
               "scripts": {
                 "migrate": "bun src/migrate.ts"
+              }
+            }
+            """);
+
+        return appDir;
+    }
+
+    private static string CreateWorkspaceApp(string rootDirectory, string parentDirectoryName, string appName)
+    {
+        var appDir = Path.Combine(rootDirectory, parentDirectoryName, appName);
+        Directory.CreateDirectory(appDir);
+        File.WriteAllText(Path.Combine(appDir, "package.json"), """
+            {
+              "scripts": {
+                "build": "echo building"
               }
             }
             """);

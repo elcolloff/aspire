@@ -10,6 +10,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.ApplicationModel.Docker;
 using Aspire.Hosting.JavaScript;
@@ -161,7 +162,8 @@ public static class JavaScriptHostingExtensions
                     return;
                 }
 
-                c.WithDockerfileBuilder(resource.WorkingDirectory, dockerfileContext =>
+                var dockerfilePaths = GetJavaScriptDockerfileContext(resource.WorkingDirectory);
+                c.WithDockerfileBuilder(dockerfilePaths.ContextPath, dockerfileContext =>
                 {
                     var defaultBaseImage = new Lazy<string>(() => GetDefaultBaseImage(appDirectory, "alpine", dockerfileContext.Services));
 
@@ -172,7 +174,7 @@ public static class JavaScriptHostingExtensions
                     var builderStage = dockerfileContext.Builder
                         .From(baseBuildImage, "build")
                         .EmptyLine()
-                        .WorkDir("/app");
+                        .WorkDir(JavaScriptDockerfileContext.RootContainerPath);
 
                     if (resource.TryGetLastAnnotation<JavaScriptPackageManagerAnnotation>(out var packageManager))
                     {
@@ -184,9 +186,16 @@ public static class JavaScriptHostingExtensions
                         var copiedAllSource = false;
                         if (resource.TryGetLastAnnotation<JavaScriptInstallCommandAnnotation>(out var installCommand))
                         {
-                            // Copy package files first for better layer caching
-                            if (packageManager.PackageFilesPatterns.Count > 0)
+                            if (dockerfilePaths.IsWorkspace)
                             {
+                                // Workspace installs need all workspace package manifests available when the
+                                // package manager resolves the dependency graph, so copy the full context first.
+                                builderStage.Copy(".", ".");
+                                copiedAllSource = true;
+                            }
+                            else if (packageManager.PackageFilesPatterns.Count > 0)
+                            {
+                                // Copy package files first for better layer caching
                                 foreach (var packageFilePattern in packageManager.PackageFilesPatterns)
                                 {
                                     builderStage.Copy(packageFilePattern.Source, packageFilePattern.Destination);
@@ -199,6 +208,11 @@ public static class JavaScriptHostingExtensions
                             }
 
                             builderStage.AddInstallCommand(packageManager, installCommand);
+                        }
+
+                        if (dockerfilePaths.IsWorkspace)
+                        {
+                            builderStage.WorkDir(dockerfilePaths.AppContainerPath);
                         }
 
                         if (!copiedAllSource)
@@ -234,15 +248,21 @@ public static class JavaScriptHostingExtensions
                     var runtimeBuilder = dockerfileContext.Builder
                         .From(baseRuntimeImage, "runtime")
                             .EmptyLine()
-                            .WorkDir("/app")
+                            .WorkDir(JavaScriptDockerfileContext.RootContainerPath)
                             .CopyFrom("build", "/app", "/app")
-                            .AddContainerFiles(dockerfileContext.Resource, "/app", logger)
-                            .EmptyLine()
-                            .Env("NODE_ENV", "production")
-                            .EmptyLine()
-                            .User("node")
-                            .EmptyLine()
-                            .Entrypoint([resource.Command, scriptPath]);
+                            .AddContainerFiles(dockerfileContext.Resource, "/app", logger);
+
+                    if (dockerfilePaths.IsWorkspace)
+                    {
+                        runtimeBuilder.WorkDir(dockerfilePaths.AppContainerPath);
+                    }
+
+                    runtimeBuilder.EmptyLine()
+                        .Env("NODE_ENV", "production")
+                        .EmptyLine()
+                        .User("node")
+                        .EmptyLine()
+                        .Entrypoint([resource.Command, scriptPath]);
                 });
             });
 
@@ -510,7 +530,7 @@ public static class JavaScriptHostingExtensions
 
         builder.WithAnnotation(annotation)
                .ClearContainerFilesSources()
-               .WithContainerFilesSource(GetContainerFilesSourcePath(options.OutputPath))
+               .WithContainerFilesSource(GetContainerFilesSourcePath(builder.Resource.WorkingDirectory, options.OutputPath))
                .WithOtlpExporter();
 
         if (builder.Resource.TryGetLastAnnotation<DockerfileBuildAnnotation>(out var dockerfileBuildAnnotation))
@@ -568,7 +588,7 @@ public static class JavaScriptHostingExtensions
 
         builder.WithAnnotation(annotation)
                .ClearContainerFilesSources()
-               .WithContainerFilesSource(GetContainerFilesSourcePath(outputPath))
+               .WithContainerFilesSource(GetContainerFilesSourcePath(builder.Resource.WorkingDirectory, outputPath))
                .WithOtlpExporter()
                .WithEnvironment("HOST", "0.0.0.0")
                .WithEnvironment("HOSTNAME", "0.0.0.0");
@@ -712,7 +732,8 @@ public static class JavaScriptHostingExtensions
                     return;
                 }
 
-                c.WithDockerfileBuilder(appDirectory, dockerfileContext =>
+                var dockerfilePaths = GetJavaScriptDockerfileContext(appDirectory);
+                c.WithDockerfileBuilder(dockerfilePaths.ContextPath, dockerfileContext =>
                 {
                     dockerfileContext.Resource.TryGetLastAnnotation<JavaScriptPublishModeAnnotation>(out var publishMode);
 
@@ -732,9 +753,16 @@ public static class JavaScriptHostingExtensions
 
                         var copiedAllSource = false;
 
-                        // Copy package files first for better layer caching
-                        if (packageManager.PackageFilesPatterns.Count > 0)
+                        if (dockerfilePaths.IsWorkspace)
                         {
+                            // Workspace installs need all workspace package manifests available when the
+                            // package manager resolves the dependency graph, so copy the full context first.
+                            dockerBuilder.Copy(".", ".");
+                            copiedAllSource = true;
+                        }
+                        else if (packageManager.PackageFilesPatterns.Count > 0)
+                        {
+                            // Copy package files first for better layer caching
                             foreach (var packageFilePattern in packageManager.PackageFilesPatterns)
                             {
                                 dockerBuilder.Copy(packageFilePattern.Source, packageFilePattern.Destination);
@@ -749,6 +777,11 @@ public static class JavaScriptHostingExtensions
                         if (c.Resource.TryGetLastAnnotation<JavaScriptInstallCommandAnnotation>(out var installCommand))
                         {
                             dockerBuilder.AddInstallCommand(packageManager, installCommand);
+                        }
+
+                        if (dockerfilePaths.IsWorkspace)
+                        {
+                            dockerBuilder.WorkDir(dockerfilePaths.AppContainerPath);
                         }
 
                         if (!copiedAllSource)
@@ -775,7 +808,7 @@ public static class JavaScriptHostingExtensions
                             case JavaScriptPublishMode.StaticWebsite:
                             {
                                 var runtimeImage = baseImageAnnotation?.RuntimeImage ?? DefaultYarpImage;
-                                var distPath = GetContainerFilesSourcePath(publishMode.OutputPath);
+                                var distPath = dockerfilePaths.GetAppContainerPath(publishMode.OutputPath);
                                 dockerfileContext.Builder
                                     .From(runtimeImage, "runtime")
                                     .WorkDir("/app")
@@ -786,11 +819,11 @@ public static class JavaScriptHostingExtensions
                             case JavaScriptPublishMode.NodeServer:
                             {
                                 var runtimeImage = baseImageAnnotation?.RuntimeImage ?? GetDefaultBaseImage(appDirectory, "alpine", dockerfileContext.Services);
-                                var outputPath = GetContainerFilesSourcePath(publishMode.OutputPath);
+                                var outputPath = dockerfilePaths.GetAppContainerPath(publishMode.OutputPath);
 
                                 dockerfileContext.Builder
                                     .From(runtimeImage, "runtime")
-                                    .WorkDir("/app")
+                                    .WorkDir(dockerfilePaths.AppContainerPath)
                                     .CopyFrom("build", outputPath, outputPath)
                                     .Env("NODE_ENV", "production")
                                     .User("node")
@@ -808,7 +841,13 @@ public static class JavaScriptHostingExtensions
 
                                 packageManager.InitializeDockerBuildStage?.Invoke(prodDepsStage);
 
-                                if (packageManager.PackageFilesPatterns.Count > 0)
+                                if (dockerfilePaths.IsWorkspace)
+                                {
+                                    // Production dependency install must see the same workspace graph as the
+                                    // build install, so copy the full workspace context before installing.
+                                    prodDepsStage.Copy(".", ".");
+                                }
+                                else if (packageManager.PackageFilesPatterns.Count > 0)
                                 {
                                     foreach (var packageFilePattern in packageManager.PackageFilesPatterns)
                                     {
@@ -847,10 +886,23 @@ public static class JavaScriptHostingExtensions
                                 var runtimeStage = dockerfileContext.Builder
                                     .From(runtimeImage, "runtime")
                                     .WorkDir("/app")
-                                    .CopyFrom("build", "/app", "/app")
-                                    .CopyFrom("prod-deps", "/app/node_modules", "./node_modules");
+                                    .CopyFrom("build", "/app", "/app");
+
+                                if (dockerfilePaths.IsWorkspace)
+                                {
+                                    runtimeStage.CopyFrom("prod-deps", "/app", "/app");
+                                }
+                                else
+                                {
+                                    runtimeStage.CopyFrom("prod-deps", "/app/node_modules", "./node_modules");
+                                }
 
                                 packageManager.InitializeDockerRuntimeStage?.Invoke(runtimeStage);
+
+                                if (dockerfilePaths.IsWorkspace)
+                                {
+                                    runtimeStage.WorkDir(dockerfilePaths.AppContainerPath);
+                                }
 
                                 runtimeStage
                                     .Env("NODE_ENV", "production")
@@ -867,11 +919,11 @@ public static class JavaScriptHostingExtensions
                                     .From(runtimeImage, "runtime")
                                     .WorkDir("/app")
                                     .Env("NODE_ENV", "production")
-                                    .CopyFrom("build", "/app/public", "./public", "node:node")
+                                    .CopyFrom("build", $"{dockerfilePaths.AppContainerPath}/public", "./public", "node:node")
                                     .Run("mkdir .next")
                                     .Run("chown node:node .next")
-                                    .CopyFrom("build", "/app/.next/standalone", "./", "node:node")
-                                    .CopyFrom("build", "/app/.next/static", "./.next/static", "node:node")
+                                    .CopyFrom("build", $"{dockerfilePaths.AppContainerPath}/.next/standalone", "./", "node:node")
+                                    .CopyFrom("build", $"{dockerfilePaths.AppContainerPath}/.next/static", "./.next/static", "node:node")
                                     .User("node")
                                     .Entrypoint(["node", "server.js"]);
                                 break;
@@ -891,7 +943,7 @@ public static class JavaScriptHostingExtensions
                     throw new InvalidOperationException("DockerfileBuildAnnotation should exist after calling PublishAsDockerFile.");
                 }
             })
-            .WithAnnotation(new ContainerFilesSourceAnnotation() { SourcePath = "/app/dist" })
+            .WithAnnotation(new ContainerFilesSourceAnnotation() { SourcePath = GetContainerFilesSourcePath(appDirectory, "dist") })
             .WithBuildScript("build")
             .WithRunScript(runScriptName);
 
@@ -1314,7 +1366,8 @@ public static class JavaScriptHostingExtensions
     {
         ArgumentNullException.ThrowIfNull(resource);
 
-        installCommand ??= GetDefaultNpmInstallCommand(resource);
+        var packageManagerDirectory = GetPackageManagerDirectory(resource.Resource.WorkingDirectory);
+        installCommand ??= GetDefaultNpmInstallCommand(resource, packageManagerDirectory);
 
         resource
             .WithAnnotation(new JavaScriptPackageManagerAnnotation("npm", runScriptCommand: "run", cacheMount: "/root/.npm")
@@ -1364,18 +1417,18 @@ public static class JavaScriptHostingExtensions
     {
         ArgumentNullException.ThrowIfNull(resource);
 
-        var workingDirectory = resource.Resource.WorkingDirectory;
-        var hasBunLock = File.Exists(Path.Combine(workingDirectory, "bun.lock")) ||
-            File.Exists(Path.Combine(workingDirectory, "bun.lockb"));
+        var packageManagerDirectory = GetPackageManagerDirectory(resource.Resource.WorkingDirectory);
+        var hasBunLock = File.Exists(Path.Combine(packageManagerDirectory, "bun.lock")) ||
+            File.Exists(Path.Combine(packageManagerDirectory, "bun.lockb"));
 
         installArgs ??= GetDefaultBunInstallArgs(resource, hasBunLock);
 
         var packageFilesSourcePattern = "package.json";
-        if (File.Exists(Path.Combine(workingDirectory, "bun.lock")))
+        if (File.Exists(Path.Combine(packageManagerDirectory, "bun.lock")))
         {
             packageFilesSourcePattern += " bun.lock";
         }
-        if (File.Exists(Path.Combine(workingDirectory, "bun.lockb")))
+        if (File.Exists(Path.Combine(packageManagerDirectory, "bun.lockb")))
         {
             packageFilesSourcePattern += " bun.lockb";
         }
@@ -1409,14 +1462,14 @@ public static class JavaScriptHostingExtensions
         return resource;
     }
 
-    private static string[] GetDefaultBunInstallArgs(IResourceBuilder<JavaScriptAppResource> resource, bool hasBunLock) =>
+    private static string[] GetDefaultBunInstallArgs<TResource>(IResourceBuilder<TResource> resource, bool hasBunLock) where TResource : JavaScriptAppResource =>
         resource.ApplicationBuilder.ExecutionContext.IsPublishMode && hasBunLock
             ? ["--frozen-lockfile"]
             : [];
 
-    private static string GetDefaultNpmInstallCommand(IResourceBuilder<JavaScriptAppResource> resource) =>
+    private static string GetDefaultNpmInstallCommand<TResource>(IResourceBuilder<TResource> resource, string packageManagerDirectory) where TResource : JavaScriptAppResource =>
         resource.ApplicationBuilder.ExecutionContext.IsPublishMode &&
-            File.Exists(Path.Combine(resource.Resource.WorkingDirectory, "package-lock.json"))
+            File.Exists(Path.Combine(packageManagerDirectory, "package-lock.json"))
             ? "ci"
             : "install";
 
@@ -1433,10 +1486,10 @@ public static class JavaScriptHostingExtensions
     {
         ArgumentNullException.ThrowIfNull(resource);
 
-        var workingDirectory = resource.Resource.WorkingDirectory;
-        var hasYarnLock = File.Exists(Path.Combine(workingDirectory, "yarn.lock"));
-        var hasYarnrc = File.Exists(Path.Combine(workingDirectory, ".yarnrc.yml"));
-        var hasYarnBerryDir = Directory.Exists(Path.Combine(workingDirectory, ".yarn"));
+        var packageManagerDirectory = GetPackageManagerDirectory(resource.Resource.WorkingDirectory);
+        var hasYarnLock = File.Exists(Path.Combine(packageManagerDirectory, "yarn.lock"));
+        var hasYarnrc = File.Exists(Path.Combine(packageManagerDirectory, ".yarnrc.yml"));
+        var hasYarnBerryDir = Directory.Exists(Path.Combine(packageManagerDirectory, ".yarn"));
         var hasYarnBerry = hasYarnrc || hasYarnBerryDir;
 
         installArgs ??= GetDefaultYarnInstallArgs(resource, hasYarnLock, hasYarnBerry);
@@ -1477,10 +1530,10 @@ public static class JavaScriptHostingExtensions
         return resource;
     }
 
-    private static string[] GetDefaultYarnInstallArgs(
-        IResourceBuilder<JavaScriptAppResource> resource,
+    private static string[] GetDefaultYarnInstallArgs<TResource>(
+        IResourceBuilder<TResource> resource,
         bool hasYarnLock,
-        bool hasYarnBerry)
+        bool hasYarnBerry) where TResource : JavaScriptAppResource
     {
         if (!resource.ApplicationBuilder.ExecutionContext.IsPublishMode ||
             !hasYarnLock)
@@ -1512,9 +1565,9 @@ public static class JavaScriptHostingExtensions
     {
         ArgumentNullException.ThrowIfNull(resource);
 
-        var workingDirectory = resource.Resource.WorkingDirectory;
-        var hasPnpmLock = File.Exists(Path.Combine(workingDirectory, "pnpm-lock.yaml"));
-        var hasPnpmWorkspace = File.Exists(Path.Combine(workingDirectory, "pnpm-workspace.yaml"));
+        var packageManagerDirectory = GetPackageManagerDirectory(resource.Resource.WorkingDirectory);
+        var hasPnpmLock = File.Exists(Path.Combine(packageManagerDirectory, "pnpm-lock.yaml"));
+        var hasPnpmWorkspace = File.Exists(Path.Combine(packageManagerDirectory, "pnpm-workspace.yaml"));
 
         installArgs ??= GetDefaultPnpmInstallArgs(resource, hasPnpmLock);
 
@@ -1554,7 +1607,7 @@ public static class JavaScriptHostingExtensions
         return resource;
     }
 
-    private static string[] GetDefaultPnpmInstallArgs(IResourceBuilder<JavaScriptAppResource> resource, bool hasPnpmLock) =>
+    private static string[] GetDefaultPnpmInstallArgs<TResource>(IResourceBuilder<TResource> resource, bool hasPnpmLock) where TResource : JavaScriptAppResource =>
         resource.ApplicationBuilder.ExecutionContext.IsPublishMode && hasPnpmLock
             ? ["--frozen-lockfile"]
             : [];
@@ -1831,16 +1884,288 @@ public static class JavaScriptHostingExtensions
     private static string GetDefaultBaseImage(string appDirectory, string defaultSuffix, IServiceProvider serviceProvider)
     {
         var logger = serviceProvider.GetService<ILogger<JavaScriptAppResource>>() ?? NullLogger<JavaScriptAppResource>.Instance;
-        var nodeVersion = ResolveNodeVersion(appDirectory, logger);
+        var nodeVersion = ResolveNodeVersion(GetJavaScriptDockerfileContext(appDirectory), logger);
         return $"node:{nodeVersion}-{defaultSuffix}";
     }
 
-    private static string GetContainerFilesSourcePath(string outputPath)
+    private static string GetPackageManagerDirectory(string workingDirectory)
     {
-        var normalizedPath = NormalizeRelativePath(outputPath);
-        return string.IsNullOrEmpty(normalizedPath) || normalizedPath == "."
-            ? "/app"
-            : $"/app/{normalizedPath}";
+        return GetJavaScriptDockerfileContext(workingDirectory).ContextPath;
+    }
+
+    private static string GetContainerFilesSourcePath(string appDirectory, string outputPath)
+    {
+        return GetJavaScriptDockerfileContext(appDirectory).GetAppContainerPath(outputPath);
+    }
+
+    private static JavaScriptDockerfileContext GetJavaScriptDockerfileContext(string appDirectory)
+    {
+        var normalizedAppDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDirectory));
+        var contextPath = TryFindJavaScriptWorkspaceRoot(normalizedAppDirectory) ?? normalizedAppDirectory;
+
+        return new JavaScriptDockerfileContext(contextPath, normalizedAppDirectory);
+    }
+
+    private static string? TryFindJavaScriptWorkspaceRoot(string appDirectory)
+    {
+        for (var candidate = new DirectoryInfo(appDirectory); candidate is not null; candidate = candidate.Parent)
+        {
+            var candidatePath = Path.TrimEndingDirectorySeparator(candidate.FullName);
+            var relativeAppPath = GetRelativeWorkspacePath(candidatePath, appDirectory);
+
+            if (!string.IsNullOrEmpty(relativeAppPath) &&
+                TryGetPackageJsonWorkspacePatterns(Path.Combine(candidatePath, "package.json"), out var packageJsonPatterns) &&
+                WorkspacePatternsIncludePath(packageJsonPatterns, relativeAppPath))
+            {
+                return candidatePath;
+            }
+
+            if (!string.IsNullOrEmpty(relativeAppPath) &&
+                TryGetPnpmWorkspacePatterns(Path.Combine(candidatePath, "pnpm-workspace.yaml"), out var pnpmPatterns) &&
+                WorkspacePatternsIncludePath(pnpmPatterns, relativeAppPath))
+            {
+                return candidatePath;
+            }
+
+            // A repository boundary avoids accidentally adopting an unrelated workspace from a
+            // parent directory such as the user's home folder.
+            if (!string.Equals(candidatePath, appDirectory, GetCurrentPlatformPathComparison()) &&
+                (Directory.Exists(Path.Combine(candidatePath, ".git")) || File.Exists(Path.Combine(candidatePath, ".git"))))
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetRelativeWorkspacePath(string workspaceRoot, string appDirectory)
+    {
+        var relativePath = Path.GetRelativePath(workspaceRoot, appDirectory).Replace('\\', '/');
+        if (relativePath == "." || relativePath.StartsWith("../", StringComparison.Ordinal) || relativePath == "..")
+        {
+            return string.Empty;
+        }
+
+        return relativePath.TrimEnd('/');
+    }
+
+    private static bool TryGetPackageJsonWorkspacePatterns(string packageJsonPath, out List<string> patterns)
+    {
+        patterns = [];
+
+        if (!File.Exists(packageJsonPath))
+        {
+            return false;
+        }
+
+        using var packageJson = JsonDocument.Parse(File.ReadAllText(packageJsonPath));
+        if (!packageJson.RootElement.TryGetProperty("workspaces", out var workspaces))
+        {
+            return false;
+        }
+
+        if (workspaces.ValueKind == JsonValueKind.Array)
+        {
+            AddJsonStringArrayItems(workspaces, patterns);
+        }
+        else if (workspaces.ValueKind == JsonValueKind.Object &&
+            workspaces.TryGetProperty("packages", out var packages) &&
+            packages.ValueKind == JsonValueKind.Array)
+        {
+            AddJsonStringArrayItems(packages, patterns);
+        }
+
+        return patterns.Count > 0;
+    }
+
+    private static void AddJsonStringArrayItems(JsonElement array, List<string> values)
+    {
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String &&
+                item.GetString() is { Length: > 0 } value)
+            {
+                values.Add(value);
+            }
+        }
+    }
+
+    private static bool TryGetPnpmWorkspacePatterns(string workspacePath, out List<string> patterns)
+    {
+        patterns = [];
+
+        if (!File.Exists(workspacePath))
+        {
+            return false;
+        }
+
+        var inPackages = false;
+        var packagesIndent = 0;
+
+        foreach (var line in File.ReadLines(workspacePath))
+        {
+            var trimmedLine = line.Trim();
+            if (trimmedLine.Length == 0 || trimmedLine.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var indent = line.Length - line.TrimStart().Length;
+            if (!inPackages)
+            {
+                if (trimmedLine.StartsWith("packages:", StringComparison.Ordinal))
+                {
+                    inPackages = true;
+                    packagesIndent = indent;
+                    AddPnpmInlineWorkspacePatterns(trimmedLine["packages:".Length..], patterns);
+                }
+
+                continue;
+            }
+
+            if (indent <= packagesIndent && !trimmedLine.StartsWith('-'))
+            {
+                break;
+            }
+
+            if (trimmedLine.StartsWith('-'))
+            {
+                var pattern = CleanYamlScalar(trimmedLine[1..]);
+                if (pattern.Length > 0)
+                {
+                    patterns.Add(pattern);
+                }
+            }
+        }
+
+        return patterns.Count > 0;
+    }
+
+    private static void AddPnpmInlineWorkspacePatterns(string value, List<string> patterns)
+    {
+        var trimmedValue = value.Trim();
+        if (trimmedValue is not ['[', .., ']'])
+        {
+            return;
+        }
+
+        foreach (var item in trimmedValue[1..^1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var pattern = CleanYamlScalar(item);
+            if (pattern.Length > 0)
+            {
+                patterns.Add(pattern);
+            }
+        }
+    }
+
+    private static string CleanYamlScalar(string value)
+    {
+        var trimmedValue = value.Trim();
+        if (trimmedValue.Length >= 2 &&
+            ((trimmedValue[0] == '\'' && trimmedValue[^1] == '\'') ||
+             (trimmedValue[0] == '"' && trimmedValue[^1] == '"')))
+        {
+            return trimmedValue[1..^1];
+        }
+
+        var commentIndex = trimmedValue.IndexOf(" #", StringComparison.Ordinal);
+        return commentIndex >= 0 ? trimmedValue[..commentIndex].Trim() : trimmedValue;
+    }
+
+    private static bool WorkspacePatternsIncludePath(List<string> patterns, string relativeAppPath)
+    {
+        var included = false;
+
+        foreach (var pattern in patterns)
+        {
+            var normalizedPattern = NormalizeWorkspacePattern(pattern, out var isExclude);
+            if (normalizedPattern.Length == 0)
+            {
+                continue;
+            }
+
+            if (WorkspacePatternMatches(normalizedPattern, relativeAppPath))
+            {
+                included = !isExclude;
+            }
+        }
+
+        return included;
+    }
+
+    private static string NormalizeWorkspacePattern(string pattern, out bool isExclude)
+    {
+        var normalizedPattern = pattern.Trim().Replace('\\', '/');
+        isExclude = normalizedPattern.StartsWith('!');
+        if (isExclude)
+        {
+            normalizedPattern = normalizedPattern[1..].TrimStart();
+        }
+
+        if (normalizedPattern.StartsWith("./", StringComparison.Ordinal))
+        {
+            normalizedPattern = normalizedPattern[2..];
+        }
+
+        return normalizedPattern.Trim('/');
+    }
+
+    private static bool WorkspacePatternMatches(string pattern, string relativeAppPath)
+    {
+        var regexPattern = "^" + Regex.Escape(pattern)
+            .Replace(@"\*\*", ".*", StringComparison.Ordinal)
+            .Replace(@"\*", "[^/]*", StringComparison.Ordinal)
+            .Replace(@"\?", "[^/]", StringComparison.Ordinal) + "$";
+
+        var options = RegexOptions.CultureInvariant;
+        if (GetCurrentPlatformPathComparison() == StringComparison.OrdinalIgnoreCase)
+        {
+            options |= RegexOptions.IgnoreCase;
+        }
+
+        return Regex.IsMatch(relativeAppPath, regexPattern, options);
+    }
+
+    private static StringComparison GetCurrentPlatformPathComparison()
+    {
+        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+    }
+
+    private sealed class JavaScriptDockerfileContext
+    {
+        internal const string RootContainerPath = "/app";
+
+        public JavaScriptDockerfileContext(string contextPath, string appDirectory)
+        {
+            ContextPath = contextPath;
+            AppDirectory = appDirectory;
+
+            var relativePath = GetRelativeWorkspacePath(contextPath, appDirectory);
+            AppRelativePath = relativePath.Length == 0 ? string.Empty : NormalizeRelativePath(relativePath);
+            AppContainerPath = AppRelativePath.Length == 0 ? RootContainerPath : $"{RootContainerPath}/{AppRelativePath}";
+        }
+
+        public string ContextPath { get; }
+
+        public string AppDirectory { get; }
+
+        public string AppRelativePath { get; }
+
+        public string AppContainerPath { get; }
+
+        public bool IsWorkspace => AppRelativePath.Length > 0;
+
+        public string GetAppContainerPath(string outputPath)
+        {
+            var normalizedPath = NormalizeRelativePath(outputPath);
+            return string.IsNullOrEmpty(normalizedPath) || normalizedPath == "."
+                ? AppContainerPath
+                : $"{AppContainerPath}/{normalizedPath}";
+        }
     }
 
     private static readonly string[] s_nextConfigFileNames = ["next.config.ts", "next.config.js", "next.config.mjs"];
@@ -1946,20 +2271,20 @@ public static class JavaScriptHostingExtensions
         return string.Join('/', segments);
     }
 
-    /// <summary>
-    /// Resolves the Node.js version to use for a project by checking common configuration files.
-    /// </summary>
-    /// <param name="workingDirectory">The working directory of the Node.js project.</param>
-    /// <param name="logger">The logger for diagnostic messages.</param>
-    /// <returns>The resolved Node.js major version number as a string.</returns>
-    private static string ResolveNodeVersion(string workingDirectory, ILogger logger)
+    private static string ResolveNodeVersion(JavaScriptDockerfileContext dockerfileContext, ILogger logger)
     {
         // Follow the same shape as Cloud Native Buildpacks-style tooling for Node selection:
         // pinned toolchain files (.nvmrc, .node-version, .tool-versions) are treated as
         // authoritative runtime intent, while package.json engines.node is compatibility
         // metadata rather than a deployment image pin. If there is no explicit toolchain pin,
         // generated Dockerfiles fall back to Aspire's preferred default Node major.
-        if (TryDetectPinnedNodeVersion(workingDirectory, logger, out var pinnedNodeVersion))
+        if (TryDetectPinnedNodeVersion(dockerfileContext.AppDirectory, logger, out var pinnedNodeVersion))
+        {
+            return pinnedNodeVersion;
+        }
+
+        if (dockerfileContext.IsWorkspace &&
+            TryDetectPinnedNodeVersion(dockerfileContext.ContextPath, logger, out pinnedNodeVersion))
         {
             return pinnedNodeVersion;
         }
