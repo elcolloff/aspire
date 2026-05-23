@@ -224,16 +224,24 @@ if [ ! -d "$PROJECT_DIR" ]; then
     echo "❌ aspire new did not create the project directory $PROJECT_DIR"
     exit 1
 fi
+# With the embedded-templates change, the SDK version baked into a scaffolded AppHost is
+# decided entirely by the CLI build (no `--version`, no channel resolution). The script
+# therefore can no longer assume a version up-front — it has to read whatever version the
+# templates emitted out of the project on disk, then verify the locally-packed stable feed
+# contains a matching Aspire.AppHost.Sdk nupkg. The two regex shapes below cover the two
+# AppHost layouts the templates can produce.
 APPHOST_SDK_REF_FILE=""
 APPHOST_SDK_REF_REGEX=""
 if [ -f "$PROJECT_DIR/apphost.cs" ] && [ -f "$PROJECT_DIR/aspire.config.json" ]; then
     echo "  ✓ Single-file AppHost detected (apphost.cs + aspire.config.json)"
-    # Single-file AppHosts reference the SDK as `#:sdk Aspire.AppHost.Sdk@<version>`.
+    # Single-file AppHosts use a file-scoped #:sdk directive:
+    #   #:sdk Aspire.AppHost.Sdk@13.4.0
     APPHOST_SDK_REF_FILE="$PROJECT_DIR/apphost.cs"
     APPHOST_SDK_REF_REGEX='^#:sdk Aspire\.AppHost\.Sdk@([^[:space:]]+)$'
 elif [ -f "$PROJECT_DIR/$PROJECT_NAME.AppHost/$PROJECT_NAME.AppHost.csproj" ]; then
     echo "  ✓ Project-based AppHost detected ($PROJECT_NAME.AppHost.csproj)"
-    # Project-based AppHosts reference the SDK as `Sdk="Aspire.AppHost.Sdk/<version>"`.
+    # Project-based AppHosts use the MSBuild Sdk attribute:
+    #   <Project Sdk="Aspire.AppHost.Sdk/13.4.0">
     APPHOST_SDK_REF_FILE="$PROJECT_DIR/$PROJECT_NAME.AppHost/$PROJECT_NAME.AppHost.csproj"
     APPHOST_SDK_REF_REGEX='Sdk="Aspire\.AppHost\.Sdk/([^"]+)"'
 else
