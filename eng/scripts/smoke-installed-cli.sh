@@ -59,12 +59,14 @@ echo "Scaffolding into: $scaffold_dir"
 aspire --version
 cd "$scaffold_dir"
 
-# When --nuget-source is given, stage a source-mapped NuGet.config in CWD before
-# `aspire new`/`aspire restore`. This is required for CI installer smokes (Homebrew/
-# WinGet) because the embedded templates pin Aspire.AppHost.Sdk to the CLI build
-# version (e.g. 13.4.0-pr.<n>.g<sha>), and that PR version only exists in the
-# per-build feed — not on nuget.org. Aspire* is pinned to the local feed; non-Aspire
-# transitives still flow from nuget.org, matching what an end user would have configured.
+aspire --log-level "$LOG_LEVEL" new aspire-starter --name "$PROJECT_NAME" --output . --non-interactive --nologo --suppress-agent-init
+
+# Stage a source-mapped NuGet.config in CWD AFTER scaffolding (aspire new rejects a
+# non-empty --output dir, so we can't drop the config before). Embedded templates mean
+# `aspire new` doesn't consult NuGet at all; only `aspire restore` needs the feed —
+# specifically to resolve Aspire.AppHost.Sdk at the CLI build version (e.g.
+# 13.4.0-pr.<n>.g<sha>), which only exists in the per-build feed, not on nuget.org.
+# Aspire* is pinned to the local feed; non-Aspire transitives still flow from nuget.org.
 if [[ -n "$NUGET_SOURCE" ]]; then
   echo "Writing source-mapped NuGet.config (Aspire* -> $NUGET_SOURCE; everything else -> nuget.org)"
   cat > "$scaffold_dir/NuGet.config" <<EOF
@@ -93,5 +95,4 @@ if [[ -n "$NUGET_SOURCE" ]]; then
 EOF
 fi
 
-aspire --log-level "$LOG_LEVEL" new aspire-starter --name "$PROJECT_NAME" --output . --non-interactive --nologo --suppress-agent-init
 aspire --log-level "$LOG_LEVEL" restore --non-interactive --nologo

@@ -41,10 +41,13 @@ aspire --version
 
 Push-Location $scaffoldDir
 try {
-    # When -NuGetSource is given, stage a source-mapped NuGet.config in CWD before
-    # `aspire new`/`aspire restore`. Required for CI installer smokes (Homebrew/WinGet)
-    # because the embedded templates pin Aspire.AppHost.Sdk to the CLI build version
-    # (e.g. 13.4.0-pr.<n>.g<sha>) which only exists in the per-build feed, not nuget.org.
+    aspire --log-level $LogLevel new aspire-starter --name $ProjectName --output . --non-interactive --nologo --suppress-agent-init
+
+    # Stage a source-mapped NuGet.config in CWD AFTER scaffolding (aspire new rejects a
+    # non-empty --output dir, so we can't drop the config before). Embedded templates mean
+    # `aspire new` doesn't consult NuGet at all; only `aspire restore` needs the feed —
+    # specifically to resolve Aspire.AppHost.Sdk at the CLI build version (e.g.
+    # 13.4.0-pr.<n>.g<sha>) which only exists in the per-build feed, not nuget.org.
     if (-not [string]::IsNullOrWhiteSpace($NuGetSource)) {
         Write-Host "Writing source-mapped NuGet.config (Aspire* -> $NuGetSource; everything else -> nuget.org)"
         $nugetConfig = @"
@@ -74,7 +77,6 @@ try {
         Set-Content -Path (Join-Path $scaffoldDir 'NuGet.config') -Value $nugetConfig -Encoding utf8
     }
 
-    aspire --log-level $LogLevel new aspire-starter --name $ProjectName --output . --non-interactive --nologo --suppress-agent-init
     aspire --log-level $LogLevel restore --non-interactive --nologo
 }
 finally {
