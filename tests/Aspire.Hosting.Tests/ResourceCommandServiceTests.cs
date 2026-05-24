@@ -1104,6 +1104,76 @@ public class ResourceCommandServiceTests(ITestOutputHelper testOutputHelper)
     }
 
     [Fact]
+    public async Task ExecuteCommandAsync_LoadedDynamicArgumentStillDisabledWithDefaultValue_DoesNotReturnDisabledValidationError()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(testOutputHelper);
+
+        InteractionInputCollection? capturedArguments = null;
+        var custom = builder.AddResource(new CustomResource("myResource"));
+        custom.WithCommand(name: "mycommand",
+                displayName: "My command",
+                executeCommand: context =>
+                {
+                    capturedArguments = context.Arguments;
+                    return Task.FromResult(CommandResults.Success());
+                },
+                commandOptions: new CommandOptions
+                {
+                    Arguments =
+                    [
+                        new InteractionInput
+                        {
+                            Name = "mode",
+                            InputType = InputType.Choice,
+                            Required = true,
+                            Options = [KeyValuePair.Create("isolated", "Isolated")]
+                        },
+                        new InteractionInput
+                        {
+                            Name = "profile",
+                            InputType = InputType.Choice,
+                            Disabled = true,
+                            DynamicLoading = new InputLoadOptions
+                            {
+                                DependsOnInputs = ["mode"],
+                                LoadCallback = context =>
+                                {
+                                    context.Input.Disabled = true;
+                                    context.Input.Value = "default";
+                                    context.Input.Options = [KeyValuePair.Create("default", "Default")];
+
+                                    return Task.CompletedTask;
+                                }
+                            }
+                        }
+                    ]
+                });
+
+        var app = builder.Build();
+        await app.StartAsync();
+
+        var result = await app.ResourceCommands.ExecuteCommandAsync(
+            "myResource",
+            "mycommand",
+            new ResourceCommandExecutionOptions
+            {
+                ArgumentValues = new Dictionary<string, string?>
+                {
+                    ["mode"] = "isolated",
+                    ["profile"] = "default"
+                },
+                ArgumentsProvided = true,
+                NonInteractive = true
+            },
+            CancellationToken.None).DefaultTimeout();
+
+        Assert.True(result.Success);
+        Assert.NotNull(capturedArguments);
+        Assert.Equal("default", capturedArguments.GetString("profile"));
+        Assert.Empty(capturedArguments["profile"].ValidationErrors);
+    }
+
+    [Fact]
     public async Task ExecuteCommandAsync_UnknownNamedArgumentValues_DoesNotExecuteCommand()
     {
         using var builder = TestDistributedApplicationBuilder.Create(testOutputHelper);
