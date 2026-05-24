@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Improvement to aspire certs trust on Linux: partial trust treated as success in non-interactive mode",
+  "mergedAt": "2026-05-24T20:24:59Z",
+  "number": 17447,
+  "runDate": "2026-05-24T22:20:13Z",
+  "status": "included",
+  "title": "Handle partial Linux certificate trust in CI"
+}

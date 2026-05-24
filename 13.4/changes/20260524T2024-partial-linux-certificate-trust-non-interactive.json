@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The `aspire certs trust --non-interactive` command on Linux now exits successfully when the certificate is partially trusted (OpenSSL trusted but browser/NSS trust incomplete). A warning is printed to guide users; full trust failures and interactive runs still fail as before.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔐",
+  "firstMergedAt": "2026-05-24T20:24:59Z",
+  "lastMergedAt": "2026-05-24T20:24:59Z",
+  "name": "Partial Linux certificate trust treated as success in non-interactive mode",
+  "owner": "davidfowl",
+  "prs": [
+    17447
+  ]
+}
