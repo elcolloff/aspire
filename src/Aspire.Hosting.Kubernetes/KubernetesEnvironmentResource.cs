@@ -899,7 +899,7 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
                     GatewayPathMatchType.Exact => "Exact",
                     GatewayPathMatchType.PathPrefix => "PathPrefix",
                     GatewayPathMatchType.RegularExpression => "RegularExpression",
-                    _ => throw new ArgumentOutOfRangeException(nameof(gatewayResource), route.PathType, "Unknown path type.")
+                    _ => throw new InvalidOperationException($"Unknown gateway path match type '{route.PathType}'.")
                 };
 
                 var rule = new HttpRouteRuleV1();
