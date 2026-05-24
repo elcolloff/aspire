@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes a crash (System.IO.IOException: The handle is invalid) that occurred when running the CLI with --banner and stdout redirected. The animated banner now correctly requires interactive output support even when --banner is explicitly passed.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-24T13:44:59Z",
+  "lastMergedAt": "2026-05-24T13:44:59Z",
+  "name": "Fix banner crash when stdout is redirected",
+  "owner": "JamesNK",
+  "prs": [
+    17443
+  ]
+}

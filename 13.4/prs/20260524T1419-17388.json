@@ -1,0 +1,9 @@
+{
+  "author": "ellahathaway",
+  "comment": "New feature: duration filter on Traces page (community contribution)",
+  "mergedAt": "2026-05-24T14:19:39Z",
+  "number": 17388,
+  "runDate": "2026-05-24T14:33:10Z",
+  "status": "included",
+  "title": "Add duration filter to traces page"
+}

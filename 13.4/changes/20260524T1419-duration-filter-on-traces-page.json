@@ -1,0 +1,21 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [
+    "@ellahathaway"
+  ],
+  "description": "A new duration filter is now available on the Traces page, letting you filter traces by their overall duration (from the first span start to the last span end). This makes it easy to identify slow or long-running traces in busy applications.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "⏲️",
+  "firstMergedAt": "2026-05-24T14:19:39Z",
+  "lastMergedAt": "2026-05-24T14:19:39Z",
+  "name": "Duration filter on Traces page",
+  "owner": "JamesNK",
+  "prs": [
+    17388
+  ]
+}

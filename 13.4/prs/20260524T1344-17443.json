@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Bug fix: CLI banner crash when stdout is redirected with --banner flag",
+  "mergedAt": "2026-05-24T13:44:59Z",
+  "number": 17443,
+  "runDate": "2026-05-24T14:33:10Z",
+  "status": "included",
+  "title": "Fix banner crash when stdout is redirected"
+}
