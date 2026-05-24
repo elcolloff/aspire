@@ -336,6 +336,7 @@ public class ResourceCommandService
             {
                 arguments = NormalizeCommandArguments(annotation, arguments);
 
+                HashSet<string>? loadedDynamicArgumentNames = null;
                 if (!nonInteractive && !argumentsProvided && annotation.Arguments.Count > 0)
                 {
                     var (promptedArguments, promptResult) = await PromptForCommandArgumentsAsync(annotation, arguments, cancellationToken).ConfigureAwait(false);
@@ -348,10 +349,10 @@ public class ResourceCommandService
                 }
                 else
                 {
-                    await LoadDynamicCommandArgumentsAsync(arguments, cancellationToken).ConfigureAwait(false);
+                    loadedDynamicArgumentNames = await LoadDynamicCommandArgumentsAsync(arguments, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (!await ValidateArgumentsAsync(annotation, arguments, cancellationToken).ConfigureAwait(false))
+                if (!await ValidateArgumentsAsync(annotation, arguments, loadedDynamicArgumentNames, cancellationToken).ConfigureAwait(false))
                 {
                     return new ExecuteCommandResult
                     {
@@ -426,9 +427,9 @@ public class ResourceCommandService
         }
 
         var normalizedArguments = NormalizeCommandArguments(annotation, arguments);
-        await LoadDynamicCommandArgumentsAsync(normalizedArguments, cancellationToken).ConfigureAwait(false);
+        var loadedDynamicArgumentNames = await LoadDynamicCommandArgumentsAsync(normalizedArguments, cancellationToken).ConfigureAwait(false);
 
-        var result = await ValidateArgumentsAsync(annotation, normalizedArguments, cancellationToken).ConfigureAwait(false)
+        var result = await ValidateArgumentsAsync(annotation, normalizedArguments, loadedDynamicArgumentNames, cancellationToken).ConfigureAwait(false)
             ? CommandResults.Success()
             : new ExecuteCommandResult
             {
@@ -512,7 +513,7 @@ public class ResourceCommandService
         return argument.Disabled && argument.DynamicLoading is null;
     }
 
-    private async Task<bool> ValidateArgumentsAsync(ResourceCommandAnnotation annotation, InteractionInputCollection arguments, CancellationToken cancellationToken)
+    private async Task<bool> ValidateArgumentsAsync(ResourceCommandAnnotation annotation, InteractionInputCollection arguments, HashSet<string>? loadedDynamicArgumentNames, CancellationToken cancellationToken)
     {
         foreach (var argument in arguments)
         {
@@ -534,10 +535,12 @@ public class ResourceCommandService
 
             if (argument.Disabled)
             {
-                // Dynamic loading can leave a dependent input disabled even when a stale caller
-                // supplied a value, for example priority=express without a selected item. Report
-                // that directly and skip type/choice validation that only applies to enabled inputs.
-                if (!string.IsNullOrEmpty(value))
+                // Dynamic loading can leave a dependent input disabled after it has normalized a
+                // harmless default/sentinel value, such as Browser Logs using the default profile
+                // while Shared mode is off. Only report submitted values for dynamic inputs that
+                // never loaded because their dependencies were incomplete, for example
+                // priority=express without a selected item.
+                if (!string.IsNullOrEmpty(value) && argument.DynamicLoading is not null && loadedDynamicArgumentNames?.Contains(argument.Name) != true)
                 {
                     context.AddValidationError(argument, "Argument is disabled.");
                 }
@@ -597,8 +600,9 @@ public class ResourceCommandService
         return !context.HasErrors;
     }
 
-    private async Task LoadDynamicCommandArgumentsAsync(InteractionInputCollection arguments, CancellationToken cancellationToken)
+    private async Task<HashSet<string>> LoadDynamicCommandArgumentsAsync(InteractionInputCollection arguments, CancellationToken cancellationToken)
     {
+        var loadedArgumentNames = new HashSet<string>(StringComparers.InteractionInputName);
         foreach (var argument in arguments)
         {
             if (argument.DynamicLoading is { } dynamicLoading && ShouldLoadDynamicCommandArgument(dynamicLoading, arguments))
@@ -610,8 +614,11 @@ public class ResourceCommandService
                     Services = _serviceProvider,
                     CancellationToken = cancellationToken
                 }).ConfigureAwait(false);
+                loadedArgumentNames.Add(argument.Name);
             }
         }
+
+        return loadedArgumentNames;
     }
 
     private static bool ShouldLoadDynamicCommandArgument(InputLoadOptions dynamicLoading, InteractionInputCollection arguments)
