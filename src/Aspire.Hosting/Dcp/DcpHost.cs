@@ -406,7 +406,8 @@ internal sealed class DcpHost
         {
             Mode = FileMode.Create,
             Access = FileAccess.Write,
-            Share = FileShare.Read
+            Share = FileShare.Read,
+            Options = FileOptions.Asynchronous
         };
 
         if (!OperatingSystem.IsWindows())
