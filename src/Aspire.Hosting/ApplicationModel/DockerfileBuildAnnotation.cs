@@ -119,32 +119,56 @@ public class DockerfileBuildAnnotation(string contextPath, string dockerfilePath
     }
 
     /// <summary>
-    /// Emits the per-Dockerfile <c>.dockerignore</c> sibling next to a published Dockerfile when
-    /// <see cref="BuildContextIgnoreContent"/> is set. Intended to be called by publishers after
-    /// copying the materialized Dockerfile into the publish output directory.
+    /// Emits all generated Dockerfile artifacts for this annotation.
     /// </summary>
-    /// <param name="resourceDockerfilePath">The path of the published Dockerfile (typically
-    /// <c>&lt;outputDir&gt;/&lt;resource-name&gt;.Dockerfile</c>). The sibling
-    /// <c>&lt;resourceDockerfilePath&gt;.dockerignore</c> is written next to it.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="context">The context containing services and resource information.</param>
+    /// <param name="dockerfilePath">
+    /// The optional Dockerfile path to emit to. When specified, the materialized Dockerfile is copied
+    /// to this path and any generated sibling files are emitted next to it. When omitted, artifacts
+    /// are emitted next to <see cref="DockerfilePath"/>.
+    /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
     /// <remarks>
-    /// Skipped when <see cref="BuildContextIgnoreContent"/> is null. When the build context root
-    /// already contains a <c>.dockerignore</c> authored by the user, any existing per-Dockerfile
-    /// sibling is removed from the output so a stale generated file does not shadow the user's file.
-    /// BuildKit gives per-Dockerfile ignore files precedence over the context-root file. See
-    /// https://docs.docker.com/build/concepts/context/#filename-and-location.
+    /// This method materializes a Dockerfile from <see cref="DockerfileFactory"/> when present, then
+    /// emits generated companion files such as BuildKit's per-Dockerfile <c>.dockerignore</c> sibling.
+    /// Use this instead of calling <see cref="MaterializeDockerfileAsync"/> directly when the caller
+    /// intends to pass the resulting Dockerfile path to a Docker/BuildKit-compatible builder.
     /// </remarks>
-    public async Task EmitBuildContextIgnoreAsync(string resourceDockerfilePath, CancellationToken cancellationToken)
+    public async Task EmitDockerfileArtifactsAsync(DockerfileFactoryContext context, string? dockerfilePath = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(resourceDockerfilePath);
+        ArgumentNullException.ThrowIfNull(context);
 
+        var cancellationToken = context.CancellationToken;
+
+        await MaterializeDockerfileAsync(context, cancellationToken).ConfigureAwait(false);
+
+        if (dockerfilePath is not null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(dockerfilePath);
+
+            var targetDirectory = Path.GetDirectoryName(Path.GetFullPath(dockerfilePath));
+            if (targetDirectory is not null)
+            {
+                Directory.CreateDirectory(targetDirectory);
+            }
+
+            if (!string.Equals(Path.GetFullPath(DockerfilePath), Path.GetFullPath(dockerfilePath), StringComparison.Ordinal))
+            {
+                File.Copy(DockerfilePath, dockerfilePath, overwrite: true);
+            }
+        }
+
+        await EmitBuildContextIgnoreAsync(dockerfilePath ?? DockerfilePath, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task EmitBuildContextIgnoreAsync(string dockerfilePath, CancellationToken cancellationToken)
+    {
         if (BuildContextIgnoreContent is not { } content)
         {
             return;
         }
 
-        var perDockerfileIgnore = $"{resourceDockerfilePath}.dockerignore";
+        var perDockerfileIgnore = $"{dockerfilePath}.dockerignore";
         var contextRootIgnore = Path.Combine(ContextPath, ".dockerignore");
         if (File.Exists(contextRootIgnore))
         {
