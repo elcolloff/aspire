@@ -18,8 +18,6 @@ using Microsoft.Extensions.Options;
 
 namespace Aspire.Hosting.Dashboard;
 
-#pragma warning disable ASPIREINTERACTION001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-
 /// <summary>
 /// Hosts a gRPC service via <see cref="DashboardService"/> (aka the "Resource Service") that a dashboard can connect to.
 /// Configures DI and networking options for the service.
@@ -138,17 +136,18 @@ internal sealed class DashboardServiceHost : IHostedService
         {
             // Inspect environment for the address to listen on.
             var uri = configuration.GetUri(ResourceServiceUrlVariableName);
+            var allowUnsecuredTransport = configuration.GetBool(KnownConfigNames.AllowUnsecuredTransport) ?? false;
 
             string? scheme;
 
             if (uri is null)
             {
                 // No URI available from the environment.
-                scheme = null;
+                scheme = allowUnsecuredTransport ? "http" : "https";
 
                 // Listen on a random port.
                 kestrelOptions.Listen(IPAddress.Loopback, port: 0, ConfigureListen);
-                _logger.LogDebug("Resource service endpoint not configured. Listening on {Scheme}://127.0.0.1:<random>.", scheme ?? "http");
+                _logger.LogDebug("Resource service endpoint not configured. Listening on {Scheme}://127.0.0.1:<random>.", scheme);
             }
             else if (uri.IsLoopback)
             {
@@ -228,5 +227,3 @@ internal sealed class DashboardServiceHost : IHostedService
         }
     }
 }
-
-#pragma warning restore ASPIREINTERACTION001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
