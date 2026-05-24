@@ -94,8 +94,7 @@ public class CertificateServiceTests(ITestOutputHelper outputHelper)
         Assert.False(result.Success);
         Assert.False(result.WasCancelled);
         Assert.Equal(EnsureCertificateResult.PartiallyFailedToTrustTheCertificate, result.ResultCode);
-        Assert.True(result.EnvironmentVariables.ContainsKey("SSL_CERT_DIR"));
-        Assert.Contains(".aspnet/dev-certs/trust", result.EnvironmentVariables["SSL_CERT_DIR"]);
+        AssertSslCertDirContainsDevCertsTrustPath(result.EnvironmentVariables);
     }
 
     [Fact]
@@ -122,8 +121,7 @@ public class CertificateServiceTests(ITestOutputHelper outputHelper)
         Assert.True(result.Success);
         Assert.False(result.WasCancelled);
         Assert.Equal(EnsureCertificateResult.PartiallyFailedToTrustTheCertificate, result.ResultCode);
-        Assert.True(result.EnvironmentVariables.ContainsKey("SSL_CERT_DIR"));
-        Assert.Contains(".aspnet/dev-certs/trust", result.EnvironmentVariables["SSL_CERT_DIR"]);
+        AssertSslCertDirContainsDevCertsTrustPath(result.EnvironmentVariables);
     }
 
     [Fact]
@@ -386,5 +384,11 @@ public class CertificateServiceTests(ITestOutputHelper outputHelper)
                 }
             ]
         };
+    }
+
+    private static void AssertSslCertDirContainsDevCertsTrustPath(IDictionary<string, string> environmentVariables)
+    {
+        Assert.True(environmentVariables.ContainsKey("SSL_CERT_DIR"));
+        Assert.Contains(CertificateHelpers.GetDevCertsTrustPath(), environmentVariables["SSL_CERT_DIR"].Split(Path.PathSeparator));
     }
 }
