@@ -50,7 +50,7 @@ async function loadResourceCommandArgumentInputs(
 
                 const loadedInputs = await new Promise<ResourceCommandArgumentInputJson[] | undefined>((resolve) => {
                     let settled = false;
-                    let parsedInputs: ResourceCommandArgumentInputJson[] | undefined;
+                    let stdout = '';
                     let stderr = '';
                     const finish = (value: ResourceCommandArgumentInputJson[] | undefined) => {
                         if (!settled) {
@@ -61,24 +61,8 @@ async function loadResourceCommandArgumentInputs(
 
                     const child = spawnCliProcess(context.terminalProvider, cliPath, args, {
                         noExtensionVariables: true,
-                        lineCallback: line => {
-                            if (settled) {
-                                return;
-                            }
-
-                            // `aspire resource ... --load-arguments` writes one JSON array line with
-                            // ResourceCommandArgumentInputJson[] metadata, for example:
-                            //   [{"name":"item","inputType":"Choice","options":{"banana":"Banana"}}]
-                            // Other CLI text such as update notifications can appear on stdout too, so
-                            // ignore non-JSON lines and only accept the parsed payload after exit code 0.
-                            try {
-                                const parsed = JSON.parse(line);
-                                if (Array.isArray(parsed)) {
-                                    parsedInputs = parsed as ResourceCommandArgumentInputJson[];
-                                }
-                            } catch {
-                                // Other CLI output can appear before the machine-readable payload.
-                            }
+                        stdoutCallback: data => {
+                            stdout += data;
                         },
                         stderrCallback: data => {
                             stderr += data;
@@ -90,8 +74,26 @@ async function loadResourceCommandArgumentInputs(
                         exitCallback: code => {
                             if (code !== 0) {
                                 extensionLogOutputChannel.warn(`aspire resource --load-arguments exited with code ${code}. ${stderr.trim()}`);
+                                finish(undefined);
+                                return;
                             }
-                            finish(code === 0 ? parsedInputs : undefined);
+
+                            try {
+                                const parsed = JSON.parse(stdout.trim());
+                                if (isResourceCommandArgumentInputArray(parsed)) {
+                                    finish(parsed);
+                                    return;
+                                }
+
+                                extensionLogOutputChannel.warn('aspire resource --load-arguments returned JSON that was not resource command argument metadata.');
+                            } catch (error) {
+                                // This command is a hidden machine-readable contract. If anything besides
+                                // the JSON metadata is written to stdout, fail the load so the CLI bug is
+                                // visible instead of silently accepting a partial parse.
+                                extensionLogOutputChannel.warn(`aspire resource --load-arguments returned invalid JSON stdout: ${error}`);
+                            }
+
+                            finish(undefined);
                         },
                     });
 
@@ -109,4 +111,15 @@ async function loadResourceCommandArgumentInputs(
                 return undefined;
             }
         });
+}
+
+function isResourceCommandArgumentInputArray(value: unknown): value is ResourceCommandArgumentInputJson[] {
+    return Array.isArray(value) && value.every(item => {
+        if (typeof item !== 'object' || item === null) {
+            return false;
+        }
+
+        const candidate = item as Record<string, unknown>;
+        return typeof candidate.name === 'string' && typeof candidate.inputType === 'string';
+    });
 }

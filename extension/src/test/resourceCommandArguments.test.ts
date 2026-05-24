@@ -371,8 +371,7 @@ suite('ResourceCommandArguments', () => {
             capturedCommand = command;
             capturedArgs = args;
             queueMicrotask(() => {
-                options?.lineCallback?.('A new version of Aspire is available.');
-                options?.lineCallback?.('[{"name":"item","inputType":"Choice","options":{"banana":"Banana"}}]');
+                options?.stdoutCallback?.('[{"name":"item","inputType":"Choice","options":{"banana":"Banana"}}]');
                 options?.exitCallback?.(0);
             });
 
@@ -407,6 +406,43 @@ suite('ResourceCommandArguments', () => {
             assert.strictEqual(withProgressStub.calledOnce, true);
             assert.strictEqual(loadedInputs?.[0]?.name, 'item');
             assert.strictEqual(loadedInputs?.[0]?.options?.banana, 'Banana');
+        }
+        finally {
+            spawnStub.restore();
+            warningStub.restore();
+            withProgressStub.restore();
+        }
+    });
+
+    test('shared dynamic argument loader fails when stdout contains non-json output', async () => {
+        const withProgressStub = sinon.stub(vscode.window, 'withProgress').callsFake((_options: any, task: any) => task(undefined, undefined));
+        const warningStub = sinon.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+        const terminalProvider = {
+            getAspireCliExecutablePath: async () => 'aspire',
+        } as AspireTerminalProvider;
+        const spawnStub = sinon.stub(cliModule, 'spawnCliProcess').callsFake((_terminalProvider, _command, _args, options) => {
+            queueMicrotask(() => {
+                options?.stdoutCallback?.('A new version of Aspire is available.\n');
+                options?.stdoutCallback?.('[{"name":"item","inputType":"Choice","options":{"banana":"Banana"}}]');
+                options?.exitCallback?.(0);
+            });
+
+            return { stdin: { end() { } } } as any;
+        });
+
+        try {
+            const loader = createResourceCommandArgumentLoader({
+                terminalProvider,
+                resourceName: 'argument-commands',
+                commandName: 'dependent-arguments',
+                appHostPath: '/repo/AppHost.csproj',
+            });
+
+            const loadedInputs = await loader([]);
+
+            assert.strictEqual(loadedInputs, undefined);
+            assert.strictEqual(withProgressStub.calledOnce, true);
+            assert.strictEqual(warningStub.calledOnce, true);
         }
         finally {
             spawnStub.restore();
