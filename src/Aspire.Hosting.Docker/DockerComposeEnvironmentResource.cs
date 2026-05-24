@@ -312,7 +312,7 @@ public class DockerComposeEnvironmentResource : Resource, IComputeEnvironmentRes
             // Ensure the dashboard resource is created (even though it's not part of the main application model)
             var dashboardService = await dockerComposeEnvironmentContext.CreateDockerComposeServiceResourceAsync(dashboard, executionContext, cancellationToken).ConfigureAwait(false);
 
-            AddOrReplaceDeploymentTargetAnnotation(dashboard, new DeploymentTargetAnnotation(dashboardService)
+            dashboard.Annotations.Add(new DeploymentTargetAnnotation(dashboardService)
             {
                 ComputeEnvironment = this,
                 ContainerRegistry = GetContainerRegistry(this, appModel)
@@ -338,26 +338,12 @@ public class DockerComposeEnvironmentResource : Resource, IComputeEnvironmentRes
             var serviceResource = await dockerComposeEnvironmentContext.CreateDockerComposeServiceResourceAsync(r, executionContext, cancellationToken).ConfigureAwait(false);
 
             // Add deployment target annotation to the resource
-            AddOrReplaceDeploymentTargetAnnotation(r, new DeploymentTargetAnnotation(serviceResource)
+            r.Annotations.Add(new DeploymentTargetAnnotation(serviceResource)
             {
                 ComputeEnvironment = this,
                 ContainerRegistry = GetContainerRegistry(this, appModel)
             });
         }
-    }
-
-    private static void AddOrReplaceDeploymentTargetAnnotation(IResource resource, DeploymentTargetAnnotation annotation)
-    {
-        for (var i = resource.Annotations.Count - 1; i >= 0; i--)
-        {
-            if (resource.Annotations[i] is DeploymentTargetAnnotation existingAnnotation &&
-                existingAnnotation.ComputeEnvironment == annotation.ComputeEnvironment)
-            {
-                resource.Annotations.RemoveAt(i);
-            }
-        }
-
-        resource.Annotations.Add(annotation);
     }
 
     private static IContainerRegistry GetContainerRegistry(DockerComposeEnvironmentResource environment, DistributedApplicationModel appModel)
