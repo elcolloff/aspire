@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Improvement removing Logs column from aspire ps table output for better readability",
+  "mergedAt": "2026-05-25T06:55:14Z",
+  "number": 17459,
+  "runDate": "2026-05-25T07:34:39Z",
+  "status": "included",
+  "title": "Remove Logs column from aspire ps table output"
+}

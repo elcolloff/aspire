@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Bug fix for HTTPS dev cert generation in non-interactive mode for non-.NET AppHosts",
+  "mergedAt": "2026-05-25T05:52:35Z",
+  "number": 17454,
+  "runDate": "2026-05-25T07:34:39Z",
+  "status": "included",
+  "title": "Fix dashboard resource service scheme and generate HTTPS dev cert for non-.NET AppHosts"
+}

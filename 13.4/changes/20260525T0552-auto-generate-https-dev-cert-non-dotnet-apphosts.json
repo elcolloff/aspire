@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The CLI now automatically generates an HTTPS developer certificate in non-interactive mode when none exists, fixing startup failures for TypeScript and other polyglot AppHosts that cannot rely on `dotnet run` to trigger first-run certificate generation. The DashboardServiceHost scheme resolution is also fixed to correctly default to HTTPS. Certificate generation can be disabled by setting `ASPIRE_CLI_GENERATE_HTTPS_CERTIFICATE=false`.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔒",
+  "firstMergedAt": "2026-05-25T05:52:35Z",
+  "lastMergedAt": "2026-05-25T05:52:35Z",
+  "name": "Auto-generate HTTPS dev cert for non-.NET AppHosts",
+  "owner": "JamesNK",
+  "prs": [
+    17454
+  ]
+}

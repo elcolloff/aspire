@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The Logs column has been removed from the `aspire ps` table display because log file paths were too long, pushing Dashboard URLs off-screen and causing awkward line wrapping. Log paths remain available via `aspire ps --format json` for programmatic access and are still shown in the `aspire run` startup banner.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🖥️",
+  "firstMergedAt": "2026-05-25T06:55:14Z",
+  "lastMergedAt": "2026-05-25T06:55:14Z",
+  "name": "Remove Logs column from aspire ps table output",
+  "owner": "JamesNK",
+  "prs": [
+    17459
+  ]
+}
