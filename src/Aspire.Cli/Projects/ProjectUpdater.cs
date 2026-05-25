@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
+using Aspire.Cli.Configuration;
 using Aspire.Cli.DotNet;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Packaging;
@@ -62,6 +63,18 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
                 interactionService.DisplayMessage(KnownEmojis.Package, packageStep.GetFormattedDisplayText(), allowMarkup: true);
             }
 
+            interactionService.DisplayEmptyLine();
+        }
+
+        // Display any channel-pin updates (aspire.config.json#channel) so users see them in the
+        // pre-confirmation summary alongside package updates.
+        var channelUpdateSteps = updateSteps.OfType<ChannelUpdateStep>().ToList();
+        foreach (var channelStep in channelUpdateSteps)
+        {
+            interactionService.DisplayMessage(KnownEmojis.Package, channelStep.GetFormattedDisplayText(), allowMarkup: true);
+        }
+        if (channelUpdateSteps.Count > 0)
+        {
             interactionService.DisplayEmptyLine();
         }
 
@@ -199,6 +212,44 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         while (context.AnalyzeSteps.TryDequeue(out var analyzeStep))
         {
             await analyzeStep.Callback();
+        }
+
+        // Persist the project's channel pin into aspire.config.json when the user picked an
+        // Explicit channel that differs from the currently-persisted value. Mirrors the polyglot
+        // path's behavior in `GuestAppHostProject.UpdatePackagesInternalAsync`. Implicit channels
+        // are intentionally NOT persisted (no pinning of the "default" channel).
+        //
+        // aspire.config.json lives next to the AppHost project file:
+        //   - C# single-file init: <dir>/apphost.cs + <dir>/aspire.config.json
+        //   - C# project-mode (aspire-apphost template): <dir>/MyApp.AppHost.csproj + <dir>/aspire.config.json
+        // If no aspire.config.json is present (legacy split layouts), the rewrite is skipped.
+        if (channel.Type == PackageChannelType.Explicit && projectFile.Directory is { } projectDirectory)
+        {
+            var existingConfig = AspireConfigFile.Load(projectDirectory.FullName);
+            var existingChannel = existingConfig?.Channel;
+
+            if (!string.Equals(existingChannel, channel.Name, StringComparisons.CliInputOrOutput))
+            {
+                var description = string.Format(
+                    CultureInfo.InvariantCulture,
+                    UpdateCommandStrings.UpdateChannelStepDescriptionFormat,
+                    existingChannel ?? UpdateCommandStrings.ChannelNonePlaceholder,
+                    channel.Name);
+
+                context.UpdateSteps.Enqueue(new ChannelUpdateStep(
+                    description,
+                    () =>
+                    {
+                        // Re-load inside the callback so we don't race with anything else that may
+                        // have rewritten aspire.config.json between analysis and apply.
+                        var configToSave = AspireConfigFile.LoadOrCreate(projectDirectory.FullName);
+                        configToSave.Channel = channel.Name;
+                        configToSave.Save(projectDirectory.FullName);
+                        return Task.CompletedTask;
+                    },
+                    existingChannel,
+                    channel.Name));
+            }
         }
 
         return (context.UpdateSteps, context.FallbackParsing);
@@ -1411,6 +1462,26 @@ internal record PackageUpdateStep(
     public override string GetFormattedDisplayText()
     {
         return $"[bold yellow]{PackageId.EscapeMarkup()}[/] [bold green]{CurrentVersion.EscapeMarkup()}[/] to [bold green]{NewVersion.EscapeMarkup()}[/]";
+    }
+}
+
+/// <summary>
+/// Represents an update step that rewrites <c>aspire.config.json#channel</c> when the
+/// resolved update channel differs from the project's currently-pinned channel. Mirrors
+/// the polyglot path's channel persistence in <c>GuestAppHostProject.UpdatePackagesInternalAsync</c>.
+/// </summary>
+internal record ChannelUpdateStep(
+    string Description,
+    Func<Task> Callback,
+    string? CurrentChannel,
+    string NewChannel) : UpdateStep(Description, Callback)
+{
+    public override string GetFormattedDisplayText()
+    {
+        var current = string.IsNullOrEmpty(CurrentChannel)
+            ? $"[grey]{UpdateCommandStrings.ChannelNonePlaceholder.EscapeMarkup()}[/]"
+            : $"[bold green]{CurrentChannel.EscapeMarkup()}[/]";
+        return $"[bold yellow]aspire.config.json#channel[/] {current} to [bold green]{NewChannel.EscapeMarkup()}[/]";
     }
 }
 

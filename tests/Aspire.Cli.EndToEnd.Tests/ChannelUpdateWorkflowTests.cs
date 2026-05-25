@@ -10,7 +10,9 @@ using Xunit;
 namespace Aspire.Cli.EndToEnd.Tests;
 
 /// <summary>
-/// End-to-end test for the channel-update workflow on the polyglot/TypeScript path:
+/// End-to-end tests for the channel-update workflow.
+///
+/// The first test exercises the deep TypeScript path:
 /// <list type="number">
 ///   <item><description>Create a TypeScript empty AppHost on the CLI's baked channel.</description></item>
 ///   <item><description><c>aspire add</c> a package and verify the recorded version is non-stable.</description></item>
@@ -23,11 +25,18 @@ namespace Aspire.Cli.EndToEnd.Tests;
 ///     <c>aspire add</c> honors the project's configured channel).</description></item>
 ///   <item><description><c>aspire start</c> / <c>aspire stop</c> again to confirm the project still runs after the channel switch.</description></item>
 /// </list>
-/// The C# AppHost variant is intentionally not covered here: for C# projects, <c>aspire update</c>
-/// does not rewrite <c>aspire.config.json#channel</c>, and <c>aspire add</c> on PR/CI hives prefers
+///
+/// The remaining tests are lean regression guards for
+/// <see href="https://github.com/microsoft/aspire/issues/17295"/>: each scaffolds an AppHost via one of
+/// the four supported create paths (<c>aspire init</c> C#, <c>aspire new aspire-empty</c> C#,
+/// <c>aspire init --language typescript</c>, plus the TypeScript <c>aspire new</c> case already
+/// covered by the deep test above) and asserts that <c>aspire update --channel stable</c> rewrites
+/// <c>aspire.config.json#channel</c> to <c>"stable"</c>. Package-version assertions are intentionally
+/// scoped to the polyglot deep test only: for C# projects, <c>aspire add</c> on PR/CI hives prefers
 /// the package version that matches the running CLI build (the
 /// <c>VersionHelper.TryGetCurrentCliVersionMatch</c> branch in <c>AddCommand</c>), which deliberately
-/// overrides the channel choice for build coherence.
+/// overrides the channel choice for build coherence and would make a stable-version assertion flaky
+/// on C#.
 /// </summary>
 public sealed class ChannelUpdateWorkflowTests(ITestOutputHelper output)
 {
@@ -214,6 +223,243 @@ public sealed class ChannelUpdateWorkflowTests(ITestOutputHelper output)
         await auto.EnterAsync();
 
         await pendingRun;
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Channel-rewrite regression guards for https://github.com/microsoft/aspire/issues/17295
+    //
+    // These four cells cover the create-paths × language matrix:
+    //   - C# `aspire init`             (single-file apphost.cs)        -> see test below
+    //   - C# `aspire new aspire-empty` (project-mode .csproj)          -> see test below
+    //   - TS `aspire init --language typescript --non-interactive`     -> see test below
+    //   - TS `aspire new aspire-ts-empty` (project-mode)               -> already covered by the
+    //                                                                     deep test above.
+    //
+    // Each new test asserts JUST the user-reported invariant:
+    // "after `aspire update --channel stable`, aspire.config.json#channel == 'stable'".
+    // Package version assertions are intentionally not duplicated here — see the class docstring.
+    // ----------------------------------------------------------------------------------
+
+    [Fact]
+    [CaptureWorkspaceOnFailure]
+    public async Task UpdateProjectChannelToStable_CSharpSingleFileInit_RewritesAspireConfigChannel()
+    {
+        var repoRoot = CliE2ETestHelpers.GetRepoRoot();
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
+        if (ShouldSkipForStableInitialChannel(strategy, out var skipReason))
+        {
+            Assert.Skip(skipReason);
+        }
+
+        var workspace = TemporaryWorkspace.Create(output);
+        var localChannel = CliE2ETestHelpers.PrepareLocalChannel(repoRoot, strategy,
+            ["Aspire.Hosting.AppHost."]);
+
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(
+            repoRoot, strategy, output,
+            variant: CliE2ETestHelpers.DockerfileVariant.DotNet,
+            workspace: workspace);
+
+        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
+
+        var counter = new SequenceCounter();
+        var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+
+        await auto.PrepareDockerEnvironmentAsync(counter, workspace);
+        await auto.InstallAspireCliAsync(strategy, counter);
+
+        // `aspire init` scaffolds into the current working directory — give it a fresh subfolder so
+        // the workspace root stays clean and the assertions target a well-known file path.
+        const string projectName = "ChannelUpdateCsharpInitApp";
+        var projectPath = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
+        Directory.CreateDirectory(projectPath);
+        await auto.RunCommandFailFastAsync($"cd {projectName}", counter);
+
+        await auto.AspireInitAsync(counter);
+
+        if (localChannel is not null)
+        {
+            CliE2ETestHelpers.WriteLocalChannelSettings(projectPath, localChannel.SdkVersion);
+        }
+
+        await RunChannelUpdateAndAssertAsync(auto, counter, Path.Combine(projectPath, "aspire.config.json"));
+
+        await auto.TypeAsync("exit");
+        await auto.EnterAsync();
+        await pendingRun;
+    }
+
+    [Fact]
+    [CaptureWorkspaceOnFailure]
+    public async Task UpdateProjectChannelToStable_CSharpEmptyAppHost_RewritesAspireConfigChannel()
+    {
+        var repoRoot = CliE2ETestHelpers.GetRepoRoot();
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
+        if (ShouldSkipForStableInitialChannel(strategy, out var skipReason))
+        {
+            Assert.Skip(skipReason);
+        }
+
+        var workspace = TemporaryWorkspace.Create(output);
+        var localChannel = CliE2ETestHelpers.PrepareLocalChannel(repoRoot, strategy,
+            ["Aspire.Hosting.AppHost."]);
+
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(
+            repoRoot, strategy, output,
+            variant: CliE2ETestHelpers.DockerfileVariant.DotNet,
+            workspace: workspace);
+
+        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
+
+        var counter = new SequenceCounter();
+        var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+
+        await auto.PrepareDockerEnvironmentAsync(counter, workspace);
+        await auto.InstallAspireCliAsync(strategy, counter);
+
+        const string projectName = "ChannelUpdateCsharpEmptyApp";
+        var projectPath = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
+
+        await auto.AspireNewCSharpEmptyAppHostAsync(projectName, counter);
+
+        if (localChannel is not null)
+        {
+            CliE2ETestHelpers.WriteLocalChannelSettings(projectPath, localChannel.SdkVersion);
+        }
+
+        await auto.RunCommandFailFastAsync($"cd {projectName}", counter);
+        await RunChannelUpdateAndAssertAsync(auto, counter, Path.Combine(projectPath, "aspire.config.json"));
+
+        await auto.TypeAsync("exit");
+        await auto.EnterAsync();
+        await pendingRun;
+    }
+
+    [Fact]
+    [CaptureWorkspaceOnFailure]
+    public async Task UpdateProjectChannelToStable_TypeScriptSingleFileInit_RewritesAspireConfigChannel()
+    {
+        var repoRoot = CliE2ETestHelpers.GetRepoRoot();
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
+        if (ShouldSkipForStableInitialChannel(strategy, out var skipReason))
+        {
+            Assert.Skip(skipReason);
+        }
+
+        var workspace = TemporaryWorkspace.Create(output);
+        var localChannel = CliE2ETestHelpers.PrepareLocalChannel(repoRoot, strategy,
+            ["Aspire.Hosting.CodeGeneration.TypeScript."]);
+
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(
+            repoRoot, strategy, output,
+            variant: CliE2ETestHelpers.DockerfileVariant.Polyglot,
+            workspace: workspace);
+
+        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
+
+        var counter = new SequenceCounter();
+        var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+
+        await auto.PrepareDockerEnvironmentAsync(counter, workspace);
+        await auto.InstallAspireCliAsync(strategy, counter);
+
+        // `aspire init` for TS scaffolds into the current directory — match the existing
+        // TypeScriptCodegenValidationTests pattern so a fresh subfolder is the working dir.
+        const string projectName = "ChannelUpdateTsInitApp";
+        var projectPath = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
+        Directory.CreateDirectory(projectPath);
+        await auto.RunCommandFailFastAsync($"cd {projectName}", counter);
+
+        await auto.TypeAsync("aspire init --language typescript --non-interactive");
+        await auto.EnterAsync();
+        await auto.WaitUntilTextAsync("Created apphost.mts", timeout: TimeSpan.FromMinutes(2));
+        await auto.WaitForSuccessPromptAsync(counter);
+
+        if (localChannel is not null)
+        {
+            CliE2ETestHelpers.WriteLocalChannelSettings(projectPath, localChannel.SdkVersion);
+        }
+
+        await RunChannelUpdateAndAssertAsync(auto, counter, Path.Combine(projectPath, "aspire.config.json"));
+
+        await auto.TypeAsync("exit");
+        await auto.EnterAsync();
+        await pendingRun;
+    }
+
+    /// <summary>
+    /// Shared skip-gate for the channel-rewrite regression tests: if the running CLI's baked channel
+    /// is already <c>stable</c> (e.g. a local install-script run with no quality/version override),
+    /// <c>aspire update --channel stable</c> would be a no-op and the prompts the test drives would
+    /// never appear. Returns <c>true</c> together with a human-readable reason in that case.
+    /// </summary>
+    private static bool ShouldSkipForStableInitialChannel(CliInstallStrategy strategy, out string reason)
+    {
+        if (strategy.Mode == CliInstallMode.InstallScript && strategy.Quality is null && strategy.Version is null)
+        {
+            reason =
+                "This test exercises 'aspire update --channel stable' from a non-stable channel. " +
+                "Run with ASPIRE_E2E_ARCHIVE (LocalHive), in CI (dev/staging quality), or against a " +
+                "specific non-stable build so the initial channel is non-stable.";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Shared body for the channel-rewrite regression tests: snapshot the initial channel, suppress
+    /// the post-update CLI self-update prompt, drive <c>aspire update --channel stable</c>, then
+    /// assert that <c>aspire.config.json#channel</c> was rewritten to <c>"stable"</c>.
+    /// Assumes the automator is positioned in the project directory (containing aspire.config.json).
+    /// </summary>
+    private static async Task RunChannelUpdateAndAssertAsync(
+        Hex1bTerminalAutomator auto,
+        SequenceCounter counter,
+        string aspireConfigPath)
+    {
+        var initialChannel = ReadAspireConfigChannel(aspireConfigPath);
+        if (string.IsNullOrEmpty(initialChannel) ||
+            string.Equals(initialChannel, "stable", StringComparison.OrdinalIgnoreCase))
+        {
+            Assert.Skip(
+                $"Initial aspire.config.json#channel was '{initialChannel ?? "<null>"}'. " +
+                "This test requires a non-stable initial channel so 'aspire update --channel stable' has something to change.");
+        }
+
+        // Suppress the post-update CLI self-update prompt so it doesn't block waiting on
+        // "Update successful!". Pattern borrowed from the polyglot test above.
+        await auto.TypeAsync("aspire config set features.updateNotificationsEnabled false -g");
+        await auto.EnterAsync();
+        await auto.WaitForSuccessPromptAsync(counter);
+
+        try
+        {
+            // -y skips the "Perform updates?" confirm. For Explicit channels the C# path also prompts
+            // for a NuGet.config directory and a config-changes confirmation; on Polyglot only the
+            // "Perform updates?" prompt fires. Use -y plus a default --nuget-config-dir (current dir)
+            // so the test is identical across both languages.
+            await auto.TypeAsync("aspire update --channel stable -y --nuget-config-dir .");
+            await auto.EnterAsync();
+            await auto.WaitUntilTextAsync("Update successful!", timeout: TimeSpan.FromMinutes(3));
+            await auto.WaitForSuccessPromptAsync(counter);
+
+            var channelAfter = ReadAspireConfigChannel(aspireConfigPath);
+            Assert.Equal("stable", channelAfter);
+        }
+        finally
+        {
+            try
+            {
+                await auto.TypeAsync("aspire config delete features.updateNotificationsEnabled -g");
+                await auto.EnterAsync();
+                await auto.WaitForAnyPromptAsync(counter, TimeSpan.FromSeconds(30));
+            }
+            catch
+            {
+            }
+        }
     }
 
     /// <summary>
