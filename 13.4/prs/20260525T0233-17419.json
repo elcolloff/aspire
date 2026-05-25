@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Engineering improvement - TypeScript CI validation now uses correct package manager per fixture",
+  "mergedAt": "2026-05-25T02:33:07Z",
+  "number": 17419,
+  "runDate": "2026-05-25T03:07:30Z",
+  "status": "included",
+  "title": "Align TypeScript validation with package manager markers"
+}

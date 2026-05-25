@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Bug fix for Kubernetes ingress parameter rendering as literal format strings",
+  "mergedAt": "2026-05-25T01:31:39Z",
+  "number": 17423,
+  "runDate": "2026-05-25T03:07:30Z",
+  "status": "included",
+  "title": "Fix WithIngressClass parameter resolution for Kubernetes publish"
+}

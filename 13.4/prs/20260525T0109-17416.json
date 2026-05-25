@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "New Bun-native app hosting support in Aspire.Hosting.JavaScript",
+  "mergedAt": "2026-05-25T01:09:08Z",
+  "number": 17416,
+  "runDate": "2026-05-25T03:07:30Z",
+  "status": "included",
+  "title": "Add AddBunApp for Bun-native apps"
+}

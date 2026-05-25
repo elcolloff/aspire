@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Exposes Blazor gateway APIs (addBlazorGateway, withBlazorClientApp, addBlazorWasmProject) and Dockerfile factory APIs (withDockerfileFactory, addDockerfileFactory) to TypeScript and other polyglot AppHosts via the Aspire TypeScript SDK (ATS).",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🌐",
+  "firstMergedAt": "2026-05-25T02:35:39Z",
+  "lastMergedAt": "2026-05-25T02:35:39Z",
+  "name": "Blazor and Dockerfile factory APIs in TypeScript AppHosts",
+  "owner": "sebastienros",
+  "prs": [
+    17420
+  ]
+}

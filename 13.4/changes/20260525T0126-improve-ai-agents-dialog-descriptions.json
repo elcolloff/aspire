@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Rewrites the AI agents dialog text in the dashboard to be more concise and scannable. The updated copy leads with the value proposition and uses bullet lists to highlight available data types at a glance.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🤖",
+  "firstMergedAt": "2026-05-25T01:26:00Z",
+  "lastMergedAt": "2026-05-25T01:26:00Z",
+  "name": "Improved AI agents dialog descriptions",
+  "owner": "JamesNK",
+  "prs": [
+    17446
+  ]
+}

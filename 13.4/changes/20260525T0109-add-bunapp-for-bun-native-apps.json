@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "Adds AddBunApp to Aspire.Hosting.JavaScript, enabling orchestration of Bun-native apps (TypeScript or JavaScript files run directly with bun). Bun apps get automatic OTLP exporter wiring, certificate trust, and Dockerfile generation with multi-stage builds using the official oven/bun image.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🐰",
+  "firstMergedAt": "2026-05-25T01:09:08Z",
+  "lastMergedAt": "2026-05-25T01:09:08Z",
+  "name": "AddBunApp for Bun-native apps",
+  "owner": "davidfowl",
+  "prs": [
+    17416
+  ]
+}

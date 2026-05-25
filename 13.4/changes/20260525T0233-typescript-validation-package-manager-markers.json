@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The TypeScript polyglot validation CI now respects each fixture's package manager markers (npm, pnpm, Yarn, Bun) instead of always using npm. Dedicated TypeScript validation AppHosts for each package manager are added to ensure marker-based behavior is exercised in CI.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📦",
+  "firstMergedAt": "2026-05-25T02:33:07Z",
+  "lastMergedAt": "2026-05-25T02:33:07Z",
+  "name": "TypeScript validation respects package manager markers",
+  "owner": "sebastienros",
+  "prs": [
+    17419
+  ]
+}

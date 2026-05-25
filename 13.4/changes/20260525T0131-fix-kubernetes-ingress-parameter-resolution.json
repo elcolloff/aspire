@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes a bug where Kubernetes ingress and gateway resources that referenced a ParameterResource via WithIngressClass, WithHostname, or WithTls generated literal format strings (e.g., \"{0}\") instead of valid Helm template expressions in the published YAML.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-25T01:31:39Z",
+  "lastMergedAt": "2026-05-25T01:31:39Z",
+  "name": "Fix Kubernetes ingress parameter resolution",
+  "owner": "mitchdenny",
+  "prs": [
+    17423
+  ]
+}
