@@ -418,7 +418,17 @@ aspire run 2>&1 | Tee-Object -FilePath "$scenarioDir\run-output.txt"
 
 ### 10. Generate Detailed Report
 
-Create a comprehensive report with the following structure:
+Write the comprehensive report to a markdown file and keep its path in `reportPath` so the same file can be posted in Step 11:
+
+```bash
+reportPath="$testDir/pr-$prNumber-testing-report.md"
+```
+
+```powershell
+$reportPath = Join-Path $testDir "pr-$prNumber-testing-report.md"
+```
+
+Use the following structure:
 
 ```markdown
 # PR Testing Report
