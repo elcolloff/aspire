@@ -7,6 +7,7 @@ using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Cli.Utils;
+using Aspire.Hosting;
 using Microsoft.AspNetCore.Certificates.Generation;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
@@ -332,6 +333,126 @@ public class CertificateServiceTests(ITestOutputHelper outputHelper)
         var result = await cs.EnsureCertificatesTrustedAsync(TestContext.Current.CancellationToken).DefaultTimeout();
 
         Assert.True(trustCalled);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task EnsureCertificatesTrustedAsync_NonInteractive_GeneratesCertWhenNoneExist()
+    {
+        Assert.SkipWhen(OperatingSystem.IsLinux(), "Non-interactive cert generation test only applies to macOS/Windows.");
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var generateCalled = false;
+
+        var toolRunner = new TestCertificateToolRunner
+        {
+            CheckHttpCertificateCallback = () => CreateTrustResult(null),
+            EnsureHttpCertificateExistsCallback = () =>
+            {
+                generateCalled = true;
+                return EnsureCertificateResult.Succeeded;
+            }
+        };
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.CertificateToolRunnerFactory = _ => toolRunner;
+            options.CliHostEnvironmentFactory = sp =>
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                return new CliHostEnvironment(configuration, nonInteractive: true);
+            };
+            options.InteractionServiceFactory = _ => new TestInteractionService();
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var cs = sp.GetRequiredService<ICertificateService>();
+
+        var result = await cs.EnsureCertificatesTrustedAsync(TestContext.Current.CancellationToken).DefaultTimeout();
+
+        Assert.True(generateCalled);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task EnsureCertificatesTrustedAsync_NonInteractive_SkipsCertGenerationWhenCertsExist()
+    {
+        Assert.SkipWhen(OperatingSystem.IsLinux(), "Non-interactive cert generation test only applies to macOS/Windows.");
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var generateCalled = false;
+
+        var toolRunner = new TestCertificateToolRunner
+        {
+            CheckHttpCertificateCallback = () => CreateTrustResult(CertificateManager.TrustLevel.Full),
+            EnsureHttpCertificateExistsCallback = () =>
+            {
+                generateCalled = true;
+                return EnsureCertificateResult.Succeeded;
+            }
+        };
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.CertificateToolRunnerFactory = _ => toolRunner;
+            options.CliHostEnvironmentFactory = sp =>
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                return new CliHostEnvironment(configuration, nonInteractive: true);
+            };
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var cs = sp.GetRequiredService<ICertificateService>();
+
+        var result = await cs.EnsureCertificatesTrustedAsync(TestContext.Current.CancellationToken).DefaultTimeout();
+
+        Assert.False(generateCalled);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task EnsureCertificatesTrustedAsync_NonInteractive_EnvVarOptOutSuppressesCertGeneration()
+    {
+        Assert.SkipWhen(OperatingSystem.IsLinux(), "Non-interactive cert generation test only applies to macOS/Windows.");
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var generateCalled = false;
+
+        var toolRunner = new TestCertificateToolRunner
+        {
+            CheckHttpCertificateCallback = () => CreateTrustResult(null),
+            EnsureHttpCertificateExistsCallback = () =>
+            {
+                generateCalled = true;
+                return EnsureCertificateResult.Succeeded;
+            }
+        };
+
+        var envVars = new Dictionary<string, string?>
+        {
+            [KnownConfigNames.CliGenerateHttpsCertificate] = "false"
+        };
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.CertificateToolRunnerFactory = _ => toolRunner;
+            options.CliHostEnvironmentFactory = sp =>
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                return new CliHostEnvironment(configuration, nonInteractive: true);
+            };
+            options.CliExecutionContextFactory = _ => TestExecutionContextHelper.CreateExecutionContext(
+                workspace.WorkspaceRoot, environmentVariables: envVars);
+            options.InteractionServiceFactory = _ => new TestInteractionService();
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var cs = sp.GetRequiredService<ICertificateService>();
+
+        var result = await cs.EnsureCertificatesTrustedAsync(TestContext.Current.CancellationToken).DefaultTimeout();
+
+        Assert.False(generateCalled);
         Assert.True(result.Success);
     }
 
