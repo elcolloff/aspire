@@ -237,11 +237,20 @@ internal sealed class DcpHost
             return;
         }
 
-        var (certificatePath, keyPath) = await DeveloperCertificateService.GetCertificateFilePathsAsync(
+        var (certificatePath, keyPath, cachedThumbprint) = await DeveloperCertificateService.GetCachedCertificateFilePathsAsync(
             certificate,
             password: null,
             cancellationToken).ConfigureAwait(false);
 
+        if (certificatePath is null || keyPath is null || cachedThumbprint is null)
+        {
+            _logger.LogWarning("Failed to cache the developer certificate files. DCP will use its default certificate.");
+            _dcpTlsCertThumbprint = null;
+            activity.SetDcpTlsCertificateResult(ProfilingTelemetry.Values.DcpTlsCertificateResultNoCertificate);
+            return;
+        }
+
+        _dcpTlsCertThumbprint = cachedThumbprint;
         _dcpTlsCertFile = certificatePath;
         _dcpTlsKeyFile = keyPath;
         activity.SetDcpTlsCertificateResult(

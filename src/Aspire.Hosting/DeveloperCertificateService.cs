@@ -229,44 +229,16 @@ internal class DeveloperCertificateService : IDeveloperCertificateService
             return ExportFromPrivateKey(certificate, password, needKeyPem, needPfx);
         }
 
-        // For dev certs we prefer reading from cache to avoid repeated keychain access prompts
-        var lookup = GetKeyMaterialCacheLookup(certificate, password);
-
+        // For dev certs we prefer reading from cache to avoid repeated keychain access prompts.
         // Ensure only one thread at a time is resolving certificates to avoid concurrent cache misses
         // all trying to update the cache at the same time.
         await s_certificateCacheSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var pfxFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.pfx");
-            var keyFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.key");
-
-            // Try to read cached files. On cache hit, return the raw bytes directly
-            // without loading them into X509Certificate2 (which would import the key into
-            // the macOS keychain on net8.0).
-            var cachedPfx = TryReadCacheFile(pfxFileName);
-            var cachedKey = TryReadCacheFile(keyFileName);
-
-            if (cachedPfx is not null && cachedKey is not null)
-            {
-                return (
-                    needKeyPem ? Encoding.UTF8.GetString(cachedKey).ToCharArray() : null,
-                    needPfx ? cachedPfx : null);
-            }
-
-            // Fall back to accessing the private key directly (triggers a keychain prompt on macOS).
-            // Always produce both formats for caching, even if the caller only needs one.
-            var result = ExportFromPrivateKey(certificate, password, needKeyPem: true, needPfx: true);
-
-            await WriteCacheFilesAsync(
-                certificateFileName: null,
-                certificatePem: null,
-                pfxFileName,
-                result.pfxBytes,
-                keyFileName,
-                result.keyPem,
-                cancellationToken).ConfigureAwait(false);
-
-            return (needKeyPem ? result.keyPem : null, needPfx ? result.pfxBytes : null);
+            var cached = EnsureCachedKeyMaterial(certificate, password);
+            return (
+                needKeyPem ? Encoding.UTF8.GetString(cached.keyBytes).ToCharArray() : null,
+                needPfx ? cached.pfxBytes : null);
         }
         finally
         {
@@ -275,58 +247,91 @@ internal class DeveloperCertificateService : IDeveloperCertificateService
     }
 
     /// <summary>
-    /// Returns cached PEM certificate and key file paths for the specified developer certificate.
+    /// Ensures the public certificate (.crt), PFX (.pfx) and PEM private key (.key) cache files
+    /// exist for the specified ASP.NET Core developer certificate and returns the paths along with
+    /// the certificate thumbprint. Returns <c>(null, null, null)</c> if the supplied certificate is
+    /// not a developer certificate, has no thumbprint, or the cache files could not be produced.
     /// </summary>
-    /// <param name="certificate">The developer certificate to cache file material for.</param>
-    /// <param name="password">The password for the private key, or <c>null</c> for unencrypted export.</param>
-    /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
-    /// <returns>Cached PEM certificate and key file paths.</returns>
-    internal static async Task<(string certificateFilePath, string keyFilePath)> GetCertificateFilePathsAsync(
+    internal static async Task<(string? certificateFilePath, string? keyFilePath, string? thumbprint)> GetCachedCertificateFilePathsAsync(
         X509Certificate2 certificate,
         string? password,
         CancellationToken cancellationToken)
     {
-        var lookup = GetKeyMaterialCacheLookup(certificate, password);
-        var certificateFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.crt");
-        var keyFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.key");
+        if (!certificate.IsAspNetCoreDevelopmentCertificate() || string.IsNullOrWhiteSpace(certificate.Thumbprint))
+        {
+            return (null, null, null);
+        }
 
-        var (keyPem, _) = await GetKeyMaterialAsync(
-            certificate,
-            password,
-            needKeyPem: true,
-            needPfx: false,
-            cancellationToken).ConfigureAwait(false);
+        string certificateFileName;
+        string keyFileName;
 
+        await s_certificateCacheSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (keyPem is null)
-            {
-                throw new InvalidOperationException("Failed to export the developer certificate private key.");
-            }
-
-            await WriteCacheFilesAsync(
-                certificateFileName,
-                Encoding.UTF8.GetBytes(certificate.ExportCertificatePem()),
-                pfxFileName: null,
-                pfxBytes: null,
-                keyFileName,
-                keyPem,
-                cancellationToken).ConfigureAwait(false);
+            var cached = EnsureCachedKeyMaterial(certificate, password);
+            certificateFileName = cached.certFileName;
+            keyFileName = cached.keyFileName;
         }
         finally
         {
-            if (keyPem is not null)
-            {
-                Array.Clear(keyPem);
-            }
+            s_certificateCacheSemaphore.Release();
         }
 
-        if (TryReadCacheFile(certificateFileName) is null || TryReadCacheFile(keyFileName) is null)
+        return File.Exists(certificateFileName) && File.Exists(keyFileName)
+            ? (certificateFileName, keyFileName, certificate.Thumbprint)
+            : (null, null, null);
+    }
+
+    /// <summary>
+    /// Ensures the public certificate (.crt), PFX (.pfx) and PEM private key (.key) cache files
+    /// exist for the specified certificate, returning their paths along with the cached PFX/key
+    /// byte contents. On cache miss the private key is accessed once (which may trigger a keychain
+    /// prompt on macOS) to export both private-key formats; on cache hit the bytes are read
+    /// directly from disk to avoid importing the PFX into the macOS keychain via
+    /// <see cref="X509Certificate2"/>. The public .crt file is written whenever it is missing,
+    /// since it can be produced without accessing the private key.
+    /// </summary>
+    /// <remarks>The caller must hold <see cref="s_certificateCacheSemaphore"/>.</remarks>
+    private static (string certFileName, string pfxFileName, string keyFileName, byte[] pfxBytes, byte[] keyBytes) EnsureCachedKeyMaterial(
+        X509Certificate2 certificate, string? password)
+    {
+        var lookup = GetKeyMaterialCacheLookup(certificate, password);
+        var certFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.crt");
+        var pfxFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.pfx");
+        var keyFileName = Path.Join(s_userDevCertificateLocation, $"{lookup}.key");
+
+        var cachedPfx = TryReadCacheFile(pfxFileName);
+        var cachedKey = TryReadCacheFile(keyFileName);
+
+        byte[] pfxBytes;
+        byte[] keyBytes;
+
+        if (cachedPfx is not null && cachedKey is not null)
         {
-            throw new IOException($"Failed to cache developer certificate files in '{s_userDevCertificateLocation}'.");
+            pfxBytes = cachedPfx;
+            keyBytes = cachedKey;
+        }
+        else
+        {
+            // Fall back to accessing the private key directly (triggers a keychain prompt on macOS).
+            // Always produce both formats for caching, even if the caller only needs one.
+            var result = ExportFromPrivateKey(certificate, password, needKeyPem: true, needPfx: true);
+            pfxBytes = result.pfxBytes!;
+            keyBytes = Encoding.UTF8.GetBytes(result.keyPem!);
+            Array.Clear(result.keyPem!);
+
+            WriteCacheFiles(certFileName, certificate, pfxFileName, pfxBytes, keyFileName, keyBytes);
         }
 
-        return (certificateFileName, keyFileName);
+        // The public certificate cache file can be produced without touching the private key,
+        // so refresh it whenever it is missing (including on cache hits from older caches that
+        // pre-date this file).
+        if (!File.Exists(certFileName))
+        {
+            WriteCacheFiles(certFileName, certificate, pfxFileName: null, pfxBytes: null, keyFileName: null, keyBytes: null);
+        }
+
+        return (certFileName, pfxFileName, keyFileName, pfxBytes, keyBytes);
     }
 
     private static string GetKeyMaterialCacheLookup(X509Certificate2 certificate, string? password)
@@ -420,16 +425,17 @@ internal class DeveloperCertificateService : IDeveloperCertificateService
     }
 
     /// <summary>
-    /// Writes certificate, PFX, and PEM key cache files. Best-effort; failures are silently ignored.
+    /// Writes the public certificate (.crt), PFX (.pfx) and PEM private key (.key) cache files.
+    /// Any of the file-name / payload pairs may be null to skip writing that file. Best-effort;
+    /// failures are silently ignored.
     /// </summary>
-    private static async Task WriteCacheFilesAsync(
-        string? certificateFileName,
-        byte[]? certificatePem,
+    private static void WriteCacheFiles(
+        string certFileName,
+        X509Certificate2 certificate,
         string? pfxFileName,
         byte[]? pfxBytes,
         string? keyFileName,
-        char[]? keyPem,
-        CancellationToken cancellationToken)
+        byte[]? keyBytes)
     {
         try
         {
@@ -442,56 +448,21 @@ internal class DeveloperCertificateService : IDeveloperCertificateService
                 Directory.CreateDirectory(s_userDevCertificateLocation, UnixFileMode.UserExecute | UnixFileMode.UserWrite | UnixFileMode.UserRead);
             }
 
-            if (certificateFileName is not null && certificatePem is not null)
-            {
-                await WriteCacheFileAsync(certificateFileName, certificatePem, cancellationToken).ConfigureAwait(false);
-            }
+            File.WriteAllText(certFileName, certificate.ExportCertificatePem());
 
             if (pfxFileName is not null && pfxBytes is not null)
             {
-                await WriteCacheFileAsync(pfxFileName, pfxBytes, cancellationToken).ConfigureAwait(false);
+                File.WriteAllBytes(pfxFileName, pfxBytes);
             }
 
-            if (keyFileName is not null && keyPem is not null)
+            if (keyFileName is not null && keyBytes is not null)
             {
-                var keyBytes = Encoding.UTF8.GetBytes(keyPem);
-                try
-                {
-                    await WriteCacheFileAsync(keyFileName, keyBytes, cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    CryptographicOperations.ZeroMemory(keyBytes);
-                }
+                File.WriteAllBytes(keyFileName, keyBytes);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
         }
         catch
         {
             // Best-effort caching operation.
         }
-    }
-
-    private static async Task WriteCacheFileAsync(string path, ReadOnlyMemory<byte> contents, CancellationToken cancellationToken)
-    {
-        var options = new FileStreamOptions
-        {
-            Mode = FileMode.Create,
-            Access = FileAccess.Write,
-            Share = FileShare.Read,
-            Options = FileOptions.Asynchronous
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        using var stream = new FileStream(path, options);
-
-        await stream.WriteAsync(contents, cancellationToken).ConfigureAwait(false);
     }
 }
