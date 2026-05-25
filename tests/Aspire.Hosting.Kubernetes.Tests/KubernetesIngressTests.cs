@@ -96,7 +96,7 @@ public class KubernetesIngressTests
             .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints();
 
-        ingress.WithRoute("/api", api.GetEndpoint("http"));
+        ingress.WithPath("/api", api.GetEndpoint("http"));
 
         var app = builder.Build();
         app.Run();
@@ -137,7 +137,7 @@ public class KubernetesIngressTests
             .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints();
 
-        ingress.WithRoute("/api", api.GetEndpoint("http"));
+        ingress.WithPath("/api", api.GetEndpoint("http"));
 
         var app = builder.Build();
         app.Run();

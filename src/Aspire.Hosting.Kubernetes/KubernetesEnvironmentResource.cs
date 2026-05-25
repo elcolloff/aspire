@@ -585,6 +585,21 @@ public sealed class KubernetesEnvironmentResource : Resource, IComputeEnvironmen
     {
         if (valueProvider is ParameterResource parameter)
         {
+            // Attempt to resolve this individual parameter first. The outer
+            // MissingParameterValueException from the whole-expression resolve attempt
+            // only tells us that *some* parameter in the expression was unresolved;
+            // others (e.g., those with `publishValueAsDefault: true`) may still have
+            // a value and should be inlined into the manifest rather than left as
+            // Helm placeholders. This keeps the published chart maximally self-contained.
+            try
+            {
+                return (await parameter.GetValueAsync(cancellationToken).ConfigureAwait(false)) ?? string.Empty;
+            }
+            catch (MissingParameterValueException)
+            {
+                // Fall through to Helm-reference substitution below.
+            }
+
             // Capture the parameter so HelmDeploymentEngine writes its resolved value to
             // the deploy-time override file, and ensure values.yaml has a placeholder so
             // `helm template` (and `aspire publish` consumers that don't deploy via Aspire)
