@@ -3,6 +3,7 @@
 
 using Aspire.Cli.Certificates;
 using Aspire.Cli.Interaction;
+using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
@@ -460,6 +461,41 @@ public class CertificateServiceTests(ITestOutputHelper outputHelper)
 
         Assert.False(generateCalled);
         Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task EnsureCertificatesTrustedAsync_NonInteractive_WarnsOnCertGenerationFailure()
+    {
+        Assert.SkipWhen(OperatingSystem.IsLinux(), "Non-interactive cert generation test only applies to macOS/Windows.");
+
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+
+        var toolRunner = new TestCertificateToolRunner
+        {
+            CheckHttpCertificateCallback = () => CreateNoCertsResult(),
+            EnsureHttpCertificateExistsCallback = () => EnsureCertificateResult.ErrorCreatingTheCertificate
+        };
+
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+        {
+            options.CertificateToolRunnerFactory = _ => toolRunner;
+            options.CliHostEnvironmentFactory = sp =>
+            {
+                var configuration = sp.GetRequiredService<IConfiguration>();
+                return new CliHostEnvironment(configuration, nonInteractive: true);
+            };
+            options.InteractionServiceFactory = _ => new TestInteractionService();
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var cs = sp.GetRequiredService<ICertificateService>();
+        var interactionService = (TestInteractionService)sp.GetRequiredService<IInteractionService>();
+
+        var result = await cs.EnsureCertificatesTrustedAsync(TestContext.Current.CancellationToken).DefaultTimeout();
+
+        Assert.True(result.Success);
+        var expectedMessage = string.Format(System.Globalization.CultureInfo.CurrentCulture, ErrorStrings.CertificateGenerationFailed, EnsureCertificateResult.ErrorCreatingTheCertificate);
+        Assert.Contains(interactionService.DisplayedMessages, m => m.Message == expectedMessage);
     }
 
     private ServiceProvider CreateServiceProvider(TemporaryWorkspace workspace, TestCertificateToolRunner toolRunner, bool nonInteractive = false, Func<bool>? isLinux = null)

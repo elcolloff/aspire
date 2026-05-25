@@ -37,7 +37,7 @@ internal sealed class TestCertificateToolRunner : ICertificateToolRunner
     {
         return EnsureHttpCertificateExistsCallback is not null
             ? EnsureHttpCertificateExistsCallback()
-            : EnsureCertificateResult.ExistingHttpsCertificateTrusted;
+            : EnsureCertificateResult.Succeeded;
     }
 
     public EnsureCertificateResult TrustHttpCertificate()

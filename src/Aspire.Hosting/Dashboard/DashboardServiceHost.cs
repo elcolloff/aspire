@@ -138,21 +138,16 @@ internal sealed class DashboardServiceHost : IHostedService
             var uri = configuration.GetUri(ResourceServiceUrlVariableName);
             var allowUnsecuredTransport = configuration.GetBool(KnownConfigNames.AllowUnsecuredTransport) ?? false;
 
-            string? scheme;
+            var scheme = ResolveScheme(uri, allowUnsecuredTransport);
 
             if (uri is null)
             {
-                // No URI available from the environment.
-                scheme = allowUnsecuredTransport ? "http" : "https";
-
                 // Listen on a random port.
                 kestrelOptions.Listen(IPAddress.Loopback, port: 0, ConfigureListen);
                 _logger.LogDebug("Resource service endpoint not configured. Listening on {Scheme}://127.0.0.1:<random>.", scheme);
             }
             else if (uri.IsLoopback)
             {
-                scheme = uri.Scheme;
-
                 // Listen on the requested localhost port.
                 kestrelOptions.ListenLocalhost(uri.Port, ConfigureListen);
                 _logger.LogDebug("Resource service endpoint configured: {Uri}", uri);
@@ -174,6 +169,21 @@ internal sealed class DashboardServiceHost : IHostedService
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Determines the scheme for the resource service endpoint. When a URI is explicitly
+    /// configured, its scheme is used. When no URI is provided, defaults to HTTPS unless
+    /// unsecured transport is explicitly allowed.
+    /// </summary>
+    internal static string ResolveScheme(Uri? configuredUri, bool allowUnsecuredTransport)
+    {
+        if (configuredUri is not null)
+        {
+            return configuredUri.Scheme;
+        }
+
+        return allowUnsecuredTransport ? "http" : "https";
     }
 
     /// <summary>
