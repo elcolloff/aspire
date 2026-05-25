@@ -423,6 +423,16 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
             </Project>
             """);
 
+        var aspireConfigFile = new FileInfo(Path.Combine(appHostFolder.FullName, "aspire.config.json"));
+        await File.WriteAllTextAsync(
+            aspireConfigFile.FullName,
+            """
+            {
+              "appHost": { "path": "UpdateTester.AppHost.csproj" },
+              "channel": "daily"
+            }
+            """);
+
         var packagesAddsExecuted = new List<(FileInfo ProjectFile, string PackageId, string PackageVersion, string? PackageSource, bool NoRestore)>();
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, config =>
         {
@@ -555,6 +565,10 @@ public class ProjectUpdaterTests(ITestOutputHelper outputHelper)
                 Assert.Equal(webAppProjectFile.FullName, item.ProjectFile.FullName);
             }
         );
+
+        var updatedConfig = await File.ReadAllTextAsync(aspireConfigFile.FullName);
+        using var configDoc = JsonDocument.Parse(updatedConfig);
+        Assert.Equal("daily", configDoc.RootElement.GetProperty("channel").GetString());
     }
 
     [Fact]

@@ -215,9 +215,10 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         }
 
         // Persist the project's channel pin into aspire.config.json when the user picked an
-        // Explicit channel that differs from the currently-persisted value. Mirrors the polyglot
-        // path's behavior in `GuestAppHostProject.UpdatePackagesInternalAsync`. Implicit channels
-        // are intentionally NOT persisted (no pinning of the "default" channel).
+        // persistable Explicit channel that differs from the currently-persisted value. Mirrors
+        // the polyglot path's behavior in `GuestAppHostProject.UpdatePackagesAsync`.
+        // Implicit channels and `stable` are intentionally NOT persisted (no pinning of the
+        // default public-feed behavior).
         //
         // aspire.config.json lives next to the AppHost project file:
         //   - C# single-file init: <dir>/apphost.cs + <dir>/aspire.config.json
@@ -225,7 +226,7 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
         // If no aspire.config.json is present (legacy split layouts or pre-init projects),
         // skip the rewrite — `aspire update` must not create a fresh aspire.config.json for a
         // project that never had one; that is the responsibility of `aspire init`.
-        if (channel.Type == PackageChannelType.Explicit && projectFile.Directory is { } projectDirectory)
+        if (channel.ShouldPersistChannelName() && projectFile.Directory is { } projectDirectory)
         {
             var existingConfig = AspireConfigFile.Load(projectDirectory.FullName);
             if (existingConfig is not null)

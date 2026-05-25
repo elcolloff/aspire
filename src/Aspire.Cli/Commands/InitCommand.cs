@@ -302,11 +302,11 @@ internal sealed class InitCommand : BaseCommand
         //
         // `ResolvePersistableChannelNameAsync` filters out identities that aren't
         // registered as channels on this CLI install (e.g. `local`, `staging` on a CLI
-        // without the staging feature flag, stale `pr-<N>` after the hive is gone) and
-        // the Implicit `default` channel that no CLI identity ever has. Channels that
-        // do resolve to a registered Explicit entry — including `stable`, `dev`,
-        // `staging`, and `pr-<N>` — are persisted so polyglot `aspire add` can match
-        // a PSM rule. See https://github.com/microsoft/aspire/issues/17295.
+        // without the staging feature flag, stale `pr-<N>` after the hive is gone),
+        // the Implicit `default` channel that no CLI identity ever has, and `stable`
+        // because the public-feed behavior is already the default. Non-default
+        // Explicit channels are persisted so subsequent commands can match a PSM rule.
+        // See https://github.com/microsoft/aspire/issues/17295.
         var resolvedChannel = await ResolvePersistableChannelNameAsync(cancellationToken);
         var (configResult, effectivePorts) = DropAspireConfig(workingDirectory, "apphost.cs", language: null, resolvedChannel, ports);
         if (configResult != CliExitCodes.Success)
@@ -486,21 +486,13 @@ internal sealed class InitCommand : BaseCommand
 
         // Resolve and pass the running CLI's identity channel through to the scaffolder
         // so it lands in aspire.config.json#channel. Only persist when the identity
-        // resolves to a registered Explicit channel — see `ResolvePersistableChannelNameAsync`
-        // for the full rationale. Additionally, if aspire.config.json already carries a
-        // channel value, suppress the pass-through: `ScaffoldingService.cs:93-95` writes
+        // resolves to a persistable registered Explicit channel — see
+        // `ResolvePersistableChannelNameAsync` for the full rationale. Additionally,
+        // if aspire.config.json already carries a channel value, suppress the pass-through:
+        // `ScaffoldingService.cs:93-95` writes
         // `config.Channel = context.Channel` unconditionally when non-empty, so without
         // this guard a user-edited channel would be silently overwritten.
         var resolvedChannel = await ResolvePersistableChannelNameAsync(cancellationToken);
-        if (string.Equals(resolvedChannel, PackageChannelNames.Stable, StringComparisons.ChannelName))
-        {
-            // The stable explicit channel is the same public-feed package set users get by default,
-            // but pinning it in polyglot config makes `aspire add` search only the synthetic
-            // NuGet.org config and hides packages from ambient private feeds. Non-default explicit
-            // channels still need persistence so they keep matching the CLI build that scaffolded.
-            resolvedChannel = null;
-        }
-
         if (!string.IsNullOrEmpty(resolvedChannel))
         {
             var existing = TryLoadExistingChannel(workingDirectory);
@@ -656,9 +648,11 @@ internal sealed class InitCommand : BaseCommand
     /// In production the only Implicit channel created by <c>PackagingService.GetChannelsAsync</c>
     /// is <c>default</c> (the unscoped nuget.org aggregator), which no CLI identity ever
     /// resolves to — this branch exists defensively in case a future <c>PackagingService</c>
-    /// adds another Implicit channel whose name happens to collide with a CLI identity.
-    /// Note that <c>stable</c> is created via <c>CreateExplicitChannel</c> and IS persisted
-    /// — see the <c>[InlineData("stable")]</c> test cases for the resolved behavior.</description></item>
+    /// adds another Implicit channel whose name happens to collide with a CLI identity.</description></item>
+    /// <item><description>The matched channel is <see cref="PackageChannelNames.Stable"/>.
+    /// Stable uses the same public-feed package set users get by default, but pinning it
+    /// per-project makes package discovery use only the synthetic NuGet.org config and
+    /// hides packages from ambient private feeds.</description></item>
     /// </list>
     /// Mirrors the resolution logic in <c>NewCommand.cs:316-402</c> and the warning in
     /// <c>ScaffoldingService.cs:84-92</c> against falling back to <c>IdentityChannel</c> blindly.
@@ -684,7 +678,7 @@ internal sealed class InitCommand : BaseCommand
         }
 
         var match = channels.FirstOrDefault(c => string.Equals(c.Name, identityChannel, StringComparisons.ChannelName));
-        return match?.Type is PackageChannelType.Explicit ? match.Name : null;
+        return match?.ShouldPersistChannelName() is true ? match.Name : null;
     }
 
     /// <summary>

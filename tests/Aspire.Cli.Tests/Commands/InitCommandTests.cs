@@ -987,7 +987,7 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
 
     /// <summary>
     /// Regression for the daily-CLI scenario: when `aspire init` runs under a CLI identity
-    /// that matches a registered Explicit channel (<c>daily</c>, <c>staging</c>, <c>pr-{N}</c>),
+    /// that matches a registered non-stable Explicit channel (<c>daily</c>, <c>staging</c>, <c>pr-{N}</c>),
     /// the produced <c>aspire.config.json</c> must carry that channel at the top level so
     /// subsequent <c>aspire add</c> / <c>integration list</c> / <c>integration search</c>
     /// calls resolve packages against the matching channel rather than the implicit feed.
@@ -1020,7 +1020,14 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
         Assert.True(File.Exists(configPath));
 
         var config = JsonNode.Parse(File.ReadAllText(configPath))!.AsObject();
-        Assert.Equal(contextChannel, config["channel"]!.GetValue<string>());
+        if (string.Equals(contextChannel, PackageChannelNames.Stable, StringComparisons.ChannelName))
+        {
+            Assert.Null(config["channel"]);
+        }
+        else
+        {
+            Assert.Equal(contextChannel, config["channel"]!.GetValue<string>());
+        }
     }
 
     /// <summary>
@@ -1182,8 +1189,8 @@ public class InitCommandTests(ITestOutputHelper outputHelper)
     }
 
     /// <summary>
-    /// The stable channel is an explicit PackagingService channel, but for polyglot init it is
-    /// also the default public-feed behavior. Persisting it would make package discovery use
+    /// The stable channel is an explicit PackagingService channel, but it is also the
+    /// default public-feed behavior. Persisting it would make package discovery use
     /// only the synthetic NuGet.org config and hide packages from ambient private feeds.
     /// </summary>
     [Fact]
