@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Extension improvement: app host logs viewer and view source in VS Code",
+  "mergedAt": "2026-05-26T20:28:55Z",
+  "number": 17465,
+  "runDate": "2026-05-26T20:44:49Z",
+  "status": "included",
+  "title": "Display UI to view app host logs in extension"
+}

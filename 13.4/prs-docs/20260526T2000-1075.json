@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Documents legacy apphost.ts compatibility for pre-13.4 TypeScript AppHosts; matched to TypeScript explicit ES modules change entry",
+  "mergedAt": "2026-05-26T20:00:16Z",
+  "number": 1075,
+  "runDate": "2026-05-26T20:44:49Z",
+  "status": "included",
+  "title": "docs: document legacy apphost.ts compatibility for TypeScript AppHosts"
+}

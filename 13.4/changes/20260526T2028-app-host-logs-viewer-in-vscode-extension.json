@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The VS Code extension now shows an AppHost logs tree item that opens the log file directly in the editor when clicked, plus a View source context menu item that displays the full raw JSON from aspire ps for each app host.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "📋",
+  "firstMergedAt": "2026-05-26T20:28:55Z",
+  "lastMergedAt": "2026-05-26T20:28:55Z",
+  "name": "App host logs viewer in VS Code extension",
+  "owner": "JamesNK",
+  "prs": [
+    17465
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Subscribing to IDistributedApplicationEvent or any abstract class via Eventing.Subscribe<T> now throws an ArgumentException immediately instead of silently registering a no-op subscription that would never fire.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🛡️",
+  "firstMergedAt": "2026-05-26T19:51:32Z",
+  "lastMergedAt": "2026-05-26T19:51:32Z",
+  "name": "Guard against subscribing to interface or abstract event types",
+  "owner": "maddymontaquila",
+  "prs": [
+    17094
+  ]
+}

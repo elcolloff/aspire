@@ -1,0 +1,9 @@
+{
+  "author": "maddymontaquila",
+  "comment": "Bug fix: ArgumentException when subscribing to interface or abstract event type",
+  "mergedAt": "2026-05-26T19:51:32Z",
+  "number": 17094,
+  "runDate": "2026-05-26T20:44:49Z",
+  "status": "included",
+  "title": "Throw ArgumentException when subscribing to interface or abstract event type"
+}
