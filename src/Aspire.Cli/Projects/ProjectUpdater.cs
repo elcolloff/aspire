@@ -66,15 +66,12 @@ internal sealed partial class ProjectUpdater(ILogger<ProjectUpdater> logger, IDo
             interactionService.DisplayEmptyLine();
         }
 
-        // Display any channel-pin updates (aspire.config.json#channel) so users see them in the
-        // pre-confirmation summary alongside package updates.
-        var channelUpdateSteps = updateSteps.OfType<ChannelUpdateStep>().ToList();
-        foreach (var channelStep in channelUpdateSteps)
+        // Display the channel-pin update (aspire.config.json#channel) so users see it in the
+        // pre-confirmation summary alongside package updates. At most one is ever enqueued
+        // because each `aspire update` invocation targets a single AppHost project.
+        if (updateSteps.OfType<ChannelUpdateStep>().SingleOrDefault() is { } channelUpdateStep)
         {
-            interactionService.DisplayMessage(KnownEmojis.Package, channelStep.GetFormattedDisplayText(), allowMarkup: true);
-        }
-        if (channelUpdateSteps.Count > 0)
-        {
+            interactionService.DisplayMessage(KnownEmojis.Package, channelUpdateStep.GetFormattedDisplayText(), allowMarkup: true);
             interactionService.DisplayEmptyLine();
         }
 
