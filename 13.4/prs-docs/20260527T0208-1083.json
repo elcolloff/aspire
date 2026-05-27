@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Documents proxyless endpoint requirements and persistent resource endpoint behavior in Aspire 13.4 — matches persistent-executable-and-project-lifetimes change",
+  "mergedAt": "2026-05-27T02:08:36Z",
+  "number": 1083,
+  "runDate": "2026-05-27T03:11:00Z",
+  "status": "included",
+  "title": "Document proxyless endpoint requirements"
+}

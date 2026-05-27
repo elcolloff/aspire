@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Switches Homebrew cask to upstream autobump flow using GitHub release assets, removing the custom bot-driven submission pipeline",
+  "mergedAt": "2026-05-27T02:59:43Z",
+  "number": 17405,
+  "runDate": "2026-05-27T03:11:00Z",
+  "status": "included",
+  "title": "Switch Aspire Homebrew cask to upstream autobump + harden the validation gauntlet"
+}

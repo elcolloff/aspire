@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Test-only changes to fix a race condition in CLI test suite — no production code changes",
+  "mergedAt": "2026-05-27T00:59:20Z",
+  "number": 17451,
+  "runDate": "2026-05-27T03:11:00Z",
+  "status": "excluded",
+  "title": "Serialize CLI host tests to fix sample_rate race (#17450)"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The Aspire Homebrew cask now uses Homebrew's upstream autobump flow for version bumps, installing from GitHub release assets instead of ci.dot.net. The custom bot-driven submission pipeline has been removed in favor of the standard brew bump-cask-pr workflow, and cask validation now matches the upstream Homebrew CI checks.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🍺",
+  "firstMergedAt": "2026-05-27T02:59:43Z",
+  "lastMergedAt": "2026-05-27T02:59:43Z",
+  "name": "Switch Homebrew cask to upstream autobump",
+  "owner": "radical",
+  "prs": [
+    17405
+  ]
+}

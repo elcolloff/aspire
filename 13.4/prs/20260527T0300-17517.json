@@ -1,0 +1,9 @@
+{
+  "author": "radical",
+  "comment": "Fixes stable CLI version downloads in get-aspire-cli scripts by routing stable versions to GitHub releases instead of ci.dot.net",
+  "mergedAt": "2026-05-27T03:00:31Z",
+  "number": 17517,
+  "runDate": "2026-05-27T03:11:00Z",
+  "status": "included",
+  "title": "fix(acquisition): use GitHub releases for stable CLI versions"
+}

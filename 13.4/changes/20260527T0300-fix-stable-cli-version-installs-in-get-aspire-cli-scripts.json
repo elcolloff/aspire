@@ -1,0 +1,19 @@
+{
+  "area": "Engineering",
+  "areaEmoji": "🔧",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Stable exact-version installs through the get-aspire-cli scripts now download from GitHub release assets instead of ci.dot.net, which does not serve stable release archives. Prerelease and dev versions continue using the existing ci.dot.net path.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-27T03:00:31Z",
+  "lastMergedAt": "2026-05-27T03:00:31Z",
+  "name": "Fix stable CLI version installs in get-aspire-cli scripts",
+  "owner": "radical",
+  "prs": [
+    17517
+  ]
+}
