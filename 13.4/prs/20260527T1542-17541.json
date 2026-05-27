@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17533. Test-only fix for flaky CLI E2E test (Y/n input race) plus internal troubleshooting doc. Not user-facing.",
+  "mergedAt": "2026-05-27T15:42:21Z",
+  "number": 17541,
+  "runDate": "2026-05-27T17:12:46Z",
+  "status": "excluded",
+  "title": "[release/13.4] Fix Y/n input race in ChannelUpdateWorkflowTests + add CLI E2E troubleshooting doc"
+}

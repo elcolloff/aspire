@@ -6,7 +6,9 @@
   "changeType": "Improvements",
   "communityContributors": [],
   "description": "Exposes Blazor gateway APIs (addBlazorGateway, withBlazorClientApp, addBlazorWasmProject) and Dockerfile factory APIs (withDockerfileFactory, addDockerfileFactory) to TypeScript and other polyglot AppHosts via the Aspire TypeScript SDK (ATS).",
-  "docsPrs": [],
+  "docsPrs": [
+    1061
+  ],
   "docsRequired": true,
   "emoji": "🌐",
   "firstMergedAt": "2026-05-25T02:35:39Z",

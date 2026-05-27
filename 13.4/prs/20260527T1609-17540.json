@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17384. Addresses remaining Blazor integration feedback and adds Docker Compose publish support for the gateway. Grouped with existing Blazor WebAssembly hosting integration entry.",
+  "mergedAt": "2026-05-27T16:09:43Z",
+  "number": 17540,
+  "runDate": "2026-05-27T17:12:46Z",
+  "status": "included",
+  "title": "[release/13.4] Address remaining Blazor integration PR feedback"
+}

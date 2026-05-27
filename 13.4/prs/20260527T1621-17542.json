@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17491. Validates Helm 4.2.0+ is installed before Kubernetes deploy, providing a clear actionable error instead of cryptic flag errors.",
+  "mergedAt": "2026-05-27T16:21:52Z",
+  "number": 17542,
+  "runDate": "2026-05-27T17:12:46Z",
+  "status": "included",
+  "title": "[release/13.4] Validate Helm CLI version (>= 4.2.0) before Kubernetes deploy"
+}

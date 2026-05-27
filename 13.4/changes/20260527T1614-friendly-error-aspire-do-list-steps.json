@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Running `aspire do --list-steps` without specifying a step argument now shows a clear, localized error message with examples (`aspire do deploy --list-steps`) instead of crashing with an unrelated `InvalidOperationException`. The `step` argument is required when using `--list-steps`.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛑",
+  "firstMergedAt": "2026-05-27T16:14:57Z",
+  "lastMergedAt": "2026-05-27T16:14:57Z",
+  "name": "Friendly error for 'aspire do --list-steps' without a step",
+  "owner": "mitchdenny",
+  "prs": [
+    17543
+  ]
+}

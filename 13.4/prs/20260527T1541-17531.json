@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #16966. EF Migrations pipeline bug fixes: run-mode step dependencies, connection-string resolution, exit code parsing.",
+  "mergedAt": "2026-05-27T15:41:54Z",
+  "number": 17531,
+  "runDate": "2026-05-27T17:12:46Z",
+  "status": "included",
+  "title": "[release/13.4] Migrate playground/SqlServerEndToEnd to EF Hosting integration and fix found issues"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "��",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The Kubernetes deployment pipeline now validates that Helm 4.2.0 or later is installed before attempting to deploy. Previously, a missing or outdated Helm produced cryptic errors like `unknown flag: --force-conflicts`; now a single clear, actionable error message is shown with a link to the Helm installation docs.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "⛑️",
+  "firstMergedAt": "2026-05-27T16:21:52Z",
+  "lastMergedAt": "2026-05-27T16:21:52Z",
+  "name": "Validate Helm CLI version (≥ 4.2.0) before Kubernetes deploy",
+  "owner": "mitchdenny",
+  "prs": [
+    17542
+  ]
+}

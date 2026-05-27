@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17535. Friendly error for 'aspire do --list-steps' without a step argument instead of crashing with InvalidOperationException.",
+  "mergedAt": "2026-05-27T16:14:57Z",
+  "number": 17543,
+  "runDate": "2026-05-27T17:12:46Z",
+  "status": "included",
+  "title": "[release/13.4] Friendly error for 'aspire do --list-steps' without a step"
+}
