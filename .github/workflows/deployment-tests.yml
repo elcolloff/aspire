@@ -101,7 +101,8 @@ jobs:
           # Skip native build to save time - we'll use the non-native CLI
           SkipNativeBuild: true
           # This build intermittently fails while restoring WorkerExtensions packages from dotnet-public.
-          # Increase NuGet's per-request retries instead of retrying the whole build step.
+          # Arcade sets NuGet's enhanced retry defaults to 6 tries with a 1s base delay in CI; this
+          # step gives NuGet more room to retry individual package downloads without rerunning the build.
           NUGET_ENHANCED_MAX_NETWORK_TRY_COUNT: 10
           NUGET_ENHANCED_NETWORK_RETRY_DELAY_MILLISECONDS: 2000
 
