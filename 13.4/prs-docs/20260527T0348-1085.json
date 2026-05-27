@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Internal docs CI tooling improvement (twoslash audit); does not document a specific product changelog entry",
+  "mergedAt": "2026-05-27T03:48:07Z",
+  "number": 1085,
+  "runDate": "2026-05-27T05:32:00Z",
+  "status": "excluded",
+  "title": "Block rendered twoslash failures"
+}

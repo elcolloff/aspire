@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Removes Asciinema embeds from CLI command docs and AI coding agent pages; docs presentation change, does not document a specific product changelog entry",
+  "mergedAt": "2026-05-27T04:04:22Z",
+  "number": 1086,
+  "runDate": "2026-05-27T05:32:00Z",
+  "status": "excluded",
+  "title": "Hide most Asciinema embeds"
+}
