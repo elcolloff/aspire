@@ -95,8 +95,22 @@ jobs:
 
       - name: Build solution and pack CLI
         run: |
-          # Build the full solution and pack CLI for local testing
-          ./build.sh --build --pack -c Release
+          # Build the full solution and pack CLI for local testing.
+          # Retry because this step can intermittently fail on package downloads from dotnet-public.
+          for attempt in 1 2 3; do
+            if ./build.sh --build --pack -c Release; then
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Build failed after 3 attempts."
+              exit 1
+            fi
+
+            sleep_seconds=$((attempt * 20))
+            echo "Build failed on attempt $attempt. Retrying in ${sleep_seconds}s..."
+            sleep "$sleep_seconds"
+          done
         env:
           # Skip native build to save time - we'll use the non-native CLI
           SkipNativeBuild: true
