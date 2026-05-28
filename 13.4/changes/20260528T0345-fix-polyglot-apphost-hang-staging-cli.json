@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Resolved a hang during DI and assembly loading in polyglot AppHosts running staging CLI builds. The staging NuGet package cache now uses a stable absolute path under ASPIRE_HOME keyed by CLI commit SHA instead of a temp directory that was deleted after restore, causing cached assemblies to disappear.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-28T03:45:46Z",
+  "lastMergedAt": "2026-05-28T03:45:46Z",
+  "name": "Fix polyglot AppHost hang with staging CLI builds",
+  "owner": "danegsta",
+  "prs": [
+    17573
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Bug fix: polyglot AppHost hang during assembly loading with staging CLI builds due to temp directory cleanup deleting cached assemblies",
+  "mergedAt": "2026-05-28T03:45:46Z",
+  "number": 17573,
+  "runDate": "2026-05-28T05:29:21Z",
+  "status": "included",
+  "title": "[release/13.4] Stabilize PrebuiltAppHostServer staging globalPackagesFolder path"
+}
