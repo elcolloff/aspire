@@ -739,16 +739,31 @@ long time is an output of the work, not an input.
 
 ### Phase 3 — Pointer files and signing infrastructure
 
+The architectural point of this whole redesign is that PR, daily,
+staging, and stable all flow through the same publish layer and
+the same resolver layer. That uniformity is what lets us **build
+confidence early**: validating the resolver against a single
+sim-published feed is, by construction, validating it against the
+shape every channel uses. We do not need to wait for daily, then
+staging, then stable to each independently prove the resolver
+works — they cannot diverge by design.
+
 - Stand up the Key-Vault-held pointer signer.
 - Publish `channels/<name>.json` pointer files in parallel with
-  sim-publish. Initially they can point at the sim-published
-  blob paths.
-- Build the CLI-side resolver and signature verifier behind a
-  feature flag. **Disabled by default.** Internal opt-in only.
-- Internal dogfooding: ask team members to flip the flag and use
-  the new resolver against the sim-published feeds for daily
-  work. Collect bug reports, iterate until the resolver layer is
-  as boring as the publish layer below it.
+  sim-publish.
+- Build the CLI-side resolver and signature verifier. Because the
+  feed shape is identical across channels, the resolver can be
+  exercised end-to-end in the same PR that introduces it — point
+  it at the PR's own sim-published feed and run the CLI test
+  suite. Passing that gives architectural confidence the resolver
+  will behave the same way against daily / staging / stable feeds.
+- Ship the resolver under a feature flag for the cutover, not
+  because we need a long opt-in soak period to discover bugs, but
+  because phase 4 wants the ability to flip channels over one at
+  a time. Light dogfooding to flush out anything the test suite
+  doesn't cover (real auth proxies, real corporate egress, real
+  cache states) is still worthwhile but is not the primary
+  validation gate.
 
 ### Phase 4 — Per-channel cutover, one channel at a time
 
