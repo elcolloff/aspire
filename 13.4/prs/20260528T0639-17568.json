@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17544: CLI help text description update only, no notable user-facing change",
+  "mergedAt": "2026-05-28T06:39:31Z",
+  "number": 17568,
+  "runDate": "2026-05-28T07:22:16Z",
+  "status": "excluded",
+  "title": "[release/13.4] Update --search option description with aka.ms link and field filter details"
+}

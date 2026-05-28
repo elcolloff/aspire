@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The VS Code extension now uses CLI-backed discovery (aspire ls) as the source of truth for launch targets, fixing issues where starting a debug session from an AppHost source file could pass an incorrect path to the CLI and fail to launch.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔍",
+  "firstMergedAt": "2026-05-28T06:23:19Z",
+  "lastMergedAt": "2026-05-28T06:23:19Z",
+  "name": "Fix VS Code AppHost launch path resolution",
+  "owner": "davidfowl",
+  "prs": [
+    17560
+  ]
+}

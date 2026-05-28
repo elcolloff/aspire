@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL environment variable was previously ignored when configuring the resource service endpoint. It is now correctly honored, with fallback to the legacy DOTNET_RESOURCE_SERVICE_ENDPOINT_URL name.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-28T06:11:05Z",
+  "lastMergedAt": "2026-05-28T06:11:05Z",
+  "name": "Fix ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL env var not being honored",
+  "owner": "JamesNK",
+  "prs": [
+    17571
+  ]
+}

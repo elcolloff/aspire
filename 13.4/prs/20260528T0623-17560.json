@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Backport of #17408: significant fix to VS Code AppHost launch path resolution using CLI-backed discovery",
+  "mergedAt": "2026-05-28T06:23:19Z",
+  "number": 17560,
+  "runDate": "2026-05-28T07:22:16Z",
+  "status": "included",
+  "title": "[release/13.4] Fix VS Code AppHost launch path resolution"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17385: fixes ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL env var being ignored in DashboardServiceHost",
+  "mergedAt": "2026-05-28T06:11:05Z",
+  "number": 17571,
+  "runDate": "2026-05-28T07:22:16Z",
+  "status": "included",
+  "title": "[release/13.4] Use KnownConfigNames for resource service endpoint URL with legacy fallback"
+}
