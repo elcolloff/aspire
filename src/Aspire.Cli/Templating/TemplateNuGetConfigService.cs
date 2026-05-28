@@ -224,13 +224,44 @@ internal sealed class TemplateNuGetConfigService(
                     $"{string.Join(", ", allChannels.Select(c => c.Name))}");
             channels = [matchingChannel];
         }
+        else if (hasPrHives)
+        {
+            // If there are hives (PR build directories), include all channels so a
+            // PR-installed CLI can find its matching local-hive templates.
+            channels = allChannels;
+        }
         else
         {
-            // If there are hives (PR build directories), include all channels.
-            // Otherwise, only use the implicit/default channel to avoid prompting.
-            channels = hasPrHives
-                ? allChannels
-                : allChannels.Where(c => c.Type is PackageChannelType.Implicit);
+            // Prefer the channel whose name matches the running CLI's identity
+            // (CliExecutionContext.IdentityChannel — stable, staging, daily, local,
+            // or pr-<N>). This keeps DotNet templates (C# Blazor / aspire-starter)
+            // lock-stepped with the CLI a developer just installed: a daily 13.5
+            // CLI resolves Aspire.ProjectTemplates from the daily feed, not from
+            // whatever stable version happens to be live on nuget.org.
+            //
+            // Without this, `TemplateNuGetConfigService` only queried the Implicit
+            // (nuget.org) channel when neither --channel was passed nor PR hives
+            // existed, so a clean ~/.aspire on a daily CLI silently resolved the
+            // shipped stable Aspire.ProjectTemplates (e.g. 13.3.5) while the daily
+            // 13.5.0-preview.1.* package on the dotnet9 feed was never seen. See
+            // https://github.com/microsoft/aspire/issues/17596 for the full repro.
+            //
+            // ResolveCliTemplateVersionAsync (NewCommand.cs) already does the same
+            // identity-channel preference for CLI-runtime templates; this brings
+            // DotNet templates in line. The Implicit fallback preserves the prior
+            // behavior when the identity channel isn't a registered channel (e.g.
+            // a "local" CLI without a corresponding local-build hive).
+            PackageChannel? identityChannelMatch = null;
+            if (!string.IsNullOrWhiteSpace(executionContext.IdentityChannel))
+            {
+                identityChannelMatch = allChannels.FirstOrDefault(c =>
+                    string.Equals(c.Name, executionContext.IdentityChannel, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var implicitChannel = allChannels.FirstOrDefault(c => c.Type is PackageChannelType.Implicit);
+            channels = identityChannelMatch is not null
+                ? [identityChannelMatch]
+                : implicitChannel is not null ? [implicitChannel] : [];
         }
 
         var packagesFromChannels = await interactionService.ShowStatusAsync(Resources.TemplatingStrings.SearchingForAvailableTemplateVersions, async () =>

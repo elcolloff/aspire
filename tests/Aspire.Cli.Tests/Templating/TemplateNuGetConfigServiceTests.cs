@@ -212,11 +212,15 @@ public class TemplateNuGetConfigServiceTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task ResolveTemplatePackageAsync_NullRequestedChannel_UsesImplicitChannelOnly()
+    public async Task ResolveTemplatePackageAsync_NullRequestedChannel_NoIdentityChannelMatch_UsesImplicitChannelOnly()
     {
-        // No explicit RequestedChannel: the resolver picks the implicit channel only.
-        // We exercise the production codepath with a tracking packaging service so the
-        // assertion is that the resolver completes (no exception is thrown by
+        // No explicit RequestedChannel and the identity channel ("local") does not match any
+        // registered Explicit channel: the resolver falls back to the implicit channel only.
+        // This is the preserved-behavior path from before
+        // https://github.com/microsoft/aspire/issues/17596 — a "local" CLI without a matching
+        // local-build hive must not silently route DotNet templates through a stable feed
+        // it doesn't recognize. We exercise the production codepath with a tracking packaging
+        // service so the assertion is that the resolver completes (no exception is thrown by
         // an unexpected channel-lookup path) and only the implicit channel is in play.
         var requestedChannels = new List<PackageChannelType>();
         var packagingService = new TestPackagingService
@@ -245,6 +249,63 @@ public class TemplateNuGetConfigServiceTests(ITestOutputHelper outputHelper)
         // surfaces (not ChannelNotFoundException from a different lookup path).
         await Assert.ThrowsAsync<Aspire.Cli.Interaction.EmptyChoicesException>(
             async () => await service.ResolveTemplatePackageAsync(query, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResolveTemplatePackageAsync_NullRequestedChannel_PrefersIdentityChannelMatch()
+    {
+        // Regression test for https://github.com/microsoft/aspire/issues/17596: a daily CLI
+        // running `aspire new` for a DotNet template (e.g. C# Blazor) with no --channel flag
+        // and an empty ~/.aspire must resolve Aspire.ProjectTemplates from the daily channel,
+        // not from the implicit nuget.org channel. Previously this path restricted the search
+        // to the implicit channel only, so the latest shipped stable (e.g. 13.3.5) would mask
+        // the daily prerelease (e.g. 13.5.0-preview.1.*) that the matching CLI needs.
+        var packagingService = new TestPackagingService
+        {
+            GetChannelsAsyncCallback = _ =>
+            {
+                var implicitCh = PackageChannel.CreateImplicitChannel(new FakeNuGetPackageCache
+                {
+                    GetTemplatePackagesAsyncCallback = (_, _, _, _) => Task.FromResult<IEnumerable<Aspire.Shared.NuGetPackageCli>>(
+                    [
+                        new Aspire.Shared.NuGetPackageCli { Id = TemplateNuGetConfigService.TemplatesPackageName, Version = "13.3.5", Source = "nuget.org" }
+                    ])
+                }, new TestFeatures());
+                var dailyCh = PackageChannel.CreateExplicitChannel(
+                    "daily",
+                    PackageChannelQuality.Prerelease,
+                    [new PackageMapping("Aspire*", "daily-src")],
+                    new FakeNuGetPackageCache
+                    {
+                        GetTemplatePackagesAsyncCallback = (_, _, _, _) => Task.FromResult<IEnumerable<Aspire.Shared.NuGetPackageCli>>(
+                        [
+                            new Aspire.Shared.NuGetPackageCli { Id = TemplateNuGetConfigService.TemplatesPackageName, Version = "13.5.0-preview.1.26277.21", Source = "daily-src" }
+                        ])
+                    },
+                    features: new TestFeatures());
+                return Task.FromResult<IEnumerable<PackageChannel>>([implicitCh, dailyCh]);
+            }
+        };
+
+        var executionContext = TestExecutionContextHelper.CreateExecutionContext(
+            rootDirectory: new DirectoryInfo(Path.GetTempPath()),
+            identityChannel: "daily");
+
+        var service = CreateService(packagingService: packagingService, executionContext: executionContext);
+
+        var query = new TemplatePackageQuery(
+            RequestedChannel: null,
+            VersionOverride: null,
+            SourceOverride: null,
+            IncludePrHives: false);
+
+        var selection = await service.ResolveTemplatePackageAsync(query, CancellationToken.None);
+
+        // The daily channel must be selected (matches identity) and its prerelease package
+        // returned — not the stable 13.3.5 from the implicit channel.
+        Assert.Equal("daily", selection.Channel.Name);
+        Assert.Equal(PackageChannelType.Explicit, selection.Channel.Type);
+        Assert.Equal("13.5.0-preview.1.26277.21", selection.Package.Version);
     }
 
     [Fact]
