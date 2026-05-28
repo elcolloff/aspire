@@ -114,12 +114,11 @@ A model where:
   contributors and CI agents.
 - **Adding a new channel does not require new branches in the CLI.**
   Channel names become pure indirection; behavior lives in storage.
-  The one acknowledged special case is **local hive** builds, which
-  resolve via a `file://` URL baked at build time rather than via a
-  network pointer fetch — but the custom logic for that case
-  reduces to "if the URL is `file://`, skip the pointer round-trip
-  and use it directly," which is dramatically less than today's
-  hive-discovery, install-prefix-sniffing, and sideload code.
+  Local builds are not a separate code path either — they use the
+  same "per-build path recorded in the CLI's identity file" pattern
+  as PR builds, with `file://` instead of `https://` as the URL
+  scheme. The resolver does not branch on scheme; NuGet handles
+  both transparently.
 - **What ships to nuget.org is the exact bytes that were tested in
   staging.** No "we tested an RC and rebuilt for GA" risk.
 
@@ -352,44 +351,56 @@ preserved and substantially expanded, because the polymorphic
 `channel` field already accepts arbitrary URLs and `file://` is a
 URL.
 
-**Single local hive (the common case).**
+**Local builds are just PR builds with a different URL scheme.**
 
-A developer build emits a static NuGet v3 feed into
-`artifacts/packages/<config>/Shipping/feed/` on disk (same layout the
-blob-publish step uses; nothing blob-specific about the layout). The
-local pack step writes the CLI's co-located
-`aspire-cli.identity.json` (see §4) with `channel: "local"` and the
-corresponding feed URL as a `file://` URL pointing at that directory.
-With no global config present, a locally-installed CLI scaffolds new
-projects with `channel: "local"`, which the resolver dereferences to
-that `file://` URL. No network, no hive sideload, no implicit
-directory-sniffing.
+The core insight is that we can treat a local developer build
+exactly the way we treat a PR build today: copy the produced feed
+into a unique per-build path and record that path in the CLI's
+identity. The only difference is the URL scheme — `file://` instead
+of `https://` — and the resolver does not need to care.
 
-**Multiple concurrent local hives.**
+A developer build emits a static NuGet v3 feed into a per-worktree
+path such as `<worktree>/artifacts/packages/<config>/Shipping/feed/`
+(same layout the blob publisher uses; nothing blob-specific about the
+layout). The local pack step then writes the locally-installed CLI's
+co-located `aspire-cli.identity.json` (see §4) so it points directly
+at that path:
 
-Because `channel` accepts any URL, the same machine can host any
-number of independent local feeds simultaneously, one per local
-working tree / experiment / agent worktree. There is no shared
-ambient state on the machine that selects between them. Two
-patterns are explicitly supported:
+```jsonc
+{
+  "channel": "local",
+  "feedUrl": "file:///work/aspire-worktree-a/artifacts/packages/Debug/Shipping/feed/"
+}
+```
 
-- **Per-worktree feeds (recommended default).** Each worktree's
-  build emits its feed under that worktree's `artifacts/packages`
-  directory. The locally-installed CLI for that worktree gets its
-  own `aspire-cli.identity.json` pointing at that worktree's
-  `file://` URL, so a fresh project scaffolded by that CLI pins
-  to that worktree's feed via the per-project `aspire.config.json`.
-  Concurrent worktrees do not interfere with each other and do not
-  require any global registration step.
-- **Named local channels.** A developer or agent can register a
-  named local feed by writing it into the **global**
-  `aspire.config.json` (or the local one) as a literal URL — for
-  example `"channel": "file:///work/aspire-experiment-a/.../feed"`
-  — and switch between hives by setting `channel` to a different
-  URL or by passing `--channel <url>` on a single command.
-  Multiple concurrent local hives are just multiple URLs; there is
-  no exclusive "the active hive" concept the way today's
-  `~/.aspire/hives` selection implies.
+There is no machine-global "active hive" selection step, no implicit
+directory sniffing, no install-prefix probing. The CLI knows where
+its packages live because its identity file says so, exactly the way
+a PR CLI's identity file says
+`https://.../builds/pr-1234/gh-...-1/feed/`.
+
+**Concurrent worktrees / agents fall out for free.**
+
+Because the identity file lives next to the CLI binary in each
+worktree's local install location, the same machine can host any
+number of independent local feeds simultaneously — one per
+worktree, one per agent. Each worktree's locally-installed CLI is
+self-contained; it has its own identity, its own `file://` feed
+URL, and its own packages on disk. There is no shared ambient state
+to fight over and no exclusive "the active hive" concept the way
+today's `~/.aspire/hives` selection implies.
+
+Projects scaffolded by such a CLI pin to that CLI's feed URL via
+the per-project `aspire.config.json`, so the project remains
+reproducible against that exact feed even if the CLI is later
+replaced.
+
+For ad-hoc cases where a user wants to point at a local feed they
+did not build themselves (e.g. consuming a teammate's worktree),
+the same polymorphic `channel` field accepts the URL directly:
+`"channel": "file:///some/other/feed"` or `--channel <file-url>`
+on a single command. No registration step; the URL is the
+identifier.
 
 **Why this matters for concurrent agentic development.**
 
