@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
 
 namespace Aspire.Cli.Agents;
@@ -8,6 +10,7 @@ namespace Aspire.Cli.Agents;
 /// <summary>
 /// Represents a skill that can be installed into a skill location.
 /// </summary>
+[DebuggerDisplay("Name = {Name}, Description = {Description}, IsDefault = {IsDefault}")]
 internal sealed class SkillDefinition
 {
     /// <summary>
@@ -16,7 +19,20 @@ internal sealed class SkillDefinition
     public static readonly SkillDefinition Aspire = new(
         CommonAgentApplicators.AspireSkillName,
         AgentCommandStrings.SkillDescription_Aspire,
-        CommonAgentApplicators.SkillFileContent,
+        skillContent: null,
+        sourceKind: SkillSourceKind.AspireSkillsBundle,
+        installExcludedRelativePaths: [Path.Combine("evals")],
+        isDefault: true);
+
+    /// <summary>
+    /// The Aspire deployment skill for target selection, preflight, publish, and deploy workflows.
+    /// </summary>
+    public static readonly SkillDefinition AspireDeployment = new(
+        CommonAgentApplicators.AspireDeploymentSkillName,
+        AgentCommandStrings.SkillDescription_AspireDeployment,
+        skillContent: null,
+        sourceKind: SkillSourceKind.AspireSkillsBundle,
+        installExcludedRelativePaths: [],
         isDefault: true);
 
     /// <summary>
@@ -25,24 +41,45 @@ internal sealed class SkillDefinition
     public static readonly SkillDefinition PlaywrightCli = new(
         "playwright-cli",
         AgentCommandStrings.SkillDescription_PlaywrightCli,
-        skillContent: null, // Playwright is installed via PlaywrightCliInstaller, not a static file
-        isDefault: true);
+        skillContent: null,
+        sourceKind: SkillSourceKind.ExternalInstaller, // Playwright is installed via PlaywrightCliInstaller, not a static file
+        installExcludedRelativePaths: [],
+        isDefault: false);
 
     /// <summary>
     /// The dotnet-inspect skill for querying .NET API surfaces.
+    /// Only offered when the workspace contains a .NET AppHost.
     /// </summary>
     public static readonly SkillDefinition DotnetInspect = new(
         CommonAgentApplicators.DotnetInspectSkillName,
         AgentCommandStrings.SkillDescription_DotnetInspect,
         CommonAgentApplicators.DotnetInspectSkillFileContent,
+        sourceKind: SkillSourceKind.Static,
+        installExcludedRelativePaths: [],
+        isDefault: false,
+        applicableLanguages: [KnownLanguageId.CSharp]);
+
+    /// <summary>
+    /// One-time skill for completing Aspire initialization.
+    /// Installed by <c>aspire init</c> to scan the repo, wire up the AppHost, and configure dependencies.
+    /// </summary>
+    public static readonly SkillDefinition Aspireify = new(
+        CommonAgentApplicators.AspireifySkillName,
+        AgentCommandStrings.SkillDescription_Aspireify,
+        skillContent: null,
+        sourceKind: SkillSourceKind.AspireSkillsBundle,
+        installExcludedRelativePaths: [],
         isDefault: true);
 
-    private SkillDefinition(string name, string description, string? skillContent, bool isDefault)
+    private SkillDefinition(string name, string description, string? skillContent, SkillSourceKind sourceKind, IReadOnlyList<string> installExcludedRelativePaths, bool isDefault, IReadOnlyList<string>? applicableLanguages = null)
     {
         Name = name;
         Description = description;
         SkillContent = skillContent;
+        SourceKind = sourceKind;
+        InstallExcludedRelativePaths = installExcludedRelativePaths;
         IsDefault = isDefault;
+        ApplicableLanguages = applicableLanguages ?? [];
     }
 
     /// <summary>
@@ -56,9 +93,40 @@ internal sealed class SkillDefinition
     public string Description { get; }
 
     /// <summary>
-    /// Gets the content for the SKILL.md file, or <c>null</c> if this skill is installed by other means.
+    /// Gets the content for the top-level SKILL.md file when the skill is defined as a single-file bundle.
     /// </summary>
     public string? SkillContent { get; }
+
+    /// <summary>
+    /// Gets where the installable files for this skill come from.
+    /// </summary>
+    public SkillSourceKind SourceKind { get; }
+
+    /// <summary>
+    /// Gets whether this skill has files that <c>aspire agent init</c> installs directly.
+    /// </summary>
+    public bool HasInstallableFiles => SkillContent is not null || SourceKind is SkillSourceKind.AspireSkillsBundle;
+
+    /// <summary>
+    /// Gets relative paths that should be excluded when the skill is installed into a workspace.
+    /// </summary>
+    public IReadOnlyList<string> InstallExcludedRelativePaths { get; }
+
+    /// <summary>
+    /// Gets whether a bundled file should be installed into a workspace.
+    /// </summary>
+    public bool ShouldInstallFile(string relativePath)
+    {
+        foreach (var excludedPath in InstallExcludedRelativePaths)
+        {
+            if (PathMatchesOrIsUnder(relativePath, excludedPath))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Gets whether this skill should be selected by default.
@@ -66,7 +134,74 @@ internal sealed class SkillDefinition
     public bool IsDefault { get; }
 
     /// <summary>
+    /// Gets the set of language identifiers (from <see cref="KnownLanguageId"/>) this skill applies to.
+    /// An empty list means the skill is language-agnostic and always offered.
+    /// When non-empty, the skill is only offered when the detected language matches one of the entries.
+    /// </summary>
+    public IReadOnlyList<string> ApplicableLanguages { get; }
+
+    /// <summary>
+    /// Returns whether this skill is applicable for the given detected language.
+    /// A skill with no <see cref="ApplicableLanguages"/> restrictions is always applicable.
+    /// A skill with restrictions is only applicable when the detected language matches one of the entries.
+    /// When no language is detected (<paramref name="detectedLanguage"/> is <c>null</c>), language-restricted skills are excluded.
+    /// </summary>
+    public bool IsApplicableToLanguage(LanguageId? detectedLanguage)
+    {
+        if (ApplicableLanguages.Count == 0)
+        {
+            return true;
+        }
+
+        if (detectedLanguage is null)
+        {
+            return false;
+        }
+
+        return ApplicableLanguages.Any(l => string.Equals(l, detectedLanguage.Value.Value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool PathMatchesOrIsUnder(string relativePath, string excludedPath)
+    {
+        if (string.Equals(relativePath, excludedPath, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!relativePath.StartsWith(excludedPath, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return relativePath.Length > excludedPath.Length && relativePath[excludedPath.Length] == Path.DirectorySeparatorChar;
+    }
+
+    /// <summary>
     /// Gets all available skill definitions.
     /// </summary>
-    public static IReadOnlyList<SkillDefinition> All { get; } = [Aspire, PlaywrightCli, DotnetInspect];
+    public static IReadOnlyList<SkillDefinition> All { get; } = [Aspire, Aspireify, AspireDeployment, PlaywrightCli, DotnetInspect];
+
+    /// <inheritdoc />
+    public override string ToString() => Name;
+}
+
+/// <summary>
+/// Identifies where skill files are sourced from.
+/// </summary>
+internal enum SkillSourceKind
+{
+    /// <summary>
+    /// The skill is represented by static content compiled into the CLI.
+    /// </summary>
+    Static,
+
+    /// <summary>
+    /// The skill is installed from the external Aspire skills bundle.
+    /// </summary>
+    AspireSkillsBundle,
+
+    /// <summary>
+    /// The skill is managed by a dedicated external installer.
+    /// </summary>
+    ExternalInstaller
 }

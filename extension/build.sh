@@ -9,16 +9,9 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-# Check for npm
-if ! command -v npm &> /dev/null; then
-    echo "Error: npm is not installed. Please install npm first."
-    exit 1
-fi
-
-# Check for yarn
-if ! command -v yarn &> /dev/null; then
-    echo "Error: yarn is not installed. Please install yarn first."
-    echo "You can install yarn by running: npm install -g yarn"
+# Check for Corepack so the build uses the Yarn Classic version that matches extension/yarn.lock.
+if ! command -v corepack &> /dev/null; then
+    echo "Error: Corepack is not installed. Please install a Node.js version that includes Corepack."
     exit 1
 fi
 
@@ -37,13 +30,18 @@ if ! command -v dotnet &> /dev/null; then
 fi
 
 echo "All prerequisites satisfied."
+
+# Ensure we run from the extension directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 echo ""
 echo "Running yarn install..."
-yarn install
+corepack yarn@1.22.22 install --frozen-lockfile --non-interactive
 
 echo ""
 echo "Running yarn compile..."
-yarn compile
+corepack yarn@1.22.22 compile
 
 echo ""
 echo "Building Aspire CLI..."

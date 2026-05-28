@@ -3,9 +3,8 @@
 
 using Aspire.Cli.EndToEnd.Tests.Helpers;
 using Aspire.Cli.Tests.Utils;
-using Hex1b.Automation;
-using Hex1b.Input;
 using Aspire.TestUtilities;
+using Hex1b.Automation;
 using Xunit;
 
 namespace Aspire.Cli.EndToEnd.Tests;
@@ -29,19 +28,17 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
     public async Task AgentInit_InstallsPlaywrightCli_AndGeneratesSkillFiles()
     {
         var repoRoot = CliE2ETestHelpers.GetRepoRoot();
-        var installMode = CliE2ETestHelpers.DetectDockerInstallMode(repoRoot);
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
         var workspace = TemporaryWorkspace.Create(output);
 
-        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, installMode, output, workspace: workspace);
-
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, workspace: workspace);
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
         await auto.PrepareDockerEnvironmentAsync(counter, workspace);
 
-        await auto.InstallAspireCliInDockerAsync(installMode, counter);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
         // Step 1: Verify playwright-cli is not installed.
         await auto.TypeAsync("playwright-cli --version 2>&1 || true");
@@ -56,27 +53,9 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
         await auto.EnterAsync();
         await auto.WaitForSuccessPromptAsync(counter);
 
-        // Step 4: Run aspire agent init.
-        // First prompt: workspace path
-        await auto.TypeAsync("aspire agent init");
-        await auto.EnterAsync();
-        await auto.WaitUntilTextAsync("workspace:", timeout: TimeSpan.FromSeconds(30));
-        await auto.WaitAsync(500);
-        await auto.EnterAsync(); // Accept default workspace path
-
-        // Second prompt: skill locations. Select Claude Code only.
-        await auto.WaitUntilAsync(
-            s => s.ContainsText("skill files be installed"),
-            timeout: TimeSpan.FromSeconds(60), description: "skill location prompt");
-        await auto.TypeAsync(" "); // Toggle off default Standard location
-        await auto.DownAsync();
-        await auto.TypeAsync(" "); // Toggle on Claude Code location
-        await auto.EnterAsync();
-
-        // Third prompt: skills. Accept defaults (Aspire, Playwright CLI, dotnet-inspect).
-        await auto.WaitUntilAsync(
-            s => s.ContainsText("skills should be installed"),
-            timeout: TimeSpan.FromSeconds(30), description: "skill selection prompt");
+        // Step 4: Run aspire agent init for Playwright only. This test is about
+        // @playwright/cli acquisition, not the Aspire skills bundle.
+        await auto.TypeAsync("aspire agent init --workspace-root . --skill-locations claudecode --skills playwright-cli");
         await auto.EnterAsync();
 
         // Wait for installation to complete (this downloads from npm, can take a while)
@@ -93,11 +72,6 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
         await auto.EnterAsync();
         await auto.WaitUntilTextAsync("SKILL.md", timeout: TimeSpan.FromSeconds(10));
         await auto.WaitForSuccessPromptAsync(counter);
-
-        await auto.TypeAsync("exit");
-        await auto.EnterAsync();
-
-        await pendingRun;
     }
 
     /// <summary>
@@ -113,19 +87,17 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
     public async Task AgentInit_WhenCwdDiffersFromWorkspaceRoot_PlacesSkillFilesInWorkspaceRoot()
     {
         var repoRoot = CliE2ETestHelpers.GetRepoRoot();
-        var installMode = CliE2ETestHelpers.DetectDockerInstallMode(repoRoot);
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
         var workspace = TemporaryWorkspace.Create(output);
 
-        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, installMode, output, workspace: workspace);
-
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, workspace: workspace);
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
         await auto.PrepareDockerEnvironmentAsync(counter, workspace);
 
-        await auto.InstallAspireCliInDockerAsync(installMode, counter);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
         // Step 1: Create an Aspire project.
         await auto.AspireNewAsync("TestProject", counter);
@@ -136,32 +108,10 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
         await auto.EnterAsync();
         await auto.WaitForSuccessPromptFailFastAsync(counter);
 
-        // Step 3: Run aspire agent init from the PARENT directory.
-        // When prompted for workspace root, provide the project subdirectory.
-        await auto.TypeAsync("aspire agent init");
-        await auto.EnterAsync();
-        await auto.WaitUntilTextAsync("workspace:", timeout: TimeSpan.FromSeconds(30));
-        await auto.WaitAsync(500);
-
-        // Clear the default path and type the project subdirectory instead.
-        // The default will be the git root or CWD — we need to override it.
-        await auto.Ctrl().KeyAsync(Hex1bKey.U); // Clear the line
-        await auto.TypeAsync("TestProject");
-        await auto.EnterAsync();
-
-        // Select Claude Code as the only skill location.
-        await auto.WaitUntilAsync(
-            s => s.ContainsText("skill files be installed"),
-            timeout: TimeSpan.FromSeconds(60), description: "skill location prompt");
-        await auto.TypeAsync(" "); // Toggle off default Standard location
-        await auto.DownAsync();
-        await auto.TypeAsync(" "); // Toggle on Claude Code location
-        await auto.EnterAsync();
-
-        // Accept default skills, which include Playwright CLI.
-        await auto.WaitUntilAsync(
-            s => s.ContainsText("skills should be installed"),
-            timeout: TimeSpan.FromSeconds(30), description: "skill selection prompt");
+        // Step 3: Run aspire agent init from the PARENT directory for Playwright
+        // only. When provided as options, the workspace root and skill selection
+        // are deterministic and do not depend on Aspire default skills.
+        await auto.TypeAsync("aspire agent init --workspace-root TestProject --skill-locations claudecode --skills playwright-cli");
         await auto.EnterAsync();
 
         await auto.WaitUntilTextAsync("configuration complete", timeout: TimeSpan.FromMinutes(3));
@@ -178,10 +128,5 @@ public sealed class PlaywrightCliInstallTests(ITestOutputHelper output)
         await auto.EnterAsync();
         await auto.WaitUntilTextAsync("NO_STRAY_FILES", timeout: TimeSpan.FromSeconds(10));
         await auto.WaitForSuccessPromptFailFastAsync(counter);
-
-        await auto.TypeAsync("exit");
-        await auto.EnterAsync();
-
-        await pendingRun;
     }
 }

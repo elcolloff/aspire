@@ -15,84 +15,43 @@ namespace Aspire.Hosting;
 /// </summary>
 public static class HostedAgentResourceBuilderExtensions
 {
-    /// <summary>
-    /// In both run and publish modes, build, deploy, and run the containerized agent as a hosted agent in Microsoft Foundry.
-    /// </summary>
-    /// <remarks>This overload is not available in polyglot app hosts because run-mode hosted agents are not yet implemented.</remarks>
-    [AspireExportIgnore(Reason = "RunAsHostedAgent is not yet implemented, so AsHostedAgent is not available in polyglot hosts.")]
-    public static IResourceBuilder<T> AsHostedAgent<T>(
-        this IResourceBuilder<T> builder, Action<HostedAgentConfiguration>? configure = null)
-        where T : ExecutableResource
-    {
-        return builder.AsHostedAgent(project: null, configure: configure);
-    }
 
     /// <summary>
-    /// In both run and publish modes, build, deploy, and run the containerized agent as a hosted agent in Microsoft Foundry.
-    /// </summary>
-    /// <remarks>This overload is not available in polyglot app hosts because run-mode hosted agents are not yet implemented.</remarks>
-    [AspireExportIgnore(Reason = "RunAsHostedAgent is not yet implemented, so AsHostedAgent is not available in polyglot hosts.")]
-    public static IResourceBuilder<T> AsHostedAgent<T>(
-        this IResourceBuilder<T> builder, IResourceBuilder<AzureCognitiveServicesProjectResource>? project = null, Action<HostedAgentConfiguration>? configure = null)
-        where T : ExecutableResource
-    {
-        return builder.RunAsHostedAgent(project: project, configure: configure).PublishAsHostedAgent(project: project, configure: configure);
-    }
-
-    /// <summary>
-    /// In run mode, build, deploy, and run the containerized agent as a hosted agent in Microsoft Foundry.
-    /// </summary>
-    /// <remarks>This overload is not available in polyglot app hosts because run-mode hosted agents are not yet implemented.</remarks>
-    [AspireExportIgnore(Reason = "RunAsHostedAgent is not yet implemented.")]
-    public static IResourceBuilder<T> RunAsHostedAgent<T>(
-        this IResourceBuilder<T> builder, Action<HostedAgentConfiguration> configure)
-        where T : ExecutableResource
-    {
-        return builder.RunAsHostedAgent(project: null, configure: configure);
-    }
-
-    /// <summary>
-    /// In run mode, build, deploy, and run the containerized agent as a hosted agent in Microsoft Foundry.
-    /// </summary>
-    /// <remarks>This overload is not available in polyglot app hosts because run-mode hosted agents are not yet implemented.</remarks>
-    [AspireExportIgnore(Reason = "RunAsHostedAgent is not yet implemented.")]
-    public static IResourceBuilder<T> RunAsHostedAgent<T>(
-        this IResourceBuilder<T> builder, IResourceBuilder<AzureCognitiveServicesProjectResource>? project = null, Action<HostedAgentConfiguration>? configure = null)
-        where T : ExecutableResource
-    {
-        // TODO: Implement this. This will require
-        // 1. Ensuring that ACR is provisioned
-        // 2. Building and pushing the container image
-        // 3. Creating an agent version and returning the name/version of the agent for later use.
-        throw new NotImplementedException("RunAsHostedAgent is not yet implemented.");
-    }
-
-    /// <summary>
-    /// Publish the containerized agent as a hosted agent in Microsoft Foundry.
+    /// Configures the resource to run as a hosted agent in Microsoft Foundry.
     ///
     /// If a project resource is not provided, the method will attempt to find an existing
     /// Microsoft Foundry project resource in the application model. If none exists,
     /// a new project resource (and its parent account resource) will be created automatically.
     /// </summary>
-    [AspireExportIgnore(Reason = "Subset of the full PublishAsHostedAgent overload which is exported.")]
-    public static IResourceBuilder<T> PublishAsHostedAgent<T>(
+    /// <remarks>
+    /// In run mode, this configures the resource with hosted agent endpoints, health checks,
+    /// and OpenTelemetry settings. In publish mode, the resource is deployed as a hosted agent
+    /// in Microsoft Foundry.
+    /// </remarks>
+    [AspireExportIgnore(Reason = "Subset of the full WithComputeEnvironment overload which is exported.")]
+    public static IResourceBuilder<T> WithComputeEnvironment<T>(
         this IResourceBuilder<T> builder, Action<HostedAgentConfiguration> configure)
-        where T : ExecutableResource
+        where T : IResourceWithEndpoints, IResourceWithEnvironment, IComputeResource
     {
-        return PublishAsHostedAgent(builder, project: null, configure: configure);
+        return WithComputeEnvironment(builder, project: null, configure: configure);
     }
 
     /// <summary>
-    /// Publish the containerized agent as a hosted agent in Microsoft Foundry.
+    /// Configures the resource to run as a hosted agent in Microsoft Foundry.
     ///
     /// If a project resource is not provided, the method will attempt to find an existing
     /// Microsoft Foundry project resource in the application model. If none exists,
     /// a new project resource (and its parent account resource) will be created automatically.
     /// </summary>
-    [AspireExport("publishAsHostedAgentExecutable", MethodName = "publishAsHostedAgent", Description = "Publishes an executable resource as a hosted agent in Microsoft Foundry.")]
-    public static IResourceBuilder<T> PublishAsHostedAgent<T>(
+    /// <remarks>
+    /// In run mode, this configures the resource with hosted agent endpoints, health checks,
+    /// and OpenTelemetry settings. In publish mode, the resource is deployed as a hosted agent
+    /// in Microsoft Foundry.
+    /// </remarks>
+    [AspireExport("withComputeEnvironmentExecutable", MethodName = "withComputeEnvironment")]
+    public static IResourceBuilder<T> WithComputeEnvironment<T>(
         this IResourceBuilder<T> builder, IResourceBuilder<AzureCognitiveServicesProjectResource>? project = null, Action<HostedAgentConfiguration>? configure = null)
-        where T : ExecutableResource
+        where T : IResourceWithEndpoints, IResourceWithEnvironment, IComputeResource
     {
         /*
          * Much of the logic here is similar to ExecutableResourceBuilderExtensions.PublishAsDockerFile().
@@ -105,8 +64,13 @@ public static class HostedAgentResourceBuilderExtensions
 
         if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
         {
+            // Preserve any target port already configured on an existing "http" endpoint;
+            // fall back to the default MAF agent port (8088) when none is set.
+            var existingHttpEndpoint = resource.Annotations.OfType<EndpointAnnotation>().FirstOrDefault(e => e.Name == "http");
+            var targetPort = existingHttpEndpoint?.TargetPort ?? 8088;
+
             builder
-                .WithHttpEndpoint(name: "http", env: "DEFAULT_AD_PORT", port: 8088, targetPort: 8088, isProxied: false)
+                .WithHttpEndpoint(name: "http", env: "DEFAULT_AD_PORT", targetPort: targetPort, isProxied: true)
                 .WithUrls((ctx) =>
                 {
                     var http = ctx.Urls.FirstOrDefault(u => u.Endpoint?.EndpointName == "http" || u.Endpoint?.EndpointName == "https");
@@ -114,15 +78,11 @@ public static class HostedAgentResourceBuilderExtensions
                     {
                         return;
                     }
-                    ctx.Urls.Add(new()
+                    http.DisplayText = "Responses Endpoint";
+                    http.Url = new UriBuilder(http.Url)
                     {
-                        DisplayText = "Responses endpoint",
-                        Url = new UriBuilder(http.Url)
-                        {
-                            Path = "/responses"
-                        }.ToString(),
-                        Endpoint = http.Endpoint,
-                    });
+                        Path = "/responses"
+                    }.ToString();
                     ctx.Urls.Add(new()
                     {
                         DisplayText = "Liveness probe",
@@ -260,6 +220,9 @@ public static class HostedAgentResourceBuilderExtensions
                 project = builder.ApplicationBuilder.CreateResourceBuilder(projResource);
             }
         }
+
+        ResourceBuilderExtensions.WithComputeEnvironment(builder, project!);
+
         // Hosted Agent resource name
         var agentName = $"{resource.Name}-ha";
         if (builder.ApplicationBuilder.TryCreateResourceBuilder<AzureHostedAgentResource>(agentName, out var rb))
@@ -271,8 +234,8 @@ public static class HostedAgentResourceBuilderExtensions
             }
             return builder;
         }
-        // Get the corresponding ContainerResource. Usually this is swapped in at publish time for ExecutableResources.
-        ContainerResource target;
+        // Get the corresponding ContainerResource for ExecutableResources. Usually this is swapped in at publish time for ExecutableResources.
+        IResource target;
         if (resource is ContainerResource containerResource)
         {
             target = containerResource;
@@ -283,17 +246,32 @@ public static class HostedAgentResourceBuilderExtensions
         }
         else
         {
-            // Ensure we have a container resource to deploy
-            builder.PublishAsDockerFile();
-            if (builder.ApplicationBuilder.TryCreateResourceBuilder(resource.Name, out crb))
+            // Ensure we have a container resource to deploy.
+            // ExecutableResource needs PublishAsDockerFile()
+            // to convert them into container resources at this stage.
+            if (resource is ExecutableResource)
             {
-                target = crb.Resource;
+                builder.ApplicationBuilder.CreateResourceBuilder((ExecutableResource)(object)resource).PublishAsDockerFile();
+
+                if (builder.ApplicationBuilder.TryCreateResourceBuilder(resource.Name, out crb))
+                {
+                    target = crb.Resource;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Unable to create hosted agent for resource '{resource.Name}' because it could not be converted to a container resource.");
+                }
+            }
+            else if (resource is not ProjectResource)
+            {
+                throw new InvalidOperationException($"Unable to create hosted agent for resource '{resource.Name}' because it is not a container, executable, or project resource.");
             }
             else
             {
-                throw new InvalidOperationException($"Unable to create hosted agent for resource '{resource.Name}' because it could not be converted to a container resource.");
+                target = resource;
             }
         }
+
         // Create a separate agent resource to host the deployment
         var agent = new AzureHostedAgentResource(agentName, target, configure);
 
@@ -309,29 +287,5 @@ public static class HostedAgentResourceBuilderExtensions
             .WithReference(project);
 
         return builder;
-    }
-
-    /// <summary>
-    /// Publish a simple prompt agent in Microsoft Foundry.
-    ///
-    /// If a project resource is not provided, the method will attempt to find an existing
-    /// Microsoft Foundry project resource in the application model.
-    /// </summary>
-    [AspireExport("addAndPublishPromptAgent", Description = "Adds and publishes a prompt agent to a Microsoft Foundry project.")]
-    public static IResourceBuilder<AzurePromptAgentResource> AddAndPublishPromptAgent(
-        this IResourceBuilder<AzureCognitiveServicesProjectResource> project, IResourceBuilder<FoundryDeploymentResource> model, [ResourceName] string name, string? instructions)
-    {
-        ArgumentNullException.ThrowIfNull(project);
-        ArgumentNullException.ThrowIfNull(model);
-        var agent = new AzurePromptAgentResource(name, model.Resource.DeploymentName, instructions);
-        return project.ApplicationBuilder.AddResource(agent)
-            .WithReferenceRelationship(project)
-            .WithArgs([
-                // TODO: actually execute the prompt agent locally
-                "-c",
-                "--project", project.Resource.Endpoint,
-                "--model", model.Resource.DeploymentName,
-                "--instructions", instructions ?? string.Empty,
-            ]);
     }
 }

@@ -3,7 +3,7 @@
   "displayName": "Aspire",
   "description": "%extension.description%",
   "publisher": "microsoft-aspire",
-  "version": "1.0.7",
+  "version": "1.10.0",
   "aiKey": "0c6ae279ed8443289764825290e4f9e2-1a736e7c-1324-4338-be46-fc2a58ae4d14-7255",
   "icon": "dotnet-aspire-logo-128.png",
   "license": "SEE LICENSE IN LICENSE.TXT",
@@ -19,15 +19,24 @@
     "Other"
   ],
   "keywords": [
+    "aspire",
     "dotnet",
+    "typescript",
+    "distributed",
     "orchestrator",
     "apphost"
   ],
+  "galleryBanner": {
+    "color": "#512BD4",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onDebugResolve:aspire",
     "onDebugInitialConfigurations:aspire",
     "onDebugDynamicConfigurations:aspire",
     "workspaceContains:**/*.csproj",
+    "workspaceContains:**/aspire.config.json",
+    "workspaceContains:**/.aspire/**",
     "onView:workbench.view.debug",
     "workspaceContains:**/apphost.cs",
     "workspaceContains:**/apphost.ts",
@@ -71,12 +80,12 @@
       {
         "view": "aspire-vscode.runningAppHosts",
         "contents": "%views.runningAppHosts.welcome%",
-        "when": "aspire.noRunningAppHosts && !aspire.fetchAppHostsError && !aspire.loading && aspire.viewMode != global"
+        "when": "aspire.noRunningAppHosts && !aspire.fetchAppHostsError && !aspire.loading && aspire.viewMode != 'global'"
       },
       {
         "view": "aspire-vscode.runningAppHosts",
         "contents": "%views.runningAppHosts.globalWelcome%",
-        "when": "aspire.noRunningAppHosts && !aspire.fetchAppHostsError && !aspire.loading && aspire.viewMode == global"
+        "when": "aspire.noRunningAppHosts && !aspire.fetchAppHostsError && !aspire.loading && aspire.viewMode == 'global'"
       },
       {
         "view": "aspire-vscode.runningAppHosts",
@@ -107,12 +116,33 @@
               "command": {
                 "type": "string",
                 "description": "%extension.debug.command%",
-                "enum": ["run", "deploy", "publish", "do"],
+                "enum": [
+                  "run",
+                  "deploy",
+                  "publish",
+                  "do"
+                ],
                 "default": "run"
               },
               "step": {
                 "type": "string",
                 "description": "%extension.debug.step%"
+              },
+              "args": {
+                "type": "array",
+                "description": "%extension.debug.args%",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "env": {
+                "type": "object",
+                "description": "%extension.debug.env%",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "default": {}
               }
             }
           }
@@ -197,6 +227,12 @@
         "category": "Aspire"
       },
       {
+        "command": "aspire-vscode.restore",
+        "enablement": "workspaceFolderCount > 0",
+        "title": "%command.restore%",
+        "category": "Aspire"
+      },
+      {
         "command": "aspire-vscode.settings",
         "title": "%command.settings%",
         "category": "Aspire"
@@ -235,6 +271,12 @@
         "title": "%command.openDashboard%",
         "category": "Aspire",
         "icon": "$(globe)"
+      },
+      {
+        "command": "aspire-vscode.openAppHostSource",
+        "title": "%command.openAppHostSource%",
+        "category": "Aspire",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "aspire-vscode.stopAppHost",
@@ -285,8 +327,8 @@
         "icon": "$(link-external)"
       },
       {
-        "command": "aspire-vscode.openInSimpleBrowser",
-        "title": "%command.openInSimpleBrowser%",
+        "command": "aspire-vscode.openInIntegratedBrowser",
+        "title": "%command.openInIntegratedBrowser%",
         "category": "Aspire",
         "icon": "$(browser)"
       },
@@ -303,10 +345,10 @@
         "icon": "$(clippy)"
       },
       {
-        "command": "aspire-vscode.copyPid",
-        "title": "%command.copyPid%",
+        "command": "aspire-vscode.viewAppHostSource",
+        "title": "%command.viewAppHostSource%",
         "category": "Aspire",
-        "icon": "$(clippy)"
+        "icon": "$(json)"
       },
       {
         "command": "aspire-vscode.switchToGlobalView",
@@ -354,6 +396,34 @@
         "command": "aspire-vscode.codeLensRevealResource",
         "title": "%command.codeLensRevealResource%",
         "category": "Aspire"
+      },
+      {
+        "command": "aspire-vscode.codeLensOpenDashboard",
+        "title": "%command.codeLensOpenDashboard%",
+        "category": "Aspire"
+      },
+      {
+        "command": "aspire-vscode.codeLensViewAppHostLogs",
+        "title": "%command.codeLensViewAppHostLogs%",
+        "category": "Aspire"
+      },
+      {
+        "command": "aspire-vscode.expandAll",
+        "title": "%command.expandAll%",
+        "category": "Aspire",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "aspire-vscode.viewAppHostLogFile",
+        "title": "%command.viewAppHostLogFile%",
+        "category": "Aspire",
+        "icon": "$(output)"
+      },
+      {
+        "command": "aspire-vscode.copyLogFilePath",
+        "title": "%command.copyLogFilePath%",
+        "category": "Aspire",
+        "icon": "$(clippy)"
       }
     ],
     "jsonValidation": [
@@ -417,6 +487,10 @@
           "when": "false"
         },
         {
+          "command": "aspire-vscode.openAppHostSource",
+          "when": "false"
+        },
+        {
           "command": "aspire-vscode.stopResource",
           "when": "false"
         },
@@ -453,6 +527,14 @@
           "when": "false"
         },
         {
+          "command": "aspire-vscode.codeLensOpenDashboard",
+          "when": "false"
+        },
+        {
+          "command": "aspire-vscode.codeLensViewAppHostLogs",
+          "when": "false"
+        },
+        {
           "command": "aspire-vscode.switchToGlobalView",
           "when": "false"
         },
@@ -469,7 +551,7 @@
           "when": "false"
         },
         {
-          "command": "aspire-vscode.openInSimpleBrowser",
+          "command": "aspire-vscode.openInIntegratedBrowser",
           "when": "false"
         },
         {
@@ -481,32 +563,54 @@
           "when": "false"
         },
         {
-          "command": "aspire-vscode.copyPid",
+          "command": "aspire-vscode.viewAppHostSource",
+          "when": "false"
+        },
+        {
+          "command": "aspire-vscode.expandAll",
+          "when": "false"
+        },
+        {
+          "command": "aspire-vscode.viewAppHostLogFile",
+          "when": "false"
+        },
+        {
+          "command": "aspire-vscode.copyLogFilePath",
           "when": "false"
         }
       ],
       "view/title": [
         {
           "command": "aspire-vscode.switchToGlobalView",
-          "when": "view == aspire-vscode.runningAppHosts && aspire.viewMode != global",
+          "when": "view == 'aspire-vscode.runningAppHosts' && aspire.viewMode != 'global'",
           "group": "navigation"
         },
         {
           "command": "aspire-vscode.switchToWorkspaceView",
-          "when": "view == aspire-vscode.runningAppHosts && aspire.viewMode == global",
+          "when": "view == 'aspire-vscode.runningAppHosts' && aspire.viewMode == 'global'",
           "group": "navigation"
         },
         {
           "command": "aspire-vscode.refreshRunningAppHosts",
-          "when": "view == aspire-vscode.runningAppHosts",
+          "when": "view == 'aspire-vscode.runningAppHosts'",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
           "command": "aspire-vscode.openDashboard",
-          "when": "view == aspire-vscode.runningAppHosts && viewItem =~ /^(appHost|workspaceResources)$/",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem =~ /^(appHost$|workspaceResources(:|$))/",
           "group": "inline"
+        },
+        {
+          "command": "aspire-vscode.expandAll",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem =~ /^(appHost$|workspaceResources(:|$))/",
+          "group": "inline"
+        },
+        {
+          "command": "aspire-vscode.openAppHostSource",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem =~ /^(appHost$|workspaceResources(:|$))/",
+          "group": "1_open@1"
         },
         {
           "command": "aspire-vscode.stopAppHost",
@@ -549,7 +653,7 @@
           "group": "1_open@1"
         },
         {
-          "command": "aspire-vscode.openInSimpleBrowser",
+          "command": "aspire-vscode.openInIntegratedBrowser",
           "when": "view == aspire-vscode.runningAppHosts && viewItem == endpointUrl",
           "group": "1_open@2"
         },
@@ -564,9 +668,19 @@
           "group": "3_info@2"
         },
         {
-          "command": "aspire-vscode.copyPid",
-          "when": "view == aspire-vscode.runningAppHosts && viewItem == pidItem",
-          "group": "1_clipboard@1"
+          "command": "aspire-vscode.viewAppHostSource",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem =~ /^(appHost|workspaceResources:hasAppHost)$/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "aspire-vscode.viewAppHostLogFile",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem == logFileItem",
+          "group": "1_open@1"
+        },
+        {
+          "command": "aspire-vscode.copyLogFilePath",
+          "when": "view == aspire-vscode.runningAppHosts && viewItem == logFileItem",
+          "group": "3_clipboard@1"
         }
       ]
     },
@@ -611,7 +725,11 @@
         },
         "aspire.enableAspireDashboardAutoLaunch": {
           "type": "string",
-          "enum": ["launch", "notification", "off"],
+          "enum": [
+            "launch",
+            "notification",
+            "off"
+          ],
           "default": "launch",
           "description": "%configuration.aspire.enableAspireDashboardAutoLaunch%",
           "enumDescriptions": [
@@ -623,11 +741,18 @@
         },
         "aspire.dashboardBrowser": {
           "type": "string",
-          "enum": ["openExternalBrowser", "debugChrome", "debugEdge", "debugFirefox"],
-          "default": "openExternalBrowser",
+          "enum": [
+            "openExternalBrowser",
+            "integratedBrowser",
+            "debugChrome",
+            "debugEdge",
+            "debugFirefox"
+          ],
+          "default": "integratedBrowser",
           "description": "%configuration.aspire.dashboardBrowser%",
           "enumDescriptions": [
             "%configuration.aspire.dashboardBrowser.openExternalBrowser%",
+            "%configuration.aspire.dashboardBrowser.integratedBrowser%",
             "%configuration.aspire.dashboardBrowser.debugChrome%",
             "%configuration.aspire.dashboardBrowser.debugEdge%",
             "%configuration.aspire.dashboardBrowser.debugFirefox%"
@@ -659,6 +784,13 @@
           "description": "%configuration.aspire.globalAppHostsPollingInterval%",
           "scope": "window"
         },
+        "aspire.appHostDiscoveryTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "description": "%configuration.aspire.appHostDiscoveryTimeoutMs%",
+          "scope": "window"
+        },
         "aspire.enableCodeLens": {
           "type": "boolean",
           "default": true,
@@ -669,6 +801,12 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.aspire.enableGutterDecorations%",
+          "scope": "window"
+        },
+        "aspire.enableAutoRestore": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.aspire.enableAutoRestore%",
           "scope": "window"
         }
       }
@@ -750,65 +888,79 @@
     "branch": "main"
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "yarn run package",
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
     "lint": "eslint src",
     "unit-test": "vscode-test",
-    "test": "npm run unit-test",
+    "test": "yarn run unit-test",
     "l10n:export": "gulp prepare",
     "l10n:import": "gulp localizationBundle",
     "generate-schema": "node scripts/generate-schema.js",
-    "precompile": "npm run generate-schema && npm run l10n:export && npm run l10n:import",
-    "prewatch": "npm run generate-schema && npm run l10n:export && npm run l10n:import",
-    "localize": "npm run l10n:export && npm run l10n:import"
+    "generate-version": "node scripts/generate-version.js",
+    "precompile": "yarn run generate-version && yarn run generate-schema && yarn run l10n:export && yarn run l10n:import",
+    "prepackage": "yarn run generate-version && yarn run generate-schema && yarn run l10n:export && yarn run l10n:import",
+    "prewatch": "yarn run generate-version && yarn run generate-schema && yarn run l10n:export && yarn run l10n:import",
+    "localize": "yarn run l10n:export && yarn run l10n:import"
   },
   "devDependencies": {
-    "@eslint/js": "^9.27.0",
-    "@types/express": "^5.0.3",
-    "@types/mocha": "^10.0.10",
+    "@eslint/js": "9.39.4",
+    "@types/express": "5.0.3",
+    "@types/mocha": "10.0.10",
     "@types/node": "20.x",
-    "@types/node-forge": "^1.3.11",
-    "@types/sinon": "^17.0.4",
-    "@types/vscode": "^1.98.0",
-    "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.28.0",
-    "@typescript-eslint/parser": "^8.28.0",
-    "@vscode/l10n-dev": "^0.0.35",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1",
-    "@vscode/vsce": "^3.7.1",
-    "copyfiles": "^2.4.1",
-    "cross-env": "^10.1.0",
-    "eslint": "^9.27.0",
-    "gulp": "^5.0.1",
-    "gulp-concat": "^2.6.1",
-    "gulp-filter": "^7.0.0",
-    "gulp-sourcemaps": "^3.0.0",
-    "gulp-typescript": "^6.0.0-alpha.1",
-    "postcss": "^8.5.6",
-    "sinon": "^21.0.0",
-    "ts-loader": "^9.5.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.32.1",
-    "wait-for-expect": "^4.0.0",
-    "webpack": "^5.98.0",
-    "webpack-cli": "^6.0.1"
+    "@types/node-forge": "1.3.14",
+    "@types/sinon": "17.0.4",
+    "@types/vscode": "1.98.0",
+    "@types/ws": "8.18.1",
+    "@typescript-eslint/eslint-plugin": "8.58.0",
+    "@typescript-eslint/parser": "8.58.0",
+    "@vscode/l10n-dev": "0.0.35",
+    "@vscode/test-cli": "0.0.12",
+    "@vscode/test-electron": "2.4.1",
+    "@vscode/vsce": "3.7.1",
+    "copyfiles": "2.4.1",
+    "cross-env": "10.1.0",
+    "eslint": "9.39.4",
+    "gulp": "5.0.1",
+    "gulp-concat": "2.6.1",
+    "gulp-filter": "7.0.0",
+    "gulp-sourcemaps": "3.0.0",
+    "gulp-typescript": "6.0.0-alpha.1",
+    "postcss": "8.5.10",
+    "sinon": "21.0.3",
+    "ts-loader": "9.5.7",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.58.0",
+    "wait-for-expect": "4.0.0",
+    "webpack": "5.105.4",
+    "webpack-cli": "6.0.1"
   },
   "dependencies": {
-    "@vscode/extension-telemetry": "^1.0.0",
-    "express": "^5.1.0",
-    "jsonc-parser": "^3.3.1",
-    "node-forge": "^1.3.1",
-    "vscode-jsonrpc": "^8.2.1",
-    "ws": "^8.18.3"
+    "@vscode/extension-telemetry": "1.5.1",
+    "express": "5.2.1",
+    "jsonc-parser": "3.3.1",
+    "node-forge": "1.4.0",
+    "tree-sitter-c-sharp": "0.23.5",
+    "vscode-jsonrpc": "8.2.1",
+    "web-tree-sitter": "0.26.9",
+    "ws": "8.20.0"
   },
   "resolutions": {
-    "braces": "^3.0.3"
+    "braces": "3.0.3",
+    "serialize-javascript": "7.0.5",
+    "flatted": "3.4.2",
+    "lodash": "4.18.1",
+    "undici": "6.24.1",
+    "path-to-regexp": "8.4.2",
+    "@sinonjs/fake-timers": "13.0.5",
+    "picomatch": "2.3.2",
+    "underscore": "1.13.8",
+    "postcss": "8.5.10",
+    "uuid": "14.0.0"
   }
 }

@@ -3,7 +3,7 @@
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Aspire.Dashboard.Api;
@@ -12,6 +12,7 @@ using Aspire.Dashboard.Authentication.Connection;
 using Aspire.Dashboard.Authentication.OpenIdConnect;
 using Aspire.Dashboard.Authentication.OtlpApiKey;
 using Aspire.Dashboard.Components;
+using Aspire.Shared;
 using Aspire.Dashboard.Components.Pages;
 using Aspire.Dashboard.Configuration;
 using Aspire.Dashboard.Model;
@@ -46,7 +47,23 @@ namespace Aspire.Dashboard;
 
 public sealed class DashboardWebApplication : IAsyncDisposable
 {
+    /// <summary>
+    /// Exit code returned for unexpected startup errors.
+    /// </summary>
+    public const int ExitCodeUnexpectedError = DashboardExitCodes.UnexpectedError;
+
+    /// <summary>
+    /// Exit code returned when dashboard configuration is invalid.
+    /// </summary>
+    public const int ExitCodeValidationFailure = DashboardExitCodes.ValidationFailure;
+
+    /// <summary>
+    /// Exit code returned when the configured address is already in use.
+    /// </summary>
+    public const int ExitCodeAddressInUse = DashboardExitCodes.AddressInUse;
+
     private const string DashboardAuthCookieName = ".Aspire.Dashboard.Auth";
+    private const string DashboardHttpAuthCookieName = ".Aspire.Dashboard.Auth.Http";
     private const string DashboardAntiForgeryCookieName = ".Aspire.Dashboard.Antiforgery";
     private readonly WebApplication _app;
     private readonly ILogger<DashboardWebApplication> _logger;
@@ -116,6 +133,15 @@ public sealed class DashboardWebApplication : IAsyncDisposable
         AppContext.SetData("Microsoft.AspNetCore.Components.Web.Virtualization.Virtualize.MaxItemCount", 10_000);
 
         var builder = options is not null ? WebApplication.CreateBuilder(options) : WebApplication.CreateBuilder();
+
+        // WebApplication.CreateBuilder already enables static web assets in the Development environment.
+        // The dashboard also needs them in other environments when running from source (e.g. to serve
+        // _content/ files from NuGet packages like FluentUI). The call is a no-op when published
+        // because the static web assets manifest doesn't exist.
+        if (!builder.Environment.IsDevelopment())
+        {
+            builder.WebHost.UseStaticWebAssets();
+        }
 
         preConfigureBuilder?.Invoke(builder);
 
@@ -254,6 +280,8 @@ public sealed class DashboardWebApplication : IAsyncDisposable
         // Data from the server.
         builder.Services.TryAddSingleton<IDashboardClient, DashboardClient>();
 
+        builder.Services.TryAddSingleton<INotificationService, NotificationService>();
+        builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.TryAddScoped<DashboardCommandExecutor>();
 
         builder.Services.AddSingleton<PauseManager>();
@@ -383,27 +411,17 @@ public sealed class DashboardWebApplication : IAsyncDisposable
                 _logger.LogWarning("OTLP server is unsecured. Untrusted apps can send telemetry to the dashboard. For more information, visit https://go.microsoft.com/fwlink/?linkid=2267030");
             }
 
+            _logger.LogDebug("Dashboard API disabled: {ApiDisabled}", _dashboardOptionsMonitor.CurrentValue.Api.Disabled.GetValueOrDefault());
+
             // Only show API security warning if API is enabled and unsecured
             // API runs on the frontend endpoint (no separate accessor needed)
-            if (_dashboardOptionsMonitor.CurrentValue.Api.Enabled.GetValueOrDefault() &&
+            if (!_dashboardOptionsMonitor.CurrentValue.Api.Disabled.GetValueOrDefault() &&
                 _dashboardOptionsMonitor.CurrentValue.Api.AuthMode == ApiAuthMode.Unsecured)
             {
                 _logger.LogWarning("Dashboard API is unsecured. Untrusted apps can access sensitive telemetry data.");
             }
 
-            // Log frontend login URL last at startup so it's easy to find in the logs.
-            if (frontendEndpointInfo != null)
-            {
-                var options = _app.Services.GetRequiredService<IOptionsMonitor<DashboardOptions>>().CurrentValue;
-                if (options.Frontend.AuthMode == FrontendAuthMode.BrowserToken)
-                {
-                    // DOTNET_RUNNING_IN_CONTAINER is a well-known environment variable added by official .NET images.
-                    // https://learn.microsoft.com/dotnet/core/tools/dotnet-environment-variables#dotnet_running_in_container-and-dotnet_running_in_containers
-                    var isContainer = _app.Configuration.GetBool("DOTNET_RUNNING_IN_CONTAINER") ?? false;
-
-                    LoggingHelpers.WriteDashboardUrl(_logger, frontendEndpointInfo.GetResolvedAddress(replaceIPAnyWithLocalhost: true), options.Frontend.BrowserToken, isContainer);
-                }
-            }
+            PrintSummary(frontendEndpointInfo);
 
             // One-off async initialization of telemetry service.
             var telemetryService = _app.Services.GetRequiredService<DashboardTelemetryService>();
@@ -444,6 +462,13 @@ public sealed class DashboardWebApplication : IAsyncDisposable
             _app.UseCors();
         }
 
+        // Use Forwarded Headers middleware if configured. This must run before token validation because sign-in cookie
+        // behavior depends on the normalized request scheme.
+        if (builder.Configuration.GetBool(DashboardConfigNames.ForwardedHeaders.ConfigKey) ?? false)
+        {
+            _app.UseForwardedHeaders();
+        }
+
         _app.UseMiddleware<ValidateTokenMiddleware>();
 
         // Configure the HTTP request pipeline.
@@ -480,12 +505,6 @@ public sealed class DashboardWebApplication : IAsyncDisposable
             }
         });
 
-        // Use Forwarded Headers middleware if configured.
-        if (builder.Configuration.GetBool(DashboardConfigNames.ForwardedHeaders.ConfigKey) ?? false)
-        {
-            _app.UseForwardedHeaders();
-        }
-
         _app.UseAuthorization();
 
         _app.UseMiddleware<BrowserSecurityHeadersMiddleware>();
@@ -506,6 +525,27 @@ public sealed class DashboardWebApplication : IAsyncDisposable
         _app.MapDashboardHealthChecks();
     }
 
+    private void PrintSummary(ResolvedEndpointInfo? frontendEndpointInfo)
+    {
+        var options = _app.Services.GetRequiredService<IOptionsMonitor<DashboardOptions>>().CurrentValue;
+        var token = options.Frontend.AuthMode == FrontendAuthMode.BrowserToken ? options.Frontend.BrowserToken : null;
+        var frontendAddress = frontendEndpointInfo?.GetResolvedAddress(replaceIPAnyWithLocalhost: true);
+        var otlpGrpcAddress = _otlpServiceGrpcEndPointAccessor?.Invoke().GetResolvedAddress(replaceIPAnyWithLocalhost: true);
+        var otlpHttpAddress = _otlpServiceHttpEndPointAccessor?.Invoke().GetResolvedAddress(replaceIPAnyWithLocalhost: true);
+
+        // DOTNET_RUNNING_IN_CONTAINER is a well-known environment variable added by official .NET images.
+        // https://learn.microsoft.com/dotnet/core/tools/dotnet-environment-variables#dotnet_running_in_container-and-dotnet_running_in_containers
+        var isContainer = _app.Configuration.GetBool("DOTNET_RUNNING_IN_CONTAINER") ?? false;
+
+        LoggingHelpers.WriteDashboardSummary(
+            _logger,
+            frontendAddress,
+            otlpGrpcAddress,
+            otlpHttpAddress,
+            token,
+            isContainer);
+    }
+
     private ILogger<DashboardWebApplication> GetLogger()
     {
         return _app.Services.GetRequiredService<ILoggerFactory>().CreateLogger<DashboardWebApplication>();
@@ -522,11 +562,11 @@ public sealed class DashboardWebApplication : IAsyncDisposable
 
     private static void WriteVersion(ILogger<DashboardWebApplication> logger)
     {
-        if (typeof(DashboardWebApplication).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion is string informationalVersion)
+        if (AssemblyVersionHelper.GetInformationalVersion(typeof(DashboardWebApplication).Assembly) is { Length: > 0 } informationalVersion)
         {
             // Write version at info level so it's written to the console by default. Help us debug user issues.
             // Display version and commit like 8.0.0-preview.2.23619.3+17dd83f67c6822954ec9a918ef2d048a78ad4697
-            logger.LogInformation("Aspire version: {Version}", informationalVersion);
+            logger.LogInformation("Aspire dashboard version: {Version}", informationalVersion);
         }
     }
 
@@ -760,6 +800,7 @@ public sealed class DashboardWebApplication : IAsyncDisposable
                 authentication.AddCookie(options =>
                 {
                     options.Cookie.Name = DashboardAuthCookieName;
+                    options.CookieManager = new AspireDashboardCookieManager(DashboardHttpAuthCookieName);
                 });
 
                 authentication.AddOpenIdConnect(options =>
@@ -819,6 +860,7 @@ public sealed class DashboardWebApplication : IAsyncDisposable
                         return Task.CompletedTask;
                     };
                     options.Cookie.Name = DashboardAuthCookieName;
+                    options.CookieManager = new AspireDashboardCookieManager(DashboardHttpAuthCookieName);
                 });
                 break;
             case FrontendAuthMode.Unsecured:
@@ -896,11 +938,37 @@ public sealed class DashboardWebApplication : IAsyncDisposable
     {
         if (_validationFailures.Count > 0)
         {
-            return -1;
+            return ExitCodeValidationFailure;
         }
 
-        _app.Run();
-        return 0;
+        try
+        {
+            _app.Run();
+            return 0;
+        }
+        catch (IOException ex) when (ContainsAddressInUse(ex))
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return ExitCodeAddressInUse;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return ExitCodeUnexpectedError;
+        }
+    }
+
+    private static bool ContainsAddressInUse(Exception ex)
+    {
+        for (var current = ex.InnerException; current is not null; current = current.InnerException)
+        {
+            if (current is SocketException { SocketErrorCode: SocketError.AddressAlreadyInUse })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
