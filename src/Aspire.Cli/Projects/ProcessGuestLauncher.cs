@@ -136,6 +136,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStart);
         process.Start();
         var processStartedAt = new DateTimeOffset(process.StartTime);
+        _logger.LogDebug("{Language} guest process {ProcessId} started: {Command}", _language, process.Id, resolvedCommandPath);
         activity?.SetTag(TelemetryConstants.Tags.ProcessPid, process.Id);
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStarted, TelemetryConstants.Tags.ProcessPid, process.Id);
         if (afterLaunchAsync is not null)
@@ -148,7 +149,12 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken);
+            var waitForExitTask = process.WaitForExitAsync(cancellationToken);
+
+            using var _ = cancellationToken.Register(() =>
+                _logger.LogInformation("Cancellation requested while waiting for {Language} guest process {ProcessId} to exit", _language, process.Id));
+
+            await waitForExitTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -175,6 +181,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
 
                 if (!stopped && !process.HasExited)
                 {
+                    _logger.LogInformation("Killing {Language} guest process tree {ProcessId}", _language, process.Id);
                     try
                     {
                         process.Kill(entireProcessTree: true);
@@ -185,9 +192,16 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                     }
                 }
             }
+            else
+            {
+                _logger.LogDebug("{Language} guest process {ProcessId} already exited before kill", _language, process.Id);
+            }
 
+            _logger.LogDebug("Waiting for {Language} guest process {ProcessId} to exit after kill", _language, process.Id);
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         }
+
+        _logger.LogDebug("{Language} guest process {ProcessId} exited with code {ExitCode}", _language, process.Id, process.ExitCode);
 
         activity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessExited, TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
