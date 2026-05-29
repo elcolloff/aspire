@@ -18,6 +18,43 @@ namespace Aspire.Cli.Tests.Processes;
 public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
 {
     [Fact]
+    public async Task TryGetRunningProcess_MatchesGuestAppHostStyleChildStartTime()
+    {
+        using var process = StartLongRunningProcess();
+        try
+        {
+            var startTime = new DateTimeOffset(process.StartTime);
+
+            using var resolvedProcess = ProcessSignaler.TryGetRunningProcess(process.Id, startTime, NullLogger.Instance);
+
+            Assert.NotNull(resolvedProcess);
+            Assert.Equal(process.Id, resolvedProcess.Id);
+        }
+        finally
+        {
+            await StopProcessAsync(process);
+        }
+    }
+
+    [Fact]
+    public async Task TryGetRunningProcess_RejectsMismatchedStartTime()
+    {
+        using var process = StartLongRunningProcess();
+        try
+        {
+            var wrongStartTime = new DateTimeOffset(process.StartTime).AddMinutes(-5);
+
+            using var resolvedProcess = ProcessSignaler.TryGetRunningProcess(process.Id, wrongStartTime, NullLogger.Instance);
+
+            Assert.Null(resolvedProcess);
+        }
+        finally
+        {
+            await StopProcessAsync(process);
+        }
+    }
+
+    [Fact]
     public async Task TryStopProcessTreeWithDcpAsync_UsesDcpStopProcessTreeArguments()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
@@ -177,6 +214,20 @@ public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
         };
         startInfo.ArgumentList.Add("-c");
         startInfo.ArgumentList.Add("trap '' TERM; exec sleep 60");
+
+        var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        return process;
+    }
+
+    private static Process StartLongRunningProcess()
+    {
+        var startInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("cmd.exe", "/c ping -n 60 127.0.0.1 > nul")
+            : new ProcessStartInfo("/bin/sh", "-c 'sleep 60'");
+        startInfo.RedirectStandardError = true;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.UseShellExecute = false;
 
         var process = Process.Start(startInfo);
         Assert.NotNull(process);
