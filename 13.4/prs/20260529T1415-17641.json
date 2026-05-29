@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "CLI Ctrl+C/SIGTERM fixes backported from main (double-signal bug and sluggish cancellation during AppHost startup)",
+  "mergedAt": "2026-05-29T14:15:50Z",
+  "number": 17641,
+  "runDate": "2026-05-29T15:11:33Z",
+  "status": "included",
+  "title": "Backport CLI cancellation fixes to release/13.4"
+}

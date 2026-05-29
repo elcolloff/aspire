@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17639: fix dev localhost URL validation for polyglot AppHosts",
+  "mergedAt": "2026-05-29T14:13:37Z",
+  "number": 17644,
+  "runDate": "2026-05-29T15:11:33Z",
+  "status": "included",
+  "title": "[release/13.4] Accept dev localhost resource service URLs"
+}

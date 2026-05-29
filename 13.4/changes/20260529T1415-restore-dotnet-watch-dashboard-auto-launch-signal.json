@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Restores the legacy login log line that `dotnet watch` depends on to detect when the AppHost is ready and auto-open the browser dashboard. This line was inadvertently removed during the 13.4 dashboard summary refactoring, breaking `dotnet watch` auto-launch.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔦",
+  "firstMergedAt": "2026-05-29T14:15:20Z",
+  "lastMergedAt": "2026-05-29T14:15:20Z",
+  "name": "Restore dotnet watch dashboard auto-launch signal",
+  "owner": "JamesNK",
+  "prs": [
+    17653
+  ]
+}

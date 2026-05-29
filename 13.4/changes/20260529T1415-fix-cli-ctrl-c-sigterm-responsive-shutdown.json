@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes the CLI's Ctrl+C/SIGTERM handling to be responsive during AppHost startup and eliminates a double-signal bug on Linux where both SIGINT handlers fired simultaneously, triggering force-kill instead of graceful shutdown. A second Ctrl+C now forces immediate termination when graceful shutdown is taking too long.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🛑",
+  "firstMergedAt": "2026-05-29T14:15:50Z",
+  "lastMergedAt": "2026-05-29T14:15:50Z",
+  "name": "Fix CLI Ctrl+C/SIGTERM responsive shutdown",
+  "owner": "JamesNK",
+  "prs": [
+    17641
+  ]
+}

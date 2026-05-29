@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes a regression where polyglot AppHosts scaffolded with `*.dev.localhost` URLs failed to start with `aspire run` because the resource service endpoint validation did not recognize RFC-reserved localhost subdomains.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🌐",
+  "firstMergedAt": "2026-05-29T14:13:37Z",
+  "lastMergedAt": "2026-05-29T14:13:37Z",
+  "name": "Fix dev localhost URL validation for polyglot AppHosts",
+  "owner": "danegsta",
+  "prs": [
+    17644
+  ]
+}

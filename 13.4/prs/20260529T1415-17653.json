@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Backport of #17610: restore dotnet watch dashboard auto-launch signal (regression fix in 13.4)",
+  "mergedAt": "2026-05-29T14:15:20Z",
+  "number": 17653,
+  "runDate": "2026-05-29T15:11:33Z",
+  "status": "included",
+  "title": "[release/13.4] Restore dotnet watch dashboard auto-launch signal"
+}
