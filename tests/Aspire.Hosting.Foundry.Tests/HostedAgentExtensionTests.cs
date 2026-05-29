@@ -280,6 +280,26 @@ public class HostedAgentExtensionTests
         Assert.Same(registry.Resource, registryTarget.Registry);
     }
 
+    [Fact]
+    public void AsHostedAgent_InPublishMode_WithProject_AddsProjectReference()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+        var project = builder.AddFoundry("account")
+            .AddProject("my-project");
+
+        var app = builder.AddPythonApp("agent", "./app.py", "main:app")
+            .AsHostedAgent(project);
+
+        builder.Build();
+
+        // The original app resource should have a reference to the project
+        // so that environment variables get resolved correctly in publish mode
+        Assert.True(app.Resource.TryGetAnnotationsOfType<ResourceRelationshipAnnotation>(out var relationships));
+        Assert.Contains(
+            relationships,
+            r => r.Type == "Reference" && ReferenceEquals(r.Resource, project.Resource));
+    }
+
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ExecuteBeforeStartHooksAsync")]
     private static extern Task ExecuteBeforeStartHooksAsync(DistributedApplication app, CancellationToken cancellationToken);
 }

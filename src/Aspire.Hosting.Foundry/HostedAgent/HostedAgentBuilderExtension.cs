@@ -338,6 +338,11 @@ public static class HostedAgentResourceBuilderExtensions
             ContainerRegistry = projectResource.ContainerRegistry
         });
 
+        // Add project reference to the original builder so that environment variables
+        // collected from the target resource include the project reference. This is
+        // needed during environment variable resolution in the deployment phase.
+        builder.WithReference(project);
+
         builder.ApplicationBuilder.AddResource(hostedAgent)
             .WithIconName("Agents")
             .WithReferenceRelationship(target)
