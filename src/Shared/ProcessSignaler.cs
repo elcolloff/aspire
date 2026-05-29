@@ -32,12 +32,6 @@ internal static partial class ProcessSignaler
 
     public static void RequestGracefulShutdownForProcessGroup(int pid, DateTimeOffset? expectedStartTime, ILogger logger)
     {
-        using var process = TryGetRunningProcess(pid, expectedStartTime, logger);
-        if (process is null)
-        {
-            return; // Process is not running or does not match the expected start time
-        }
-
         logger.LogDebug("Requesting graceful shutdown of process group {Pid}...", pid);
 
         if (OperatingSystem.IsWindows())
@@ -46,6 +40,12 @@ internal static partial class ProcessSignaler
         }
         else
         {
+            using var process = TryGetRunningProcess(pid, expectedStartTime, logger);
+            if (process is null)
+            {
+                return; // Process is not running or does not match the expected start time
+            }
+
             RequestGracefulShutdownUnix(pid, logger);
         }
     }
