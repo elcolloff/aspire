@@ -91,7 +91,7 @@ internal static class KnownFeatures
 
         [TypeScriptAppHostCompiledRunner] = new(
             TypeScriptAppHostCompiledRunner,
-            "Use tsgo emitted JavaScript and node to run TypeScript AppHosts instead of tsx",
+            "Use tsgo emitted JavaScript to run TypeScript AppHosts instead of tsx",
             DefaultValue: false)
     };
 
