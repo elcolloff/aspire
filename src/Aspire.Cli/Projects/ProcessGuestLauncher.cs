@@ -135,7 +135,6 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
 
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStart);
         process.Start();
-        var processStartedAt = new DateTimeOffset(process.StartTime);
         _logger.LogDebug("{Language} guest process {ProcessId} started: {Command}", _language, process.Id, resolvedCommandPath);
         activity?.SetTag(TelemetryConstants.Tags.ProcessPid, process.Id);
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStarted, TelemetryConstants.Tags.ProcessPid, process.Id);
@@ -172,12 +171,22 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
             // the redirected output streams have time to drain.
             if (!process.HasExited)
             {
-                var stopped = _processShutdownService is not null &&
-                    await _processShutdownService.StopProcessGroupAsync(
-                        process.Id,
-                        processStartedAt,
-                        forceKillEntireProcessTree: true,
-                        CancellationToken.None).ConfigureAwait(false);
+                var stopped = false;
+                if (_processShutdownService is not null)
+                {
+                    if (TryGetProcessStartTime(process, out var processStartedAt))
+                    {
+                        stopped = await _processShutdownService.StopProcessGroupAsync(
+                            process.Id,
+                            processStartedAt,
+                            forceKillEntireProcessTree: true,
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        stopped = true;
+                    }
+                }
 
                 if (!stopped && !process.HasExited)
                 {
@@ -218,6 +227,21 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         }
 
         return (process.ExitCode, outputCollector);
+    }
+
+    private static bool TryGetProcessStartTime(Process process, out DateTimeOffset? startTime)
+    {
+        try
+        {
+            startTime = new DateTimeOffset(process.StartTime);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            // The process exited between the HasExited check and shutdown coordination.
+            startTime = null;
+            return false;
+        }
     }
 
     private static Activity? GetCurrentProfilingActivity()
