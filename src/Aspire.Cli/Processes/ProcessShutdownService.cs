@@ -22,9 +22,12 @@ internal sealed class ProcessShutdownService(
     TimeProvider timeProvider)
 {
     private static readonly TimeSpan s_processTerminationTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan s_runProcessTerminationTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan s_processTerminationPollInterval = TimeSpan.FromMilliseconds(250);
 
     internal static TimeSpan ProcessTerminationTimeout => s_processTerminationTimeout;
+
+    internal static TimeSpan RunProcessTerminationTimeout => s_runProcessTerminationTimeout;
 
     public Task<bool> StopProcessTreeAsync(
         int pid,
@@ -37,6 +40,7 @@ internal sealed class ProcessShutdownService(
             startTime,
             includeStartTimeForDcp,
             forceKillEntireProcessTree: !OperatingSystem.IsWindows(),
+            processTerminationTimeout: s_processTerminationTimeout,
             cancellationToken);
     }
 
@@ -47,11 +51,29 @@ internal sealed class ProcessShutdownService(
         bool forceKillEntireProcessTree,
         CancellationToken cancellationToken)
     {
+        return StopProcessTreeAsync(
+            pid,
+            startTime,
+            includeStartTimeForDcp,
+            forceKillEntireProcessTree,
+            processTerminationTimeout: s_processTerminationTimeout,
+            cancellationToken);
+    }
+
+    public Task<bool> StopProcessTreeAsync(
+        int pid,
+        DateTimeOffset? startTime,
+        bool includeStartTimeForDcp,
+        bool forceKillEntireProcessTree,
+        TimeSpan processTerminationTimeout,
+        CancellationToken cancellationToken)
+    {
         return StopProcessesAsync(
             [new ProcessTarget(pid, startTime)],
             [new ProcessTarget(pid, startTime)],
             token => RequestProcessTreeGracefulShutdownAsync(pid, startTime, includeStartTimeForDcp, token),
             forceKillEntireProcessTree,
+            processTerminationTimeout,
             cancellationToken);
     }
 
@@ -61,11 +83,27 @@ internal sealed class ProcessShutdownService(
         bool forceKillEntireProcessTree,
         CancellationToken cancellationToken)
     {
+        return StopProcessGroupAsync(
+            pid,
+            startTime,
+            forceKillEntireProcessTree,
+            processTerminationTimeout: s_processTerminationTimeout,
+            cancellationToken);
+    }
+
+    public Task<bool> StopProcessGroupAsync(
+        int pid,
+        DateTimeOffset? startTime,
+        bool forceKillEntireProcessTree,
+        TimeSpan processTerminationTimeout,
+        CancellationToken cancellationToken)
+    {
         return StopProcessesAsync(
             [new ProcessTarget(pid, startTime)],
             [new ProcessTarget(pid, startTime)],
             token => RequestProcessGroupGracefulShutdownAsync(pid, startTime, token),
             forceKillEntireProcessTree,
+            processTerminationTimeout,
             cancellationToken);
     }
 
@@ -93,6 +131,7 @@ internal sealed class ProcessShutdownService(
             processesToForceKill,
             token => RequestAppHostGracefulShutdownAsync(appHostInfo, requestRpcStopAsync, token),
             forceKillEntireProcessTree: !OperatingSystem.IsWindows(),
+            processTerminationTimeout: s_processTerminationTimeout,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -106,6 +145,7 @@ internal sealed class ProcessShutdownService(
             processesToMonitorAndKill,
             requestGracefulShutdownAsync,
             forceKillEntireProcessTree: !OperatingSystem.IsWindows(),
+            processTerminationTimeout: s_processTerminationTimeout,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -114,10 +154,11 @@ internal sealed class ProcessShutdownService(
         IReadOnlyCollection<ProcessTarget> processesToForceKill,
         Func<CancellationToken, Task<bool>> requestGracefulShutdownAsync,
         bool forceKillEntireProcessTree,
+        TimeSpan processTerminationTimeout,
         CancellationToken cancellationToken)
     {
         var gracefulShutdownRequested = await TryRequestGracefulShutdownAsync(requestGracefulShutdownAsync, cancellationToken).ConfigureAwait(false);
-        if (gracefulShutdownRequested && await MonitorProcessesForTerminationAsync(processesToMonitor, cancellationToken).ConfigureAwait(false))
+        if (gracefulShutdownRequested && await MonitorProcessesForTerminationAsync(processesToMonitor, processTerminationTimeout, cancellationToken).ConfigureAwait(false))
         {
             ForceKillRemainingProcesses(processesToForceKill.Except(processesToMonitor), afterTimeout: false, killEntireProcessTree: forceKillEntireProcessTree);
             return true;
@@ -125,7 +166,7 @@ internal sealed class ProcessShutdownService(
 
         ForceKillRemainingProcesses(processesToForceKill, afterTimeout: true, killEntireProcessTree: forceKillEntireProcessTree);
 
-        return await MonitorProcessesForTerminationAsync(processesToMonitor, cancellationToken).ConfigureAwait(false);
+        return await MonitorProcessesForTerminationAsync(processesToMonitor, processTerminationTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     private void ForceKillRemainingProcesses(IEnumerable<ProcessTarget> processes, bool afterTimeout, bool killEntireProcessTree)
@@ -313,10 +354,13 @@ internal sealed class ProcessShutdownService(
         return true;
     }
 
-    private async Task<bool> MonitorProcessesForTerminationAsync(IReadOnlyCollection<ProcessTarget> processes, CancellationToken cancellationToken)
+    private async Task<bool> MonitorProcessesForTerminationAsync(
+        IReadOnlyCollection<ProcessTarget> processes,
+        TimeSpan processTerminationTimeout,
+        CancellationToken cancellationToken)
     {
         var startTime = timeProvider.GetUtcNow();
-        while (timeProvider.GetUtcNow() - startTime < ProcessTerminationTimeout)
+        while (timeProvider.GetUtcNow() - startTime < processTerminationTimeout)
         {
             if (processes.All(IsProcessStopped))
             {

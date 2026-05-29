@@ -78,11 +78,10 @@ internal sealed class RunCommand : BaseCommand
     private const int MaxDisplayedAppHostStartupOutputLines = 80;
 
     // Startup cancellation waits for the AppHost run task to complete after it asks
-    // ProcessShutdownService to stop processes. That service can spend one full timeout
-    // waiting for graceful shutdown and another after force-kill fallback.
+    // ProcessShutdownService to stop the guest and server processes. Each stop can spend
+    // one run timeout waiting for graceful shutdown and another after force-kill fallback.
     private static readonly TimeSpan s_appHostStartupCancellationTimeout =
-        ProcessShutdownService.ProcessTerminationTimeout +
-        ProcessShutdownService.ProcessTerminationTimeout +
+        TimeSpan.FromTicks(ProcessShutdownService.RunProcessTerminationTimeout.Ticks * 4) +
         TimeSpan.FromSeconds(1);
 
     // Guest AppHosts can bring up the temporary server/backchannel and then fail immediately

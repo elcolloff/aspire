@@ -13,6 +13,8 @@ namespace Aspire.Cli.Tests.Projects;
 
 public class ProcessGuestLauncherTests(ITestOutputHelper outputHelper)
 {
+    private static readonly TimeSpan s_processStartupTimeout = TimeSpan.FromSeconds(30);
+
     [Fact]
     [SkipOnPlatform(TestPlatforms.Windows, "This verifies the Unix SIGTERM graceful shutdown path.")]
     public async Task LaunchAsync_CancellationUsesUnixGracefulShutdownBeforeForceKill()
@@ -119,7 +121,7 @@ public class ProcessGuestLauncherTests(ITestOutputHelper outputHelper)
 
     private static async Task WaitForFileAsync(string path)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var timeout = new CancellationTokenSource(s_processStartupTimeout);
         while (!File.Exists(path))
         {
             await Task.Delay(TimeSpan.FromMilliseconds(20), timeout.Token);

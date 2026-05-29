@@ -172,6 +172,7 @@ internal sealed class AppHostServerSession : IAppHostServerSession
                         _serverProcess.Id,
                         serverProcessStartTime,
                         forceKillEntireProcessTree: !OperatingSystem.IsWindows(),
+                        processTerminationTimeout: ProcessShutdownService.RunProcessTerminationTimeout,
                         CancellationToken.None).ConfigureAwait(false);
                 }
                 else

@@ -176,6 +176,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                             process.Id,
                             processStartedAt,
                             forceKillEntireProcessTree: true,
+                            processTerminationTimeout: ProcessShutdownService.RunProcessTerminationTimeout,
                             CancellationToken.None).ConfigureAwait(false);
                     }
                     else
