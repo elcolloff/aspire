@@ -304,6 +304,7 @@ public class FoundryExtensionsTests
         var environment = Assert.Single(model.Resources.OfType<AzureContainerAppEnvironmentResource>());
         environment.Outputs["AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN"] = "example.azurecontainerapps.io";
         environment.ProvisioningTaskCompletionSource?.TrySetResult();
+        SimulateProjectProvisioning(project);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
@@ -333,6 +334,8 @@ public class FoundryExtensionsTests
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
         var hostedAgent = Assert.Single(model.Resources.OfType<AzureHostedAgentResource>());
 
+        SimulateProjectProvisioning(project);
+
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
             builder.ExecutionContext,
@@ -342,6 +345,42 @@ public class FoundryExtensionsTests
             cts.Token);
 
         Assert.DoesNotContain("FOUNDRY_PROJECT_ENDPOINT", environmentVariables.Keys);
+    }
+
+    [Fact]
+    public async Task AsHostedAgent_EncodesProjectConnectionNameSoDeployValidationPasses()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        // A project name containing '-' would otherwise emit "ConnectionStrings__my-project", which fails
+        // Foundry's deploy-time env var name validation (^[A-Za-z0-9_]+$).
+        var project = builder.AddFoundry("account")
+            .AddProject("my-project");
+
+        var advisorAgent = builder.AddProject<Project>("advisor-agent", launchProfileName: null)
+            .AsHostedAgent(project);
+
+        using var app = builder.Build();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var hostedAgent = Assert.Single(model.Resources.OfType<AzureHostedAgentResource>());
+
+        SimulateProjectProvisioning(project);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
+            builder.ExecutionContext,
+            hostedAgent,
+            advisorAgent.Resource,
+            NullLogger<FoundryExtensionsTests>.Instance,
+            cts.Token);
+
+        Assert.Contains("ConnectionStrings__my_project", environmentVariables.Keys);
+        Assert.DoesNotContain("ConnectionStrings__my-project", environmentVariables.Keys);
+
+        // Every resolved key must satisfy the deploy-time validation regex, otherwise deployment throws.
+        Assert.All(environmentVariables.Keys, key => Assert.Matches("^[A-Za-z0-9_]+$", key));
     }
 
     [Fact]
@@ -372,6 +411,7 @@ public class FoundryExtensionsTests
         var environment = Assert.Single(model.Resources.OfType<AzureContainerAppEnvironmentResource>());
         environment.Outputs["AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN"] = "example.azurecontainerapps.io";
         environment.ProvisioningTaskCompletionSource?.TrySetResult();
+        SimulateProjectProvisioning(project);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
@@ -412,6 +452,7 @@ public class FoundryExtensionsTests
         var environment = Assert.Single(model.Resources.OfType<AzureContainerAppEnvironmentResource>());
         environment.Outputs["AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN"] = "example.azurecontainerapps.io";
         environment.ProvisioningTaskCompletionSource?.TrySetResult();
+        SimulateProjectProvisioning(project);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
@@ -449,6 +490,8 @@ public class FoundryExtensionsTests
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
         var hostedAgent = Assert.Single(model.Resources.OfType<AzureHostedAgentResource>());
 
+        SimulateProjectProvisioning(project);
+
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
                 builder.ExecutionContext,
@@ -465,6 +508,18 @@ public class FoundryExtensionsTests
     private sealed class Project : IProjectMetadata
     {
         public string ProjectPath => "project";
+    }
+
+    // GetResolvedEnvironmentVariablesAsync is a deploy-time path that awaits Azure provisioning for any
+    // referenced resource. After a hosted agent references its Foundry project (run/publish parity), the
+    // agent's resolved environment includes the project connection, which is backed by bicep outputs.
+    // Simulate provisioning here by publishing the referenced outputs and completing the provisioning task;
+    // otherwise resolution blocks until cancellation.
+    private static void SimulateProjectProvisioning(IResourceBuilder<AzureCognitiveServicesProjectResource> project)
+    {
+        project.Resource.Outputs["endpoint"] = "https://account.services.ai.azure.com/api/projects/my-project";
+        project.Resource.Outputs["APPLICATION_INSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=00000000-0000-0000-0000-000000000000";
+        project.Resource.ProvisioningTaskCompletionSource?.TrySetResult();
     }
 
 }

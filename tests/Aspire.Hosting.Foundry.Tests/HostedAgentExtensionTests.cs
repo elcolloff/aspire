@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Utils;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aspire.Hosting.Foundry.Tests;
 
@@ -281,23 +282,57 @@ public class HostedAgentExtensionTests
     }
 
     [Fact]
-    public void AsHostedAgent_InPublishMode_WithProject_AddsProjectReference()
+    public async Task AsHostedAgent_InPublishMode_WithProject_InjectsProjectConnectionEnvironmentVariables()
     {
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
         var project = builder.AddFoundry("account")
-            .AddProject("my-project");
+            .AddProject("myproject");
 
         var app = builder.AddPythonApp("agent", "./app.py", "main:app")
             .AsHostedAgent(project);
 
-        builder.Build();
+        using var built = builder.Build();
+        await ExecuteBeforeStartHooksAsync(built, default);
 
-        // The original app resource should have a reference to the project
-        // so that environment variables get resolved correctly in publish mode
+        // The original app resource should have a reference to the project so that
+        // its environment variables include the project connection. In publish mode the
+        // hosted agent resolves env vars from its target (the original/swapped resource),
+        // so the reference must live on the original builder, mirroring run mode.
         Assert.True(app.Resource.TryGetAnnotationsOfType<ResourceRelationshipAnnotation>(out var relationships));
         Assert.Contains(
             relationships,
             r => r.Type == "Reference" && ReferenceEquals(r.Resource, project.Resource));
+
+        var model = built.Services.GetRequiredService<DistributedApplicationModel>();
+        var hostedAgent = Assert.Single(model.Resources.OfType<AzureHostedAgentResource>());
+
+        // GetResolvedEnvironmentVariablesAsync is a deploy-time path: the project connection
+        // values are backed by bicep outputs that BicepOutputReference.GetValueAsync awaits via
+        // ProvisioningTaskCompletionSource. In a real deploy provisioning has already completed,
+        // but a unit test never provisions, so simulate it by publishing the referenced outputs
+        // (the project endpoint and app insights connection string) and completing provisioning.
+        project.Resource.Outputs["endpoint"] = "https://account.services.ai.azure.com/api/projects/myproject";
+        project.Resource.Outputs["APPLICATION_INSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=00000000-0000-0000-0000-000000000000";
+        project.Resource.ProvisioningTaskCompletionSource?.TrySetResult();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var environmentVariables = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
+            builder.ExecutionContext,
+            hostedAgent,
+            hostedAgent.Target,
+            NullLogger<HostedAgentExtensionTests>.Instance,
+            cts.Token);
+
+        // WithReference(project) injects the project endpoint the agent needs to reach Foundry.
+        // The deployed samples consume these keys (e.g. main.py reads "<NAME>_URI" and the
+        // .NET sample reads "ConnectionStrings__<name>").
+        Assert.Contains("MYPROJECT_URI", environmentVariables.Keys);
+        Assert.Contains("ConnectionStrings__myproject", environmentVariables.Keys);
+
+        // FOUNDRY_PROJECT_ENDPOINT is reserved for the Foundry hosted-agent platform to inject
+        // at runtime; Aspire must not set it. See WithComputeEnvironment_DoesNotSet... in the
+        // Azure test suite for the companion guard.
+        Assert.DoesNotContain("FOUNDRY_PROJECT_ENDPOINT", environmentVariables.Keys);
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ExecuteBeforeStartHooksAsync")]

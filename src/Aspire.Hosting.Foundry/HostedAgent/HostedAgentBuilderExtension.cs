@@ -133,7 +133,8 @@ public static class HostedAgentResourceBuilderExtensions
         IResourceBuilder<AzureCognitiveServicesProjectResource> project)
         where T : IResourceWithEndpoints, IResourceWithEnvironment, IComputeResource
     {
-        builder.WithReference(project);
+        // Run mode waits for the project to provision so the agent's connection variables resolve before it starts.
+        AddProjectReference(builder, project, waitForProject: true);
 
         // The default ACR is required for publish-time image push, but in run mode it adds noise to the dashboard.
         // When a hosted agent references a Foundry project for local execution, remove the default registry resource.
@@ -142,6 +143,37 @@ public static class HostedAgentResourceBuilderExtensions
             builder.ApplicationBuilder.Resources.Remove(defaultRegistry);
             project.Resource.DefaultContainerRegistry = null;
         }
+    }
+
+    // Injects the Foundry project reference into the compute resource so the agent can reach the project
+    // via the standard Aspire reference environment variables (ConnectionStrings__{name}, {NAME}_URI, ...).
+    //
+    // This must produce identical variable names in run and publish mode so an app that reads them locally
+    // keeps working once deployed. The connection-string variable is named "ConnectionStrings__{connectionName}".
+    // Foundry validates hosted agent environment variable names against ^[A-Za-z0-9_]+$ at deploy time (see
+    // HostedAgentConfiguration), so a project name containing '-' — including the auto-generated default
+    // "{resource.Name}-proj" — would otherwise emit "ConnectionStrings__{name}-proj" and fail deployment.
+    // Encode the connection name up front so both modes stay symmetric and deploy-safe; for already-valid names
+    // (e.g. "myproject") this is a no-op.
+    //
+    // We deliberately call the general WithReference overload (with an explicit connectionName) rather than the
+    // Foundry-specific WithReference(project) overload: the latter ignores connectionName and always emits the
+    // raw resource name. The Foundry overload also implicitly applies WaitFor(project); we reproduce that here
+    // for run mode via waitForProject, but skip it in publish mode where waiting has no meaning.
+    private static IResourceBuilder<T> AddProjectReference<T>(
+        IResourceBuilder<T> builder,
+        IResourceBuilder<AzureCognitiveServicesProjectResource> project,
+        bool waitForProject)
+        where T : IResourceWithEndpoints, IResourceWithEnvironment, IComputeResource
+    {
+        builder.WithReference(project, connectionName: EnvironmentVariableNameEncoder.Encode(project.Resource.Name));
+
+        if (waitForProject && builder is IResourceBuilder<IResourceWithWaitSupport> waitableBuilder)
+        {
+            waitableBuilder.WaitFor(project);
+        }
+
+        return builder;
     }
 
     private static IResourceBuilder<AzureCognitiveServicesProjectResource> ResolveProjectBuilderForPublish<T>(IResourceBuilder<T> builder)
@@ -340,8 +372,10 @@ public static class HostedAgentResourceBuilderExtensions
 
         // Add project reference to the original builder so that environment variables
         // collected from the target resource include the project reference. This is
-        // needed during environment variable resolution in the deployment phase.
-        builder.WithReference(project);
+        // needed during environment variable resolution in the deployment phase, and
+        // mirrors the reference added in run mode so the variables match in both modes.
+        // WaitFor is omitted in publish mode where it has no meaning.
+        AddProjectReference(builder, project, waitForProject: false);
 
         builder.ApplicationBuilder.AddResource(hostedAgent)
             .WithIconName("Agents")
