@@ -76,9 +76,9 @@ public sealed class TypeScriptEmptyAppHostTemplateTests(ITestOutputHelper output
             var appDirectory = Path.Combine(workspace.WorkspaceRoot.FullName, "TsDeadlockRepro");
             WriteDeadlockReproFiles(appDirectory);
 
-            await auto.RunCommandFailFastAsync("cd TsDeadlockRepro", counter);
-            await auto.RunCommandFailFastAsync("aspire restore --non-interactive", counter, TimeSpan.FromMinutes(3));
-            await auto.RunCommandFailFastAsync("npm run build", counter, TimeSpan.FromMinutes(2));
+            await auto.RunCommandAsync("cd TsDeadlockRepro", counter);
+            await auto.RunCommandAsync("aspire restore --non-interactive", counter, TimeSpan.FromMinutes(3));
+            await auto.RunCommandAsync("npm run build", counter, TimeSpan.FromMinutes(2));
 
             await auto.AspireStartAsync(counter, startTimeout: TimeSpan.FromMinutes(2));
             await auto.AspireStopAsync(counter);
