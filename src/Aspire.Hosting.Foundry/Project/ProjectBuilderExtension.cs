@@ -69,13 +69,33 @@ public static class AzureCognitiveServicesProjectExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(project);
 
-        // Add standard references and environment variables
-        ResourceBuilderExtensions.WithReference(builder, project);
+        return WithProjectReference(builder, project, connectionName: null, waitFor: true);
+    }
 
-        if (builder is IResourceBuilder<IResourceWithWaitSupport> waitableBuilder)
+    // Centralizes the wiring for referencing a Foundry project so callers never re-implement the standard
+    // reference plus the IResourceWithWaitSupport cast + WaitFor. The public WithReference overload above
+    // delegates here with the defaults (raw connection name, always wait).
+    //
+    // connectionName lets a caller override the default connection name. Hosted agents need this because
+    // Foundry validates every hosted-agent environment variable name against ^[A-Za-z0-9_]+$ at deploy time
+    // (see HostedAgentConfiguration), and a project name containing '-' would otherwise emit
+    // "ConnectionStrings__{name}-proj" and fail deployment. waitFor is skipped in publish mode where waiting
+    // has no meaning.
+    internal static IResourceBuilder<TDestination> WithProjectReference<TDestination>(
+        this IResourceBuilder<TDestination> builder,
+        IResourceBuilder<AzureCognitiveServicesProjectResource> project,
+        string? connectionName,
+        bool waitFor)
+        where TDestination : IResourceWithEnvironment
+    {
+        // Add standard references and environment variables
+        ResourceBuilderExtensions.WithReference(builder, project, connectionName);
+
+        if (waitFor && builder is IResourceBuilder<IResourceWithWaitSupport> waitableBuilder)
         {
             waitableBuilder.WaitFor(project);
         }
+
         return builder;
     }
 
