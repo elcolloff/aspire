@@ -1,0 +1,9 @@
+{
+  "author": "joperezr",
+  "comment": "Keeps Aspire.Hosting.Blazor package preview-shaped on release/13.4 to prevent shipping broken stable package where gateway scripts are missing from lib/.",
+  "mergedAt": "2026-05-29T22:11:39Z",
+  "number": 17694,
+  "runDate": "2026-05-29T22:35:36Z",
+  "status": "included",
+  "title": "[release/13.4] Mark Aspire.Hosting.Blazor as preview"
+}

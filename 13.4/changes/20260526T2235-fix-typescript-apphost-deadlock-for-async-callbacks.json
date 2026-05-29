@@ -1,21 +1,22 @@
 {
   "area": "AppHost",
-  "areaEmoji": "🏠",
+  "areaEmoji": "\ud83c\udfe0",
   "backport": false,
   "breaking": false,
   "changeType": "Bug fixes",
   "communityContributors": [],
-  "description": "Fixed a deadlock in TypeScript AppHosts where RunSyncOnBackgroundThread on AspireExport methods was ignored for async-returning exports (Task/ValueTask), causing aspire start/run to hang during startup when callbacks were invoked synchronously.",
+  "description": "Fixed a deadlock in TypeScript AppHosts where RunSyncOnBackgroundThread on AspireExport methods was ignored for async-returning exports, causing aspire start/run to hang during startup. A follow-up fix also ensures the Aspire.Hosting/run capability itself opts into RunSyncOnBackgroundThread, preventing a remaining deadlock when async TypeScript callbacks are stored in lazy IOptions.Configure and resolved during BeforeStartEvent.",
   "docsPrs": [
     1079
   ],
   "docsRequired": true,
-  "emoji": "🔓",
+  "emoji": "\ud83d\udd13",
   "firstMergedAt": "2026-05-26T22:35:14Z",
-  "lastMergedAt": "2026-05-26T22:35:14Z",
+  "lastMergedAt": "2026-05-29T22:09:56Z",
   "name": "Fix TypeScript AppHost deadlock for async callbacks",
   "owner": "IEvangelist",
   "prs": [
-    17508
+    17508,
+    17689
   ]
 }

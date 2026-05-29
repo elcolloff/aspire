@@ -1,0 +1,9 @@
+{
+  "author": "aspire-repo-bot",
+  "comment": "Backport of #17575 (Fix TypeScript AppHost async callback deadlock). Grouped with existing change file for the same deadlock fix.",
+  "mergedAt": "2026-05-29T22:09:56Z",
+  "number": 17689,
+  "runDate": "2026-05-29T22:35:36Z",
+  "status": "included",
+  "title": "[release/13.4] Fix TypeScript AppHost async callback deadlock"
+}

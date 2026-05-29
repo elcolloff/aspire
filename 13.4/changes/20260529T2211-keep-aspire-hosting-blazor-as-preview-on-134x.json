@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "\ud83c\udfe0",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "The Aspire.Hosting.Blazor 13.4.0 stable package had an issue where gateway scripts were only deployed under buildTransitive rather than lib, causing TypeScript AppHosts using addBlazorGateway to fail with a capability error. The package is kept preview-shaped on the 13.4.x release branch to prevent users from picking up the broken stable version while the packaging fix is being addressed.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "\ud83d\udd12",
+  "firstMergedAt": "2026-05-29T22:11:39Z",
+  "lastMergedAt": "2026-05-29T22:11:39Z",
+  "name": "Keep Aspire.Hosting.Blazor as preview on 13.4.x",
+  "owner": "joperezr",
+  "prs": [
+    17694
+  ]
+}

@@ -1,16 +1,17 @@
 {
   "area": "AppHost",
-  "areaEmoji": "🏠",
+  "areaEmoji": "\ud83c\udfe0",
   "backport": false,
   "breaking": false,
   "changeType": "Bug fixes",
   "communityContributors": [],
   "description": "Fixed multiple ATS polyglot SDK export issues: name collisions and duplicate property issues affecting Orleans, Azure role assignments, GitHub Models, YARP, and inherited resource types; missing Docker service config/secret/ulimit reference node type exports; a Foundry search connection export warning caused by an incompatible raw resource parameter overload; and exact-target export shadowing that caused Keycloak's target-specific OTLP export to collide with the generic IResourceWithEnvironment export.",
   "docsPrs": [
-    895
+    895,
+    1124
   ],
   "docsRequired": false,
-  "emoji": "🔧",
+  "emoji": "\ud83d\udd27",
   "firstMergedAt": "2026-05-08T16:35:11Z",
   "lastMergedAt": "2026-05-12T04:04:12Z",
   "name": "Fix ATS polyglot SDK name collision and export issues",
