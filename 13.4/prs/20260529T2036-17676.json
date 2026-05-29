@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Bug fix: Win32Exception during process inspection race on macOS causing aspire stop --all to falsely report failure",
+  "mergedAt": "2026-05-29T20:36:01Z",
+  "number": 17676,
+  "runDate": "2026-05-29T20:51:55Z",
+  "status": "included",
+  "title": "Handle process inspection race during shutdown"
+}

@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a `Win32Exception` on macOS where `aspire stop --all` would report failure even though the AppHost had already exited cleanly. The process signaler now treats this inspection race the same as a missing or already-exited process.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔍",
+  "firstMergedAt": "2026-05-29T20:36:01Z",
+  "lastMergedAt": "2026-05-29T20:36:01Z",
+  "name": "Fix process inspection race during shutdown",
+  "owner": "danegsta",
+  "prs": [
+    17676
+  ]
+}

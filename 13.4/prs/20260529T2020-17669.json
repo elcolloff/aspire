@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Backport of #17545: Foundry hosted-agent builder APIs updated to project-first approach; local run no longer adds default ACR",
+  "mergedAt": "2026-05-29T20:20:41Z",
+  "number": 17669,
+  "runDate": "2026-05-29T20:51:55Z",
+  "status": "included",
+  "title": "[release/13.4] Update Foundry hosted agent builder APIs"
+}

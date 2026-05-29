@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": true,
+  "breaking": true,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Updated `Aspire.Hosting.Foundry` hosted-agent builder APIs to use a project-first approach: `AsHostedAgent` now takes the Foundry project as the primary argument with a typed `HostedAgentConfiguration` callback. Local run mode no longer creates an unnecessary default Azure Container Registry resource.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🤖",
+  "firstMergedAt": "2026-05-29T20:20:41Z",
+  "lastMergedAt": "2026-05-29T20:20:41Z",
+  "name": "Foundry hosted-agent builder API updates",
+  "owner": "tommasodotNET",
+  "prs": [
+    17669
+  ]
+}

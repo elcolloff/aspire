@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Backport of #17553: loads Aspire skills catalog from bundle manifest, making all six bundle skills visible in aspire agent init",
+  "mergedAt": "2026-05-29T19:20:20Z",
+  "number": 17673,
+  "runDate": "2026-05-29T20:51:55Z",
+  "status": "included",
+  "title": "[release/13.4] 13.4: Load Aspire skills catalog from bundle manifest"
+}
