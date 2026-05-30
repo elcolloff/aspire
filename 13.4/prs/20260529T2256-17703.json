@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Test-only backport of #17701; refactors a CLI E2E test with no user-facing changes",
+  "mergedAt": "2026-05-29T22:56:42Z",
+  "number": 17703,
+  "runDate": "2026-05-30T00:36:37Z",
+  "status": "excluded",
+  "title": "[release/13.4] Fix TypeScript deadlock repro E2E test"
+}
