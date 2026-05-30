@@ -824,6 +824,24 @@ export async function initTerminal(element, wsUrl, dotNetRef) {
     // needs the body element to exist.
     buildChrome(state);
 
+    // Preload Cascadia Mono NF BEFORE constructing the Terminal. xterm
+    // measures cell metrics (width and height in CSS px) exactly once at
+    // construction time via its hidden .xterm-char-measure-element. Those
+    // metrics back not just rendering but also mouse → cell hit-testing
+    // (selection, click reporting). If the woff2 hasn't entered the
+    // FontFace cache by the time `new Terminal()` runs, xterm calibrates
+    // against the fallback (Menlo/Consolas) and the entire grid — visuals
+    // AND mouse mapping — stays anchored to those slightly-different
+    // metrics. Awaiting document.fonts.load with the actual font-size we
+    // are about to use forces the woff2 to be ready before construction.
+    // We still have the post-load bounce below as a defense in depth for
+    // the case where preload fails (offline, asset 404).
+    if (document.fonts && typeof document.fonts.load === 'function') {
+        try {
+            await document.fonts.load(`${state.currentFontPx}px "Cascadia Mono NF"`);
+        } catch { /* ignore — fallback stack continues to render */ }
+    }
+
     const FitAddon = window.FitAddon.FitAddon;
     const fitAddon = new FitAddon();
     const term = new window.Terminal({
@@ -851,21 +869,14 @@ export async function initTerminal(element, wsUrl, dotNetRef) {
     state.term = term;
     state.fitAddon = fitAddon;
 
-    // Force xterm to re-measure cell metrics once Cascadia Mono NF has
-    // actually loaded. xterm measures cell width ONCE per fontFamily
-    // change via its hidden .xterm-char-measure-element, so if the
-    // woff2 isn't in the FontFace cache when Terminal is constructed
-    // the grid is calibrated against the fallback (Menlo / Consolas /
-    // generic monospace) and stays slightly off when Cascadia swaps in
-    // — visible as text drifting away from the cursor column. The
-    // workaround is to bounce fontFamily through a different value
-    // (any string xterm hasn't seen) and back so it re-runs the
-    // measurement pass after document.fonts.ready resolves. The font
-    // is also pinned at font-display: swap so the first paint already
-    // uses something monospace; this hook just corrects the metrics
-    // once the real glyphs land. Guarded by FontFace API support and
-    // wrapped in try/catch so we silently no-op on older browsers or
-    // if the asset 404s.
+    // Defense in depth: if Cascadia hadn't entered the FontFace cache
+    // by the time we constructed Terminal (preload above failed/timed
+    // out, or the browser deferred the load), force xterm to re-measure
+    // when the font finally lands. xterm only re-measures on fontFamily
+    // *change*, so bounce through 'monospace' and back. Then refit and
+    // recalibrate so cols/rows AND the mouse hit map agree with the
+    // new cell metrics — without the fit the renderer repaints with
+    // the new glyphs but pointer events still map to the old grid.
     if (document.fonts && typeof document.fonts.ready?.then === 'function') {
         document.fonts.ready
             .then(() => {
@@ -873,6 +884,7 @@ export async function initTerminal(element, wsUrl, dotNetRef) {
                 try {
                     term.options.fontFamily = 'monospace';
                     term.options.fontFamily = '"Cascadia Mono NF", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace';
+                    try { fitAddon.fit(); } catch { /* container not laid out yet */ }
                     calibrateRatios(state);
                     applyRoleAwareLayout(state);
                 } catch { /* ignore — xterm disposed mid-flight */ }
