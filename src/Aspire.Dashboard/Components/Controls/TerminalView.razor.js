@@ -170,7 +170,15 @@ function ensureTerminalStyles() {
     if (document.getElementById('aspire-terminal-styles')) return;
     const css = `
 .aspire-terminal-host {
-  --aspire-term-bg: #0d1117;
+  /*
+   * --aspire-term-bg is the chrome around the framed terminal (the
+   * "stage"). Track the dashboard theme via FluentUI's neutral layer
+   * token so dark/light theme switches keep the surround in step with
+   * the rest of the page. The actual xterm canvas inside #terminal-body
+   * stays dark on purpose — terminals are conventionally dark and the
+   * frame is its own card.
+   */
+  --aspire-term-bg: var(--neutral-layer-2);
   --aspire-term-fg: #c9d1d9;
   --aspire-term-fg-muted: #8b949e;
   --aspire-term-accent: #58a6ff;
@@ -178,6 +186,13 @@ function ensureTerminalStyles() {
   --aspire-term-warn: #f0883e;
   --aspire-term-panel: #161b22;
   --aspire-term-border: #30363d;
+  /*
+   * Aspire brand purple (matches the logo gradient terminator). Used
+   * for the terminal frame's drop-shadow halo so the focal element on
+   * the console-logs page picks up the product accent rather than the
+   * GitHub-blue we inherited from the WebMuxerDemo source styles.
+   */
+  --aspire-term-glow: rgba(81, 43, 212, 0.45);
   width: 100%;
   height: 100%;
   display: flex;
@@ -201,15 +216,15 @@ function ensureTerminalStyles() {
    */
   min-width: 0;
   /*
-   * Stage for the terminal — provides the grey gradient backdrop and
-   * breathing room around the .xterm frame so the uniform blue drop-
-   * shadow has space to extend on every side without being clipped
-   * (shadow blur radius ~28px; padding gives 36px clearance).
+   * Stage for the terminal — themed backdrop and breathing room around
+   * the .xterm frame so the uniform purple drop-shadow has space to
+   * extend on every side without being clipped (shadow blur radius
+   * ~28px; padding gives 36px clearance).
    */
   padding: 36px;
   overflow: hidden;
   display: flex;
-  background: linear-gradient(180deg, #1c222a 0%, #161b22 100%);
+  background: var(--neutral-layer-2);
 }
 
 .aspire-terminal-host #terminal {
@@ -241,7 +256,7 @@ function ensureTerminalStyles() {
   border-radius: 6px;
   overflow: hidden;
   box-shadow:
-    0 0 28px rgba(88, 166, 255, 0.5),
+    0 0 28px var(--aspire-term-glow),
     0 0 12px rgba(0, 0, 0, 0.6);
 }
 
