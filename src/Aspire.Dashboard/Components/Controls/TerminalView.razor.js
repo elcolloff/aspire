@@ -1119,28 +1119,32 @@ export function takePrimaryFromHost(id) {
 export function setFontSizeFromHost(id, newSize) {
     const state = terminals.get(id);
     if (!state || typeof newSize !== 'number') return;
-    // Auto-promote: changing local presentation (font/size) implies the
-    // user wants to drive this session, so silently take primary if we
-    // aren't already. Avoids the trap where a WS reconnect drops primary
-    // and the user can no longer use the toolbar to recover it without
-    // an explicit Take-control click. takePrimary is a no-op if the
-    // client isn't connected or is already primary.
-    maybeAutoPromote(state);
+    // Order matters: apply the new font (which in font-driven mode will
+    // refit and update term.cols/rows) BEFORE auto-promoting. takePrimary
+    // sends RequestPrimary(cols,rows) using the current term grid, so if
+    // we promoted first the server would grant primary at the OLD oversize
+    // grid and the producer's PTY would keep emitting frames that overflow
+    // the per-peer queue and re-trigger slow-consumer eviction. By
+    // resizing locally first, the promotion request itself carries the
+    // smaller dims and the producer shrinks the PTY on grant.
     setFontSize(state, newSize);
+    maybeAutoPromote(state);
 }
 
 export function setSizeModeFromHost(id, sizeKey) {
     const state = terminals.get(id);
     if (!state) return;
-    maybeAutoPromote(state);
     if (!sizeKey || sizeKey === 'auto') {
         setSizeMode(state, 'font', null);
-        return;
+    } else {
+        const preset = SIZE_PRESETS.find((p) => p.value === sizeKey);
+        if (preset) {
+            setSizeMode(state, 'fixed', { cols: preset.cols, rows: preset.rows });
+        }
     }
-    const preset = SIZE_PRESETS.find((p) => p.value === sizeKey);
-    if (preset) {
-        setSizeMode(state, 'fixed', { cols: preset.cols, rows: preset.rows });
-    }
+    // Promote AFTER applying local sizing so RequestPrimary carries the
+    // new dims (see setFontSizeFromHost above for the rationale).
+    maybeAutoPromote(state);
 }
 
 function maybeAutoPromote(state) {
