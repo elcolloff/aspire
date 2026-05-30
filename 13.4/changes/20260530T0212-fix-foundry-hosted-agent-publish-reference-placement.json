@@ -1,0 +1,21 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [
+    "@tommasodotNET"
+  ],
+  "description": "Publish-mode Foundry hosted agents now correctly attach the Foundry project connection to the deployment target resource rather than the wrapper resource, ensuring container build and deployment steps see the required environment annotations.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔗",
+  "firstMergedAt": "2026-05-30T02:12:18Z",
+  "lastMergedAt": "2026-05-30T02:12:18Z",
+  "name": "Fix Foundry hosted-agent publish reference placement",
+  "owner": "davidfowl",
+  "prs": [
+    17704
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17687; bug fix for Foundry hosted-agent publish-mode project reference placement",
+  "mergedAt": "2026-05-30T02:12:18Z",
+  "number": 17704,
+  "runDate": "2026-05-30T03:07:30Z",
+  "status": "included",
+  "title": "[release/13.4] Reference Foundry project from hosted agent target"
+}
