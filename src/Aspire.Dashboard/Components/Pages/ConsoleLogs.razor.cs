@@ -1200,31 +1200,28 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
         return _terminalViewRef.SetSizeModeAsync(newKey);
     }
 
-    // Badge appearance roughly mirrors the colour cues the old in-frame
-    // chrome used: green for primary, yellow/accent for no-primary, neutral
-    // for connecting/viewer.
-    private static Appearance TerminalStatusAppearance(string status) => status switch
+    // Consolidated primary/take-control toggle. Appearance reflects the
+    // current role (Accent = you are primary, Neutral = not), and the label
+    // reflects the action available (or the current state when no action is
+    // possible). Disabled state comes from CanTakeControl in the snapshot.
+    private static Appearance TerminalPrimaryButtonAppearance(string status) => status switch
     {
         "primary" => Appearance.Accent,
-        "no-primary" => Appearance.Lightweight,
-        "viewer" => Appearance.Neutral,
         _ => Appearance.Neutral,
     };
 
-    private static string TerminalStatusLabel(string status) => status switch
+    private static string TerminalPrimaryButtonLabel(string status) => status switch
     {
-        "primary" => "PRIMARY",
-        "no-primary" => "no primary",
-        "viewer" => "viewer",
-        "connecting" => "connecting",
-        _ => status,
+        "primary" => "Primary",
+        "connecting" => "Connecting…",
+        _ => "Take control",
     };
 
-    private static string TerminalStatusTitle(string status) => status switch
+    private static string TerminalPrimaryButtonTitle(string status) => status switch
     {
         "primary" => "This tab owns primary input on the terminal session.",
-        "no-primary" => "No client currently owns primary input.",
-        "viewer" => "Another client owns primary input; this tab is a viewer.",
+        "no-primary" => "No client currently owns primary input. Click to take it.",
+        "viewer" => "Another client owns primary input. Click to take control.",
         "connecting" => "Connecting to the terminal session…",
         _ => status,
     };

@@ -74,17 +74,11 @@
             {
                 <FluentDivider Role="DividerRole.Presentation" Orientation="Orientation.Vertical" />
 
-                <FluentBadge Appearance="@TerminalStatusAppearance(terminalState.Status)"
-                             Circular="true"
-                             Title="@TerminalStatusTitle(terminalState.Status)">
-                    @TerminalStatusLabel(terminalState.Status)
-                </FluentBadge>
-
-                <FluentButton Appearance="Appearance.Lightweight"
+                <FluentButton Appearance="@TerminalPrimaryButtonAppearance(terminalState.Status)"
                               Disabled="@(!terminalState.CanTakeControl)"
                               OnClick="TerminalTakeControlAsync"
-                              Title="Request primary control of the terminal session">
-                    Take control
+                              Title="@TerminalPrimaryButtonTitle(terminalState.Status)">
+                    @TerminalPrimaryButtonLabel(terminalState.Status)
                 </FluentButton>
 
                 <FluentButton Appearance="Appearance.Stealth"
