@@ -850,9 +850,9 @@ export async function initTerminal(element, wsUrl, dotNetRef) {
         fontFamily: '"Cascadia Mono NF", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace',
         // HMP1 does not currently synchronize scrollback across consumer
         // reconnects — the producer's StateSync only repaints the visible
-        // viewport. The reconnect path below calls term.clear() on every
-        // new HMP1 session so the StateSync repaints into a clean buffer;
-        // that also resets this scrollback.
+        // viewport. The reconnect path below calls term.reset() on every
+        // new HMP1 session so the StateSync repaints into a clean buffer
+        // with default modes; that also resets this scrollback.
         scrollback: 10000,
         theme: {
             background: '#0d1117',
@@ -975,14 +975,21 @@ function connectClient(state, wsUrl) {
     // don't bleed into the next one.
     state.utf8Decoder = new TextDecoder('utf-8', { fatal: false });
 
-    // Clear xterm so the host's StateSync (sent at the start of every new
-    // HMP1 session) repaints into a clean buffer instead of layering on
-    // top of stale content from the prior connection. Wrapped because
-    // xterm.js can throw if its renderer is in a transitional state
-    // (e.g. element detached during navigation); in that case we just
-    // skip the clear — the next StateSync will overwrite the buffer
-    // anyway.
-    try { state.term.clear(); } catch { /* ignore */ }
+    // Hard-reset xterm (RIS) before the new HMP1 handshake. We MUST use
+    // term.reset() rather than term.clear(): clear() only wipes the
+    // visible buffer, leaving DEC private mode state intact (alternate
+    // screen ?1049, mouse tracking ?1000/?1002/?1003/?1006, focus events
+    // ?1004, bracketed paste ?2004, app cursor keys, scroll region,
+    // cursor shape, etc). If the prior connection had a TUI running and
+    // the WS was reset (e.g. a slow-consumer eviction under load),
+    // xterm.js would carry those modes into the next session — so when
+    // the producer's StateSync paints a fresh snapshot the viewer ends
+    // up wedged: cursor in alt-screen while the producer is on the
+    // primary buffer, mouse events swallowed even after the TUI exited,
+    // etc. reset() drops everything back to defaults so the StateSync
+    // suffix can authoritatively re-enable only the modes that are
+    // actually live on the producer.
+    try { state.term.reset(); } catch { /* ignore */ }
 
     // Update toolbar to "connecting…" while the new handshake completes.
     notifyToolbar(state);
