@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Broad API reference refresh for Aspire 13.4 NuGet feed — regenerates API JSON and integration catalog; not matched to any specific changelog entry",
+  "mergedAt": "2026-05-30T03:13:13Z",
+  "number": 1132,
+  "runDate": "2026-05-30T05:19:22Z",
+  "status": "excluded",
+  "title": "Update API docs for Aspire 13.4"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Backport of #17631 (community contribution by @adamint): fixes five aspire ls bugs (config file mutation, migration warning text, stream ordering, invalid path chars, macOS symlink dedup)",
+  "mergedAt": "2026-05-30T03:48:06Z",
+  "number": 17688,
+  "runDate": "2026-05-30T05:19:22Z",
+  "status": "included",
+  "title": "[release/13.4] Fix five `aspire ls` bugs from #17620 (L1–L5)"
+}
