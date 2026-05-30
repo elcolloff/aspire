@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Bug fix restoring implicit-channel discovery in aspire add so non-default-channel integrations are no longer hidden",
+  "mergedAt": "2026-05-30T20:35:46Z",
+  "number": 17728,
+  "runDate": "2026-05-30T22:22:40Z",
+  "status": "included",
+  "title": "fix(cli): restore implicit-channel discovery + guard non-interactive fuzzy auto-pick (#17724, #17725)"
+}

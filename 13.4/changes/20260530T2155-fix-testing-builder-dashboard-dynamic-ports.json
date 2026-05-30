@@ -1,0 +1,19 @@
+{
+  "area": "Testing",
+  "areaEmoji": "🧪",
+  "backport": true,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixes failures when DistributedApplicationTestingBuilder enables the dashboard with dynamic-port endpoints. The resource service gRPC host now uses Listen(IPAddress, port) for loopback IPs enabling port-0 binding, and AllowUnsecuredTransport is correctly defaulted to true in testing scenarios.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🐛",
+  "firstMergedAt": "2026-05-30T21:55:34Z",
+  "lastMergedAt": "2026-05-30T21:55:34Z",
+  "name": "Fix DistributedApplicationTestingBuilder dashboard with dynamic ports",
+  "owner": "JamesNK",
+  "prs": [
+    17731
+  ]
+}

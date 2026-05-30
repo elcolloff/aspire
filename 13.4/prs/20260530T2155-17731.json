@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Backport of #17729 fixing DistributedApplicationTestingBuilder dashboard with dynamic ports",
+  "mergedAt": "2026-05-30T21:55:34Z",
+  "number": 17731,
+  "runDate": "2026-05-30T22:22:40Z",
+  "status": "included",
+  "title": "[release/13.4] Fix DistributedApplicationTestingBuilder dashboard with dynamic ports"
+}

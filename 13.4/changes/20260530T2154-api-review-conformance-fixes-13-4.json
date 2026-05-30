@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Addresses API design review feedback for 13.4: restores accidentally removed public members (NetworkID, DefaultNetworkID, ContextNetworkID), aligns internal naming to the Id convention, marks AzureRoleAssignmentResource as experimental, seals new 13.4 resource classes, and resolves WithHiddenOnCompletion overload ambiguity.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-05-30T21:54:43Z",
+  "lastMergedAt": "2026-05-30T21:54:43Z",
+  "name": "13.4 API review conformance fixes",
+  "owner": "joperezr",
+  "prs": [
+    17706
+  ]
+}
