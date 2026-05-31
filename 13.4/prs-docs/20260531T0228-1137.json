@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Documents Aspire skills feature: adds top-level aspire-skills.mdx page and updates related AI coding-agent, MCP, CLI reference docs to use Aspire skills terminology",
+  "mergedAt": "2026-05-31T02:28:17Z",
+  "number": 1137,
+  "runDate": "2026-05-31T03:07:38Z",
+  "status": "included",
+  "title": "Document Aspire skills"
+}

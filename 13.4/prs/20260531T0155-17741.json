@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Test-only cherry-pick to release/13.4 adding assertions for dashboard service URI; tests/only file changed",
+  "mergedAt": "2026-05-31T01:55:56Z",
+  "number": 17741,
+  "runDate": "2026-05-31T03:07:38Z",
+  "status": "excluded",
+  "title": "[release/13.4] Assert allocated dashboard service URI has expected host and non-zero port"
+}

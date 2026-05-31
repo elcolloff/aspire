@@ -6,7 +6,9 @@
   "changeType": "Improvements",
   "communityContributors": [],
   "description": "`aspire agent init` now loads available skills from the bundled `microsoft/aspire-skills` manifest instead of a hardcoded list, making all six bundle skills (including `aspire-init`, `aspire-monitoring`, and `aspire-orchestration`) visible in the interactive prompt and via `--skills`.",
-  "docsPrs": [],
+  "docsPrs": [
+    1137
+  ],
   "docsRequired": true,
   "emoji": "📋",
   "firstMergedAt": "2026-05-29T19:20:20Z",
