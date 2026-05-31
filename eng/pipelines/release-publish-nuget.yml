@@ -11,6 +11,9 @@
 #    baseline PR) and waits for it to complete
 # 7. Uploads aspire-cli-* archives from the source build's BlobArtifacts
 #    onto the GitHub Release as the aspire-repo-bot
+# 8. Dispatches the validate-published-build GitHub Actions workflow
+#    (fire-and-forget) to run the CLI E2E suite against the just-published
+#    release CLI as a post-release smoke signal
 #
 # For full documentation, see: docs/release-process.md
 
@@ -78,6 +81,11 @@ parameters:
     type: boolean
     default: false
 
+  - name: SkipValidatePublishedBuild
+    displayName: '[Advanced] Skip dispatching validate-published-build.yml (re-run after success)'
+    type: boolean
+    default: false
+
   - name: SkipVSCodeExtensionPublish
     displayName: '[Advanced] Skip VS Code Extension Publishing'
     type: boolean
@@ -93,6 +101,15 @@ parameters:
     displayName: '[Advanced] Ref to dispatch release-github-tasks.yml from (workflow source only)'
     type: string
     default: 'main'
+
+  # Override for the ref the dispatched validate-published-build.yml workflow
+  # is loaded from. Defaults to empty → derive from the source build's release
+  # branch (with internal/ stripped to the public mirror name). Set to a topic
+  # branch to test workflow changes before they merge.
+  - name: ValidatePublishedBuildWorkflowRef
+    displayName: '[Advanced] Override ref to dispatch validate-published-build.yml from (empty = use release branch from source build)'
+    type: string
+    default: ''
 
 variables:
   - template: /eng/pipelines/common-variables.yml@self
@@ -1260,3 +1277,52 @@ extends:
                     --channel stable \
                     --validation-mode LiveRelease
                 displayName: '🟣Validate cask against live GitHub release'
+
+      # ===== STAGE 4: VALIDATE PUBLISHED BUILD =====
+      # Fire-and-forget dispatch of validate-published-build.yml against the
+      # actually-published release CLI (quality=release,
+      # version=$(ReleaseVersionEffective)) as a post-release smoke signal.
+      # Operators re-run from the GitHub Actions UI on failure (the workflow
+      # opens a tracking issue too).
+      - stage: ValidatePublishedBuild
+        displayName: 'Dispatch Published Build Validation'
+        # Depend on Release, not GitHubTasks: the precondition is "packages
+        # reached NuGet.org and the channel pointer got promoted"
+        # (Release-stage responsibilities), not "GitHub release exists"
+        # (GitHubTasks). PrepareArtifacts is named explicitly so the dispatch
+        # can resolve stageDependencies.PrepareArtifacts.* output variables —
+        # AzDO only exposes stageDependencies for stages listed directly.
+        dependsOn:
+          - Release
+          - PrepareArtifacts
+        # 'Skipped' on Release lets the partial-rerun path work (operator sets
+        # SkipNuGetPublish=true + SkipChannelPromotion=true because they already
+        # succeeded). PrepareArtifacts must actually have succeeded — its
+        # output variables feed the dispatch, and an upstream-cascaded skip
+        # would leave them unset.
+        condition: |
+          and(
+            in(dependencies.PrepareArtifacts.result, 'Succeeded', 'SucceededWithIssues'),
+            in(dependencies.Release.result, 'Succeeded', 'SucceededWithIssues', 'Skipped'),
+            eq('${{ parameters.SkipValidatePublishedBuild }}', 'false')
+          )
+        variables:
+          - name: ReleaseVersionEffective
+            value: $[ stageDependencies.PrepareArtifacts.PrepareJob.outputs['deriveReleaseVersion.releaseVersionEffective'] ]
+          - name: ReleaseBranchEffective
+            value: $[ stageDependencies.PrepareArtifacts.PrepareJob.outputs['deriveReleaseVersion.releaseBranchEffective'] ]
+          # ValidatePublishedBuildWorkflowRef override wins if set; otherwise
+          # the dispatched workflow loads from the release branch so the
+          # workflow YAML matches the release branch's test source.
+          - name: ValidatePublishedBuildWorkflowRefEffective
+            ${{ if ne(parameters.ValidatePublishedBuildWorkflowRef, '') }}:
+              value: ${{ parameters.ValidatePublishedBuildWorkflowRef }}
+            ${{ else }}:
+              value: $(ReleaseBranchEffective)
+        jobs:
+          - template: /eng/pipelines/templates/dispatch-validate-published-build-job.yml@self
+            parameters:
+              quality: release
+              version: $(ReleaseVersionEffective)
+              ref: $(ValidatePublishedBuildWorkflowRefEffective)
+
