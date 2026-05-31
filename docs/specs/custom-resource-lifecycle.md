@@ -41,7 +41,7 @@ This proposal keeps a single, consistent level of abstraction. There is **one** 
 
 1. **Targeted updates, not wholesale replacement.** Each producer (DCP, orchestrator, user code) updates only its slice of the resource snapshot. Producers cannot clobber each other.
 
-2. **One lifecycle hook, framework-managed ceremony.** A single `OnLifecycle(async (ctx, ct) => ...)` hook. The framework fires lifecycle events, sets timestamps, and wires Start/Stop/Restart commands around it. The author writes whatever logic they need inside it — a loop, an event subscription, a one-shot call.
+2. **One overload, framework-managed ceremony.** A new `OnInitializeResource(async (ctx, ct) => ...)` overload that takes a `ResourceContext` instead of an `InitializeResourceEvent`. The framework fires lifecycle events, sets timestamps, and wires Start/Stop/Restart commands around it. The author writes whatever logic they need inside it — a loop, an event subscription, a one-shot call.
 
 3. **A focused context, not a snapshot constructor.** A new `ResourceContext` exposes targeted methods (`SetStateAsync`, `SetPropertyAsync`, `AddUrlAsync`) so authors update just the fields they care about, never reconstruct a whole snapshot.
 
@@ -241,13 +241,20 @@ public static IResourceBuilder<T> WithCommand<T>(
 
 This is purely additive; existing `WithCommand` overloads continue to work.
 
-## Layer 3: One lifecycle hook, framework-managed ceremony
+## Layer 3: New `OnInitializeResource` overload, framework-managed ceremony
 
-### The single primitive: `OnLifecycle`
+### A new overload alongside the existing `OnInitializeResource`
 
-A custom resource that wants to participate in the dashboard lifecycle implements one hook:
+`OnInitializeResource` already exists today, but its callback receives an `InitializeResourceEvent` and the author owns every piece of ceremony (firing events, setting state, managing timestamps, owning the loop). This proposal adds a **second overload** that takes a `ResourceContext` instead — when this overload is used, the framework owns the surrounding ceremony.
 
 ```csharp
+// Existing overload (unchanged) — author owns everything.
+public static IResourceBuilder<T> OnInitializeResource<T>(
+    this IResourceBuilder<T> builder,
+    Func<T, InitializeResourceEvent, CancellationToken, Task> callback)
+    where T : IResource;
+
+// New overload — framework owns ceremony around the callback.
 /// <summary>
 /// Registers the lifecycle body for this resource. The framework owns the surrounding
 /// ceremony (lifecycle events, timestamps, command wiring, cleanup of tracked
@@ -262,15 +269,17 @@ A custom resource that wants to participate in the dashboard lifecycle implement
 /// or <see cref="KnownResourceStates.Exited"/> (if it did) and exposes the failure
 /// in the dashboard.
 /// </remarks>
-public static IResourceBuilder<T> OnLifecycle<T>(
+public static IResourceBuilder<T> OnInitializeResource<T>(
     this IResourceBuilder<T> builder,
     Func<ResourceContext, CancellationToken, Task> lifecycle)
     where T : IResource;
 ```
 
-That's the entire third layer.
+The signature carries the contract: if your callback takes a `ResourceContext`, the framework wraps it with ceremony. If it takes the legacy `InitializeResourceEvent`, you're responsible for everything (matching today's behavior, kept for back-compat).
 
-### What the framework handles around `OnLifecycle`
+That's the entire third layer — no new method name, just a new shape for an existing hook.
+
+### What the framework handles around `OnInitializeResource`
 
 | Concern | Framework behavior |
 |---------|-------------------|
@@ -289,11 +298,11 @@ The author is responsible for transitioning to `Running` (or another live state)
 
 ### Resources that opt out of lifecycle
 
-A resource that doesn't implement `IResourceWithLifetime` (or implements a marker like `IResourceWithoutLifecycle`) is skipped by the framework's start/stop machinery, doesn't get Start/Stop/Restart commands, and its `OnLifecycle` registration (if any) is treated as a no-op. This covers things like `ParameterResource` and other configuration-style resources that don't have a meaningful runtime lifecycle.
+A resource that doesn't implement `IResourceWithLifetime` (or implements a marker like `IResourceWithoutLifecycle`) is skipped by the framework's start/stop machinery, doesn't get Start/Stop/Restart commands, and its `OnInitializeResource` registration (if any) is treated as a no-op. This covers things like `ParameterResource` and other configuration-style resources that don't have a meaningful runtime lifecycle.
 
 ### Examples
 
-These are the four common patterns. They all use the same `OnLifecycle` hook; the body varies.
+These are the four common patterns. They all use the same `OnInitializeResource` overload; the body varies.
 
 #### Periodic (replaces TalkingClock today)
 
@@ -303,7 +312,7 @@ builder.AddResource(new TalkingClockResource("clock"))
     .WithResourceType("TalkingClock")
     .WithProperty(CustomResourceKnownProperties.Source, "Talking Clock")
     .WithUrl("https://www.speaking-clock.com/", "Speaking Clock")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         await ctx.SetStateAsync(KnownResourceStates.Running, ct);
         long tick = 0;
@@ -324,7 +333,7 @@ Compare to the [current TalkingClock implementation](../../playground/CustomReso
 When a resource's lifecycle follows another resource, the author waits for the source resource's state directly using existing notification APIs. No new primitive needed:
 
 ```csharp
-portBuilder.OnLifecycle(async (ctx, ct) =>
+portBuilder.OnInitializeResource(async (ctx, ct) =>
 {
     // Wait for the parent tunnel to be ready.
     await ctx.Notifications.WaitForResourceHealthyAsync(tunnel.Resource.Name, ct);
@@ -354,7 +363,7 @@ This replaces ~130 lines of manual ceremony in the current `DevTunnelPortResourc
 ```csharp
 builder.AddResource(new KafkaMonitorResource("kafka-monitor"))
     .WithResourceType("KafkaMonitor")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         var consumer = new KafkaConsumer(ctx.Get<KafkaConfig>().BootstrapServers);
         ctx.Track(consumer); // disposed by the framework on stop
@@ -375,7 +384,7 @@ builder.AddResource(new KafkaMonitorResource("kafka-monitor"))
 builder.AddResource(new ExternalApiResource("payments-api"))
     .WithResourceType("ExternalAPI")
     .WithUrl("https://api.payments.com", "API")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         var client = new HttpClient();
         ctx.Track(client);
@@ -392,16 +401,16 @@ builder.AddResource(new ExternalApiResource("payments-api"))
 
 (Continuous health is best expressed with `WithHealthCheck`, not with the `State` field. The dashboard renders a separate health badge for this.)
 
-### Optional helpers (built on `OnLifecycle`)
+### Optional helpers (built on `OnInitializeResource`)
 
-The most common patterns above can be packaged as extension methods that build on `OnLifecycle`. These are convenience helpers, not new primitives — they expand to ordinary `OnLifecycle` bodies and live in any namespace the consumer prefers.
+The most common patterns above can be packaged as extension methods that build on `OnInitializeResource`. These are convenience helpers, not new primitives — they expand to ordinary `OnInitializeResource` bodies and live in any namespace the consumer prefers.
 
 ```csharp
 public static class ResourceLifecycleExtensions
 {
     /// <summary>
     /// Convenience: runs <paramref name="onTick"/> on a fixed interval until the
-    /// resource is stopped. Equivalent to writing a while loop inside OnLifecycle.
+    /// resource is stopped. Equivalent to writing a while loop inside OnInitializeResource.
     /// </summary>
     public static IResourceBuilder<T> WithInterval<T>(
         this IResourceBuilder<T> builder,
@@ -409,7 +418,7 @@ public static class ResourceLifecycleExtensions
         Func<ResourceContext, long, CancellationToken, Task> onTick)
         where T : IResource
     {
-        return builder.OnLifecycle(async (ctx, ct) =>
+        return builder.OnInitializeResource(async (ctx, ct) =>
         {
             await ctx.SetStateAsync(KnownResourceStates.Running, ct);
             long tick = 0;
@@ -423,9 +432,9 @@ public static class ResourceLifecycleExtensions
 }
 ```
 
-Authors who like the helper can use it. Authors who want full control use `OnLifecycle` directly. There is exactly one primitive in the public API; everything else is layered on top.
+Authors who like the helper can use it. Authors who want full control use `OnInitializeResource` directly. There is exactly one primitive in the public API; everything else is layered on top.
 
-### What `OnLifecycle` does **not** prescribe
+### What `OnInitializeResource` does **not** prescribe
 
 To avoid the design debates around composing multiple lifecycle primitives, this proposal deliberately makes these the author's responsibility:
 
@@ -448,14 +457,14 @@ Dashboard "Stop" click
     → orchestrator.StopResourceAsync(name)
       → If DCP resource → _dcpExecutor.StopResourceAsync (existing path)
       → If custom resource → cancel the resource's CancellationTokenSource
-        → OnLifecycle callback observes cancellation, returns
+        → OnInitializeResource callback observes cancellation, returns
         → Framework: disposes tracked disposables, sets terminal state,
           sets StopTimeStamp, fires ResourceStoppedEvent
 
 Dashboard "Start" click
   → orchestrator.StartResourceAsync(name)
     → If DCP resource → _dcpExecutor.StartResourceAsync (existing path)
-    → If custom resource → create new CTS, re-invoke OnLifecycle callback
+    → If custom resource → create new CTS, re-invoke OnInitializeResource callback
       → Framework: fires BeforeResourceStartedEvent, sets Starting,
         sets StartTimeStamp, invokes callback
 ```
@@ -505,7 +514,7 @@ export interface UrlSnapshot {
 }
 ```
 
-### `ResourceContext` and `onLifecycle`
+### `ResourceContext` and `onInitializeResource`
 
 ```typescript
 export interface ResourceContext {
@@ -525,7 +534,7 @@ export interface ResourceContext {
 // On any resource builder:
 .withResourceType(resourceType: string)
 .withProperty(name: string, value: unknown, options?: PublishPropertyOptions)
-.onLifecycle(lifecycle: (ctx: ResourceContext, stopSignal: AbortSignal) => Promise<void>)
+.onInitializeResource(lifecycle: (ctx: ResourceContext, stopSignal: AbortSignal) => Promise<void>)
 ```
 
 ### TypeScript example
@@ -534,7 +543,7 @@ export interface ResourceContext {
 const clock = await builder.addResource("clock")
     .withResourceType("TalkingClock")
     .withProperty("aspire.resource.source", "Talking Clock")
-    .onLifecycle(async (ctx, stop) => {
+    .onInitializeResource(async (ctx, stop) => {
         await ctx.setState("Running");
         let tick = 0;
         while (!stop.aborted) {
@@ -579,7 +588,7 @@ builder.AddResource(myResource)
 builder.AddResource(myResource)
     .WithResourceType("MyResource")
     .WithProperty("Source", "my-source")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         await ctx.SetStateAsync(KnownResourceStates.Running, ct);
         while (!ct.IsCancellationRequested)
@@ -594,7 +603,7 @@ The reductions: no manual snapshot construction, no manual event firing, no manu
 
 ### From `OnResourceReady` / `OnResourceStopped` (bound lifecycle)
 
-See the DevTunnelPort example above. The pattern is to put the wait-for-parent logic inside `OnLifecycle` using `WaitForResourceAsync` / `WaitForResourceHealthyAsync`, instead of subscribing to events on the parent.
+See the DevTunnelPort example above. The pattern is to put the wait-for-parent logic inside `OnInitializeResource` using `WaitForResourceAsync` / `WaitForResourceHealthyAsync`, instead of subscribing to events on the parent.
 
 ## Implementation phases
 
@@ -602,14 +611,14 @@ See the DevTunnelPort example above. The pattern is to put the wait-for-parent l
 |-------|-------|-------------|
 | **1. Source-scoped slices** | Internal plumbing: per-source collection tracking in `ResourceNotificationService`, `PublishSlicedUpdateAsync` for DCP, refactor `ResourceSnapshotBuilder` and `ApplicationOrchestrator`. Fixes #13647. | None |
 | **2. `ResourceContext` + public API** | New `ResourceContext` class, targeted public methods on `ResourceNotificationService`, builder helpers (`WithResourceType`, `WithProperty`), `CreationTimeStamp` auto-default, `WithCommand` overload that accepts `ResourceContext`. | Phase 1 |
-| **3. `OnLifecycle` hook** | Framework-owned ceremony (events, timestamps, command wiring, cleanup), Start/Stop/Restart routing for custom resources, opt-out via `IResourceWithoutLifecycle`. | Phase 2 |
-| **4. TypeScript parity** | Code-gen changes to emit new methods on `ResourceNotificationService`, builders, and the `onLifecycle` hook. | Phase 3 |
+| **3. `OnInitializeResource` overload** | Framework-owned ceremony (events, timestamps, command wiring, cleanup), Start/Stop/Restart routing for custom resources, opt-out via `IResourceWithoutLifecycle`. | Phase 2 |
+| **4. TypeScript parity** | Code-gen changes to emit new methods on `ResourceNotificationService`, builders, and the `onInitializeResource` hook. | Phase 3 |
 
 Each phase is independently shippable and useful. Phase 1 alone fixes the clobbering bug. Phase 2 alone meaningfully improves authoring. Phase 3 closes the loop on Start/Stop/Restart commands and event firing for custom resources.
 
 ## Open questions
 
-1. **Naming.** `OnLifecycle` vs `WithLifecycle` vs `OnRun` vs `WithBody`? `ResourceContext` vs `ResourceUpdater` vs `ResourceController`? Naming TBD pending API review.
+1. **Naming.** The proposal reuses `OnInitializeResource` as the hook name with a new overload. Alternative: introduce a distinct name (`OnLifecycle`, `WithLifecycle`, `OnRun`) to make the framework-managed behavior more obvious from the callsite, at the cost of having two parallel hook concepts. `ResourceContext` itself could also be `ResourceUpdater` / `ResourceController`. TBD pending API review.
 
 2. **Framework state on author-thrown exceptions.** When the callback throws after `Running` was reached, should the framework expose the exception as an `ExitCode`-like value, or just log it? Recommendation: log plus a synthetic non-zero exit code so the dashboard renders the resource with error styling.
 

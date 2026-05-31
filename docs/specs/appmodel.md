@@ -68,9 +68,9 @@ graph LR
 - [API Patterns](#api-patterns)
 - [Custom Resource Lifecycle Model](#custom-resource-lifecycle-model)
   - [ResourceContext](#resourcecontext)
-  - [The OnLifecycle hook](#the-onlifecycle-hook)
+  - [The OnInitializeResource overload](#the-oninitializeresource-overload)
   - [Builder Helpers](#builder-helpers)
-  - [What the Framework Handles Around OnLifecycle](#what-the-framework-handles-around-onlifecycle)
+  - [What the Framework Handles Around OnInitializeResource](#what-the-framework-handles-around-oninitializeresource)
   - [Patterns](#patterns)
   - [Start/Stop/Restart Routing](#startstoprestart-routing)
   - [Targeted Snapshot Updates](#targeted-snapshot-updates)
@@ -1184,7 +1184,7 @@ Custom resources that don't derive from built-in types (Container, Project, Exec
 The custom resource lifecycle model has two ideas, applied consistently:
 
 1. **Targeted updates** — each producer (DCP, orchestrator, user code) updates only its slice of the resource snapshot, never clobbering other producers' data.
-2. **One lifecycle hook, framework-managed ceremony** — authors implement a single `OnLifecycle` hook. The framework fires lifecycle events, sets timestamps, wires Start/Stop/Restart commands, and handles cleanup around it. The author owns whatever logic runs inside.
+2. **One lifecycle hook, framework-managed ceremony** — authors implement a single `OnInitializeResource` overload. The framework fires lifecycle events, sets timestamps, wires Start/Stop/Restart commands, and handles cleanup around it. The author owns whatever logic runs inside.
 
 See [`docs/specs/custom-resource-lifecycle.md`](custom-resource-lifecycle.md) for the full proposal including layering, migration, and open questions.
 
@@ -1232,20 +1232,27 @@ public class ResourceContext
 }
 ```
 
-### The OnLifecycle hook
+### The OnInitializeResource overload
 
-A custom resource that wants to participate in the dashboard lifecycle implements **one** hook:
+`OnInitializeResource` already exists with a callback that receives an `InitializeResourceEvent` and requires the author to manage everything (events, state, timestamps, the loop). This proposal adds a **new overload** that takes a `ResourceContext` instead — when this overload is used, the framework owns the surrounding ceremony.
 
 ```csharp
-public static IResourceBuilder<T> OnLifecycle<T>(
+// Existing overload (unchanged) — author owns everything.
+public static IResourceBuilder<T> OnInitializeResource<T>(
+    this IResourceBuilder<T> builder,
+    Func<T, InitializeResourceEvent, CancellationToken, Task> callback)
+    where T : IResource;
+
+// New overload — framework owns ceremony around the callback.
+public static IResourceBuilder<T> OnInitializeResource<T>(
     this IResourceBuilder<T> builder,
     Func<ResourceContext, CancellationToken, Task> lifecycle)
     where T : IResource;
 ```
 
-The framework calls the callback when the resource should start (auto-start at app startup, or in response to a Start/Restart command). The cancellation token is cancelled when the resource should stop. The callback observes the token and returns promptly.
+The framework calls the new overload's callback when the resource should start (auto-start at app startup, or in response to a Start/Restart command). The cancellation token is cancelled when the resource should stop. The callback observes the token and returns promptly.
 
-There is no separate `WithInterval`, `BoundTo`, `RunAsync`, or `OnStarted` primitive. Whatever pattern the resource needs — a periodic loop, an event subscription, a streaming consumer, a one-shot probe — is just code inside the callback. Convenience extensions (`WithInterval`, etc.) can be layered on top, but they expand to ordinary `OnLifecycle` bodies and aren't part of the framework contract.
+There is no separate `WithInterval`, `BoundTo`, `RunAsync`, or `OnStarted` primitive. Whatever pattern the resource needs — a periodic loop, an event subscription, a streaming consumer, a one-shot probe — is just code inside the callback. Convenience extensions (`WithInterval`, etc.) can be layered on top, but they expand to ordinary `OnInitializeResource` bodies and aren't part of the framework contract.
 
 ### Builder helpers
 
@@ -1260,7 +1267,7 @@ builder.AddResource(myResource)
 // WithInitialState remains for backward compatibility but is [Obsolete(false)].
 ```
 
-### What the framework handles around OnLifecycle
+### What the framework handles around OnInitializeResource
 
 | Concern | Framework behavior |
 |---------|-------------------|
@@ -1281,14 +1288,14 @@ Resources that don't have a meaningful runtime lifecycle (e.g. `ParameterResourc
 
 ### Patterns
 
-All four common patterns are just different bodies of the same `OnLifecycle` hook.
+All four common patterns are just different bodies of the same `OnInitializeResource` overload.
 
 #### Periodic (TalkingClock)
 
 ```csharp
 builder.AddResource(new TalkingClockResource("clock"))
     .WithResourceType("TalkingClock")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         await ctx.SetStateAsync(KnownResourceStates.Running, ct);
         long tick = 0;
@@ -1307,7 +1314,7 @@ builder.AddResource(new TalkingClockResource("clock"))
 When a resource's lifecycle follows another resource, the author waits for the source resource's state inside the callback. No new primitive needed:
 
 ```csharp
-portBuilder.OnLifecycle(async (ctx, ct) =>
+portBuilder.OnInitializeResource(async (ctx, ct) =>
 {
     await ctx.Notifications.WaitForResourceHealthyAsync(tunnel.Resource.Name, ct);
 
@@ -1325,7 +1332,7 @@ portBuilder.OnLifecycle(async (ctx, ct) =>
 
 ```csharp
 builder.AddResource(new KafkaMonitorResource("kafka-monitor"))
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         var consumer = new KafkaConsumer(ctx.Get<KafkaConfig>().BootstrapServers);
         ctx.Track(consumer);
@@ -1344,7 +1351,7 @@ builder.AddResource(new KafkaMonitorResource("kafka-monitor"))
 builder.AddResource(new ExternalApiResource("payments-api"))
     .WithResourceType("ExternalAPI")
     .WithUrl("https://api.payments.com", "API")
-    .OnLifecycle(async (ctx, ct) =>
+    .OnInitializeResource(async (ctx, ct) =>
     {
         var client = new HttpClient();
         ctx.Track(client);
@@ -1361,8 +1368,8 @@ For ongoing health, use `WithHealthCheck` rather than overloading `State` with `
 
 Today, Start/Stop/Restart commands route directly to DCP and don't work for custom resources. With the lifecycle model, the orchestrator gains a custom resource path:
 
-- **Stop**: cancels the resource's `CancellationTokenSource`; the `OnLifecycle` callback observes cancellation and returns; the framework disposes tracked disposables and sets the terminal state.
-- **Start**: creates a new CTS and re-invokes the `OnLifecycle` callback; framework fires `BeforeResourceStartedEvent`, sets `Starting`, sets `StartTimeStamp`.
+- **Stop**: cancels the resource's `CancellationTokenSource`; the `OnInitializeResource` callback observes cancellation and returns; the framework disposes tracked disposables and sets the terminal state.
+- **Start**: creates a new CTS and re-invokes the `OnInitializeResource` callback; framework fires `BeforeResourceStartedEvent`, sets `Starting`, sets `StartTimeStamp`.
 - **Restart**: stop, then start.
 
 ### Targeted snapshot updates
@@ -1617,13 +1624,13 @@ public static class TalkingClockExtensions
         var clockResource = new TalkingClockResource(name, tickHandResource, tockHandResource);
 
         // The framework handles: lifecycle events, timestamps,
-        // Start/Stop/Restart commands, and WaitFor support around OnLifecycle.
+        // Start/Stop/Restart commands, and WaitFor support around OnInitializeResource.
         var clockBuilder = builder.AddResource(clockResource)
             .ExcludeFromManifest()
             .WithUrl("https://www.speaking-clock.com/", "Speaking Clock")
             .WithResourceType("TalkingClock")
             .WithProperty(CustomResourceKnownProperties.Source, "Talking Clock")
-            .OnLifecycle(async (ctx, ct) =>
+            .OnInitializeResource(async (ctx, ct) =>
             {
                 await ctx.SetStateAsync(KnownResourceStates.Running, ct);
                 long tick = 0;
@@ -1638,7 +1645,7 @@ public static class TalkingClockExtensions
             });
 
         // Child resources follow the parent clock's lifecycle by waiting on it
-        // inside their own OnLifecycle hook.
+        // inside their own OnInitializeResource overload.
         AddHandResource(tickHandResource, "tick");
         AddHandResource(tockHandResource, "tock");
 
@@ -1650,7 +1657,7 @@ public static class TalkingClockExtensions
                 .WithParentRelationship(clockBuilder)
                 .WithResourceType("ClockHand")
                 .WithProperty(CustomResourceKnownProperties.Source, "Talking Clock")
-                .OnLifecycle(async (ctx, ct) =>
+                .OnInitializeResource(async (ctx, ct) =>
                 {
                     await ctx.Notifications.WaitForResourceHealthyAsync(clockResource.Name, ct);
 
