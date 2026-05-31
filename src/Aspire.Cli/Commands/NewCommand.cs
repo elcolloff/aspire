@@ -374,11 +374,33 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
                 // registered channel (e.g. typoed override, future identity name) so the
                 // command stays useful while surfacing a deterministic version.
                 PackageChannel? identityChannelMatch = null;
-                if (string.IsNullOrWhiteSpace(configuredChannelName) &&
-                    !string.IsNullOrWhiteSpace(ExecutionContext.IdentityChannel))
+                if (string.IsNullOrWhiteSpace(configuredChannelName))
                 {
-                    identityChannelMatch = channels.FirstOrDefault(c =>
-                        string.Equals(c.Name, ExecutionContext.IdentityChannel, StringComparisons.ChannelName));
+                    // Consult IPackagingService.GetEffectiveIdentityChannel first so the
+                    // overrideCliIdentityChannel diagnostic env var (used by
+                    // eng/scripts/debug-staging.sh to validate staging feed routing from a
+                    // locally built CLI) is honored end-to-end. Without this, a local-identity
+                    // CLI run with overrideCliIdentityChannel=staging would correctly synthesize
+                    // the staging channel in PackagingService but then ignore it here (no
+                    // "local" channel exists in the list) and fall through to the Implicit
+                    // (nuget.org) channel — silently resolving the previous shipped stable
+                    // Aspire.ProjectTemplates (e.g. 13.3.5) instead of the SHA-specific staging
+                    // build's matching version. See also VersionHelper.GetDefaultTemplateVersion
+                    // which honors the parallel overrideCliInformationalVersion env var.
+                    //
+                    // Falls back to ExecutionContext.IdentityChannel when the packaging service
+                    // returns null/empty (used by test fakes that don't model identity routing).
+                    var effectiveIdentity = _packagingService.GetEffectiveIdentityChannel();
+                    if (string.IsNullOrWhiteSpace(effectiveIdentity))
+                    {
+                        effectiveIdentity = ExecutionContext.IdentityChannel;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(effectiveIdentity))
+                    {
+                        identityChannelMatch = channels.FirstOrDefault(c =>
+                            string.Equals(c.Name, effectiveIdentity, StringComparisons.ChannelName));
+                    }
                 }
 
                 var selectedChannel = string.IsNullOrWhiteSpace(configuredChannelName)

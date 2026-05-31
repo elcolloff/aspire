@@ -46,6 +46,57 @@ readonly DEFAULT_STABLE_VERSION="13.4.0"
 say() { printf '%s\n' "$*"; }
 say_err() { printf 'error: %s\n' "$*" >&2; }
 
+# Query an AzDO darc feed's NuGet v3 service index for the highest published
+# version of Aspire.ProjectTemplates. Used to auto-align the simulated CLI
+# version with what the build pipeline actually stamped for the SHA, so
+# TryGetCurrentCliVersionMatch can find the exact-match package on the feed
+# instead of silently degrading to whatever the highest nuget.org version is.
+#
+# Inputs:  $1 = NuGet v3 service-index URL for the darc feed
+# Outputs: highest version string on stdout (e.g. "13.4.0"), or nothing on
+#          failure / empty feed. Never writes to stderr unless --verbose is
+#          uncommented; the caller treats absence-of-output as "fall back to
+#          the script default" so transient curl failures don't break the run.
+detect_published_template_version() {
+    local feed_url="$1"
+    command -v curl >/dev/null 2>&1 || return 1
+    command -v python3 >/dev/null 2>&1 || return 1
+
+    # Step 1: resolve the PackageBaseAddress resource from the service index.
+    # The base address is what NuGet clients use to enumerate flat-container
+    # versions; we want the "PackageBaseAddress/3.0.0" entry but accept any
+    # PackageBaseAddress* type for forward compat.
+    local base
+    base="$(curl -fsS --max-time 10 "$feed_url" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for r in d.get('resources', []):
+    if str(r.get('@type', '')).startswith('PackageBaseAddress'):
+        print(r['@id'])
+        break
+" 2>/dev/null)" || return 1
+    [[ -n "$base" ]] || return 1
+
+    # Step 2: fetch the flat-container index for the lowercased package id and
+    # return the LAST entry. The NuGet flat-container spec orders versions
+    # lexicographically by SemVer 2.0 precedence, so the tail is the highest.
+    # See https://learn.microsoft.com/nuget/api/package-base-address-resource
+    curl -fsS --max-time 10 "${base}aspire.projecttemplates/index.json" 2>/dev/null \
+        | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+v = d.get('versions') or []
+if v:
+    print(v[-1])
+" 2>/dev/null
+}
+
 print_usage() {
     local invoked_as="$1"
     cat <<USAGE
@@ -106,7 +157,7 @@ run_debug_channel() {
         *) say_err "unknown kind '$kind'"; return 2 ;;
     esac
 
-    local sha="" pr="" cli_path="" version="" identity="staging" package="foundry"
+    local sha="" pr="" cli_path="" version="" version_was_explicit=0 identity="staging" package="foundry"
     local mode="validate"
     local -a passthrough=()
 
@@ -115,7 +166,7 @@ run_debug_channel() {
             --sha) sha="${2:-}"; shift 2 ;;
             --pr) pr="${2:-}"; shift 2 ;;
             --cli) cli_path="${2:-}"; shift 2 ;;
-            --version) version="${2:-}"; shift 2 ;;
+            --version) version="${2:-}"; version_was_explicit=1; shift 2 ;;
             --identity) identity="${2:-}"; shift 2 ;;
             --package) package="${2:-}"; shift 2 ;;
             --shell) mode="shell"; shift ;;
@@ -145,6 +196,27 @@ run_debug_channel() {
     local sha8
     sha8="$(printf '%s' "${sha:0:8}" | tr '[:upper:]' '[:lower:]')"
     local expected_feed="https://pkgs.dev.azure.com/dnceng/public/_packaging/darc-pub-microsoft-aspire-${sha8}/nuget/v3/index.json"
+
+    # When --version was not supplied, query the actual darc feed for the SHA's
+    # published Aspire.ProjectTemplates version and use that. Otherwise the
+    # built-in DEFAULT_STAGING_VERSION / DEFAULT_STABLE_VERSION often doesn't
+    # match what the build pipeline actually stamped (e.g. release stabilization
+    # publishes 13.4.0 stable for a SHA whose script-default is the prerelease
+    # `13.4.0-preview.1.X.Y` shape). When the version doesn't match the feed,
+    # TryGetCurrentCliVersionMatch fails and template selection silently falls
+    # back to the highest version visible across all sources -- which on a stale
+    # nuget.org cache is the previous shipped stable (e.g. 13.3.5), producing
+    # the SDK-version-mismatch warning and the wrong SDK pin in the new project's
+    # aspire.config.json.
+    if [[ "$version_was_explicit" -eq 0 ]]; then
+        local detected_version
+        detected_version="$(detect_published_template_version "$expected_feed" 2>/dev/null || true)"
+        if [[ -n "$detected_version" ]]; then
+            say "Detected published Aspire.ProjectTemplates version on darc feed: $detected_version (overrides default '$DEFAULT_VERSION')."
+            version="$detected_version"
+        fi
+    fi
+
     local info_version="${version}+${sha}"
 
     # --print-env: emit shell-applicable export/unset lines and stop. This mode is

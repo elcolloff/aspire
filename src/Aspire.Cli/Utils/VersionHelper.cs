@@ -58,6 +58,31 @@ internal static class VersionHelper
 
     public static string GetDefaultTemplateVersion()
     {
+        // Honor the same diagnostic override that PackagingService uses to simulate a
+        // different CLI identity/version for end-to-end staging validation. Without this,
+        // a locally built CLI emulating a staging build via `eng/scripts/debug-staging.sh`
+        // would correctly ROUTE package search at the darc staging feed (PackagingService
+        // reads the override) but would still REPORT its own stamped assembly version to
+        // everything else — template selection (TryGetCurrentCliVersionMatch), the SDK
+        // version written into aspire.config.json, the CLI banner, telemetry, etc. The
+        // resulting half-emulation surfaces a "CLI version differs from configured SDK
+        // version" warning and stamps the wrong SDK version into newly-scaffolded
+        // projects.
+        //
+        // Scope is deliberately narrow:
+        //   * The env var is documented on PackagingService as a diagnostic override.
+        //   * It is read here via Environment.GetEnvironmentVariable (not IConfiguration)
+        //     to keep this static helper dependency-free.
+        //   * Real shipped builds never set this variable, so production behavior is
+        //     identical to reading the assembly attribute.
+        // See https://github.com/microsoft/aspire/blob/main/docs/cli-staging-validation.md
+        // and PackagingService.OverrideCliInformationalVersionConfigKey.
+        var overrideVersion = Environment.GetEnvironmentVariable("overrideCliInformationalVersion");
+        if (!string.IsNullOrWhiteSpace(overrideVersion))
+        {
+            return overrideVersion;
+        }
+
         return PackageUpdateHelpers.GetCurrentAssemblyVersion() ?? throw new InvalidOperationException(ErrorStrings.UnableToRetrieveAssemblyVersion);
     }
 

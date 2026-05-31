@@ -36,4 +36,15 @@ internal sealed class TestPackagingService : IPackagingService
     {
         return GetStagingChannelUnavailableReasonCallback?.Invoke();
     }
+
+    /// <summary>
+    /// Optional callback for <see cref="GetEffectiveIdentityChannel"/>. Returning
+    /// <see langword="null"/> or an empty string (the default) signals "no opinion" so
+    /// <c>NewCommand</c> falls back to <see cref="CliExecutionContext.IdentityChannel"/>
+    /// — the value tests set via the channel-resolution helpers in this project.
+    /// </summary>
+    public Func<string?>? GetEffectiveIdentityChannelCallback { get; set; }
+
+    public string GetEffectiveIdentityChannel()
+        => GetEffectiveIdentityChannelCallback?.Invoke() ?? string.Empty;
 }

@@ -36,6 +36,25 @@ internal interface IPackagingService
     /// <c>overrideStagingFeed</c> or enabled the staging feature flag.
     /// </remarks>
     string? GetStagingChannelUnavailableReason();
+
+    /// <summary>
+    /// Returns the identity channel the packaging service is acting on behalf of: normally the
+    /// CLI's baked <c>AspireCliChannel</c> assembly metadata (<see cref="CliExecutionContext.IdentityChannel"/>),
+    /// but redirected to the <c>overrideCliIdentityChannel</c> configuration value when that
+    /// diagnostic override is set (used by <c>eng/scripts/debug-staging.sh</c> to validate staging
+    /// feed routing from a locally built CLI).
+    /// </summary>
+    /// <remarks>
+    /// Commands that auto-select a channel based on the running CLI's identity (e.g. <c>aspire new</c>
+    /// preferring the staging channel on a staging-identity build) must consult this value rather than
+    /// <see cref="CliExecutionContext.IdentityChannel"/> directly. Otherwise the override gives
+    /// half-emulation: <see cref="PackagingService"/> synthesizes the staging channel correctly but
+    /// the caller still sees the baked <c>local</c> identity and falls back to the implicit
+    /// nuget.org channel, resolving stale packages (e.g. the previous shipped stable
+    /// <c>Aspire.ProjectTemplates</c> 13.3.5 instead of the SHA-specific staging build's matching
+    /// version).
+    /// </remarks>
+    string GetEffectiveIdentityChannel();
 }
 
 internal class PackagingService : IPackagingService
@@ -379,7 +398,7 @@ internal class PackagingService : IPackagingService
     // global identity used elsewhere (hive/packages directory lookups), keeping the blast radius
     // limited to feed provenance. Invalid override values are ignored — we fall back to the real
     // identity, mirroring how overrideStagingFeed ignores malformed URLs.
-    private string GetEffectiveIdentityChannel()
+    public string GetEffectiveIdentityChannel()
     {
         var overrideChannel = _configuration[OverrideCliIdentityChannelConfigKey];
         if (!string.IsNullOrEmpty(overrideChannel) && IdentityChannelReader.IsValidChannel(overrideChannel))
