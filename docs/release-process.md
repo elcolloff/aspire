@@ -16,6 +16,10 @@ The Aspire release process involves two main automation components:
    - Optionally publishes the signed VS Code extension to the Visual Studio Marketplace
    - Dispatches the GitHub Actions workflow below as the `aspire-repo-bot`
      GitHub App and waits for it to complete
+   - Fire-and-forget dispatches `validate-published-build.yml` to run the
+     CLI E2E suite against the just-published release CLI as a post-release
+     smoke signal (does not gate the release; on failure, opens a tracking
+     issue keyed by version+quality)
 
 2. **GitHub Actions Workflow** (`.github/workflows/release-github-tasks.yml`)
    - Creates Git tags
@@ -107,8 +111,10 @@ Before starting a release:
    | `SkipGitHubTasks` | Set `true` to skip dispatching the GH workflow | `false` |
    | `SkipReleaseAssets` | Set `true` to skip uploading aspire-cli-* assets to the GitHub release | `false` |
    | `SkipHomebrewValidation` | Set `true` if re-running after a successful Homebrew cask validation (validates against the live GH release) | `false` |
+   | `SkipValidatePublishedBuild` | Set `true` to skip dispatching the post-release `validate-published-build.yml` CLI E2E smoke run | `false` |
    | `SkipVSCodeExtensionPublish` | Set `false` to publish the signed `aspire-vscode-extension` artifact to the Visual Studio Marketplace | `true` |
    | `GitHubTasksWorkflowRef` | Ref to load `release-github-tasks.yml` from when dispatching. Only affects the workflow source — the release branch/commit are passed via inputs. Override only when testing pipeline changes on a topic branch. | `main` |
+   | `ValidatePublishedBuildWorkflowRef` | Ref to load `validate-published-build.yml` from when dispatching. Leave empty to use the source build's release branch (so workflow YAML matches the release-branch test source). Override only when testing workflow changes on a topic branch. | empty (= source branch) |
    
 4. Select the **Resources** button in the bottom right, then select the source build from the `aspire-build` dropdown
    - The picker shows all recent builds from the `microsoft-aspire`
@@ -120,11 +126,16 @@ Before starting a release:
      source build (after the tag-emitting change in `azure-pipelines.yml`
      is on that release branch) or pass an explicit `ReleaseVersion`
      override below.
-5. Click "Run" and monitor the pipeline. The final stage (`GitHubTasks`)
-   dispatches `release-github-tasks.yml`, waits for it to complete, and
-   then uploads the `aspire-cli-*` archives from the source build's
-   `BlobArtifacts` onto the newly-created GitHub release — the AzDO
-   pipeline only succeeds if both pieces succeed.
+5. Click "Run" and monitor the pipeline. The `GitHubTasks` stage dispatches
+   `release-github-tasks.yml`, waits for it to complete, and then uploads
+   the `aspire-cli-*` archives from the source build's `BlobArtifacts` onto
+   the newly-created GitHub release — the AzDO pipeline only succeeds if
+   both pieces succeed. After `GitHubTasks` succeeds, the
+   `ValidatePublishedBuild` stage fire-and-forget dispatches
+   `validate-published-build.yml` against `quality=release` and the just-
+   published version; the AzDO pipeline does not wait on or fail because of
+   the dispatched run (failures open a tracking issue keyed by
+   version+quality).
 6. Verify packages appear on NuGet.org and that the `aspire-cli-*`
    archives are attached to the GitHub release.
 
@@ -141,6 +152,7 @@ To publish only the VS Code extension after merging an extension release PR, run
 | `SkipHomebrewValidation` | `true` |
 | `SkipGitHubTasks` | `true` |
 | `SkipReleaseAssets` | `true` |
+| `SkipValidatePublishedBuild` | `true` |
 | `SkipVSCodeExtensionPublish` | `false` |
 
 > **Stable vs. pre-release source build:** For a stable release (`IsPrerelease=false`), use the `microsoft-aspire` build that ran automatically on merge. For a pre-release (`IsPrerelease=true`), that automatic build is stable-only and cannot be used — manually queue the `microsoft-aspire` pipeline on the merge commit with `Package VS Code Extension as Pre-Release=true`, wait for it to finish, and select that build instead. The publish job fails if the VSIX's embedded pre-release flag does not match `IsPrerelease`.
