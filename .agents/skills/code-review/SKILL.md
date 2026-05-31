@@ -87,7 +87,9 @@ Group files by area to guide how deeply to review each:
 | Integrations/Components | `src/Components/**` | Client configuration, DI registration, connection handling |
 | CLI | `src/Aspire.Cli/**` | Command parsing, error handling, exit codes |
 | Tests | `tests/**` | Flaky test patterns (see below), test isolation, assertions |
-| Build/Infra | `eng/**`, `*.props`, `*.targets` | Unintended side effects, breaking conditional logic |
+| Build/Infra | `eng/**`, `*.props`, `*.targets` | Unintended side effects, breaking conditional logic, channel/quality/versioning impact (see [Channel, quality, and versioning impact](#channel-quality-and-versioning-impact)) |
+| CLI packaging | `src/Aspire.Cli/Packaging/**`, `src/Aspire.Cli/Acquisition/**`, `src/Aspire.Cli/Configuration/Aspire*Configuration*.cs` | Channel resolution, identity channel, quality (stable/prerelease/both), staging synthesis gates, per-commit darc feed derivation, install-route sidecar / `WingetFirstRunProbe` / `PeerInstallProbe`, diagnostic overrides — see [Channel, quality, and versioning impact](#channel-quality-and-versioning-impact) |
+| Release/install infra | `eng/pipelines/**`, `eng/scripts/get-aspire-cli*`, `eng/scripts/debug-aspire-channel.*`, `eng/scripts/*npm*`, `eng/scripts/stage-native-cli-tool-packages.ps1`, `eng/winget/**`, `eng/homebrew/**`, `.github/workflows/release-*.yml`, `.github/workflows/extension-release.yml`, `.github/workflows/backmerge-release.yml` | Channel promotion (darc), per-channel manifests, NuGet + npm + dotnet-tool + WinGet + Homebrew + install-script publishing, install-route sidecars, daily vs. staging vs. stable behavior, Skip-flag idempotency — see [Channel, quality, and versioning impact](#channel-quality-and-versioning-impact) |
 | API files | `src/*/api/*.cs` | Should never be manually edited — flag if modified |
 | Extension | `extension/**` | Localization, TypeScript usage |
 | Docs/Config | `docs/**`, `*.md`, `*.json` | Accuracy only |
@@ -122,6 +124,7 @@ Only flag **actual problems**. Every comment must identify a concrete issue. Cat
     - Using `== null` instead of `is null`
 13. **Code comment guidance** — apply the `AGENTS.md` Code comments guidance when reviewing changed code. Flag only concrete problems, such as comments that contradict the code, workaround comments without a tracking link, parser/protocol/log parsing that omits the raw shape needed to understand edge cases, or comments around privacy/security-sensitive behavior that fail to explain the opt-in, scope, or WHY. Do not flag subjective missing comments or ask for comments on obvious code.
 14. **Test problems** — flaky patterns per the test review guidelines: thread-unsafe test fakes, log-based readiness checks instead of `WaitForHealthyAsync()`, shared timeout budgets, hardcoded ports, `Directory.SetCurrentDirectory` usage, commented-out tests.
+15. **Channel, quality, and versioning impact** — changes that look correct in a local `dotnet run` but silently break the daily, staging, or stable build pipelines, or vice versa. See [Channel, quality, and versioning impact](#channel-quality-and-versioning-impact) below for the dedicated checklist.
 
 ### What NOT to Flag
 
@@ -129,6 +132,75 @@ Only flag **actual problems**. Every comment must identify a concrete issue. Cat
 - Missing XML doc comments (unless a public API is completely undocumented)
 - Suggestions for refactoring unrelated code
 - Missing API file regeneration (this is expected during development)
+
+### Channel, quality, and versioning impact
+
+Aspire ships through multiple channels with different "qualities" of build, and a change that works in one channel can silently break another. For every PR — even when the diff looks local in scope — explicitly reason about what happens in each build flavor before signing off.
+
+**Channels and qualities to consider**
+
+- **Local / dev loop**: `./build.sh` plus `dotnet run` from a contributor checkout. `AspireCliChannel=local`; identity channel is `local`. No darc, no signing, no NuGet/npm publish. Staging synthesis is never reached unless the diagnostic overrides below are set.
+- **PR build**: full-bundle `~/.aspire` install produced by a PR run and fetched with `eng/scripts/get-aspire-cli-pr.{sh,ps1} <PR>`. Identity is `pr-<N>`. Used as the recommended carrier for the `debug-aspire-channel.{sh,ps1}` validation scripts because it is a real install but does not synthesize staging on its own.
+- **Daily build**: produced by `microsoft-aspire` AzDO pipeline runs on `main` / topic branches; promoted to the daily darc channel; consumed via `aspire.dev/install.{sh,ps1} -q dev`, the `daily` channel in `aspire new` / `aspire update`, and dogfooding feeds. Versions are prerelease-shaped (e.g., `13.0.0-preview.*` or `*-ci.*`). Identity channel is `daily`. Resolves through the shared `dnceng/.../dotnet9` daily feed.
+- **Staging build**: release-branch builds whose identity is baked as `staging` (`AspireCliChannel=staging`). Each commit has a SHA-specific `darc-pub-microsoft-aspire-<sha8>` feed. The CLI synthesizes a `staging` package channel when identity is `staging`, the project pins `channel: staging` in `aspire.config.json`, the `StagingChannelEnabled` feature flag is on, or `overrideStagingFeed` is set. **Feed provenance (identity) is decoupled from version filtering (quality)**: `PackagingService.ShouldUseSharedStagingFeed` routes a staging-identity CLI to its own darc feed regardless of version shape, so a prerelease-shaped staging build (`13.4.0-preview.*`) still resolves to its darc feed and not the shared daily feed. Quality is typically `Both`; stable-shaped staging is `Stable`. See [`docs/cli-staging-validation.md`](../../docs/cli-staging-validation.md) for the routing matrix.
+- **Stable / GA build**: signed builds promoted to the GA channel by `release-publish-nuget` (`GaChannelName`, e.g., `Aspire 9.x GA`); pushed to NuGet.org and npm (`@microsoft/aspire-cli` pointer + per-RID packages via ESRP/MicroBuild); GitHub release assets uploaded; WinGet manifest submitted; Homebrew autobump validated. Surfaced as the `stable` channel and as default NuGet feed resolution. Identity channel is `stable`. Quality is `Stable` only.
+
+**Distribution surfaces (per `docs/release-process.md`'s Installer channels table)**
+
+A single CLI version is acquired through many routes, and each carries its own routing assumption. When reviewing acquisition, sidecar, or `aspire update --self` code, walk every route:
+
+- **NuGet.org** — libraries, AppHost SDK, `Aspire.Cli.*` per-RID tool packages.
+- **npm** — `@microsoft/aspire-cli` pointer package and seven per-RID packages, published through ESRP/MicroBuild. Pointer is published only after the RID packages plus a propagation delay (`NpmRegistryPropagationDelayMinutes`).
+- **`dotnet tool install -g Aspire.Cli`** — per-RID NuGet packages.
+- **WinGet** (`winget install Microsoft.Aspire`) — manifest PRs into `microsoft/winget-pkgs`.
+- **Homebrew cask** (`brew install --cask aspire`) — upstream autobump; release pipeline only validates the cask against the live GitHub release.
+- **Install script** (`get-aspire-cli.{sh,ps1}`) — pulls from GitHub release assets directly.
+- **VS Code extension Marketplace** — separate publish step, gated by `Package VS Code Extension as Pre-Release=true` for prereleases.
+
+The CLI identifies its acquisition route via a per-install sidecar so `aspire update --self` can route back through the same channel. See [`docs/specs/install-routes.md`](../../docs/specs/install-routes.md).
+
+**Diagnostic overrides (PackagingService only)**
+
+Two config keys exist purely for staging-feed validation and are scoped to `PackagingService` routing only — they do **not** change the global identity used for hive / packages directory lookups. Treat any change that touches their semantics or scope with extra care:
+
+| Key | Effect |
+| --- | --- |
+| `overrideCliIdentityChannel` | Forces the identity used for staging-feed routing decisions. Must be a valid channel (`stable`, `staging`, `daily`, `local`, `pr-<N>`); invalid values are ignored and the real identity is used. |
+| `overrideCliInformationalVersion` | Forces the informational version read by both the SHA-derivation provider and the version-shape (quality) predicate. The `+<sha>` suffix (truncated to 8 chars) builds the darc URL. |
+| `overrideStagingFeed` | Forces staging-channel availability regardless of identity / feature flag; treats staging as available. |
+
+A CLI run with any override set emits a one-time warning so overridden routing can never silently take effect on a normal invocation.
+
+**What to look for**
+
+Flag changes that fall into any of these categories:
+
+- **Channel resolution / synthesis** — edits to `PackagingService`, `PackageChannel*`, `PackageSources`, `PackageMapping`, `PackageSourceOverrideMappings`, `NuGetConfigMerger`, `NuGetConfigPrompter`, `IdentityChannelReader`, or the `aspire.config.json` schema. Verify the change preserves the matrix: identity `local` / `pr-<N>` / `daily` / `staging` / `stable` × requested channel `default` / `stable` / `staging` / `daily` × project pin present/absent × version shape prerelease/stable. Check that staging synthesis stays gated (identity, project pin, feature flag, or `overrideStagingFeed`) so daily/local/PR CLIs don't silently fabricate staging feeds and downgrade resolution.
+- **Identity vs. quality decoupling** — `ShouldUseSharedStagingFeed` and the surrounding logic establish that a staging-identity CLI always uses its own darc feed regardless of version shape. A change that re-couples feed provenance to version shape will reintroduce the polyglot regression from #17743 where prerelease-shaped staging builds wrongly resolve through the shared daily feed.
+- **C# vs. polyglot apphost feed resolution** — C# apphosts have the darc feed baked into their `nuget.config`, which masks channel-routing bugs. Polyglot (TypeScript / Python) apphosts resolve solely through the synthesized channel's feed. Any channel-routing change must be reasoned about against polyglot apphosts, not just C#.
+- **Quality mapping** — anything that touches `PackageChannelQuality` (`Stable`, `Prerelease`, `Both`) or decides whether prerelease versions are eligible. Flipping a channel to `Prerelease`/`Both` will surface daily bits in stable installs; flipping to `Stable` will hide daily packages from the daily channel.
+- **Acquisition / sidecar / self-update** — changes to `InstallationDiscovery`, `InstallationCandidateSources`, `InstallSidecarReader`, `InstallSource`, `PeerInstallProbe`, `WingetFirstRunProbe`, or `aspire update --self`. A bug here can permanently strand a user on the wrong channel or cross-route an update (e.g., a WinGet install self-updating from npm). Verify every install route surface listed above still routes correctly.
+- **Version selection / floating ranges** — changes to `Directory.Packages.props`, `Versions.props`, `eng/Version.Details.xml`, package floating version ranges (`*-*`, `*-preview*`), or `PackageValidationBaselineVersion`. Stable consumers must not float into prerelease; daily/staging consumers must not get pinned to the last stable.
+- **Feeds & NuGet config** — changes to `NuGet.config`, generated NuGet.config from `aspire new` / `aspire update`, or feed selection logic. Adding a feed that only resolves on internal Azure DevOps will work in CI but break public daily/stable acquisition (and vice versa). Per `AGENTS.md`, public feeds outside the approved domains are prohibited.
+- **Diagnostic override scope** — changes touching `overrideCliIdentityChannel`, `overrideCliInformationalVersion`, or `overrideStagingFeed`. These must remain scoped to `PackagingService` only, must keep their one-time warning, and must not start influencing hive / package directory paths.
+- **Release pipeline & manifests** — changes to `eng/pipelines/release-publish-nuget.yml`, `release-github-tasks.yml`, `extension-release.yml`, `backmerge-release.yml`, `eng/winget/**`, `eng/homebrew/**`, npm packaging scripts (`pack-cli-npm-package.ps1`, `verify-cli-npm-package.ps1`, `stage-native-cli-tool-packages.ps1`), or darc channel promotion. Confirm the change is safe under `DryRun: true` and under the documented re-run idempotency: `SkipNuGetPublish`, `SkipNpmPublish`, `SkipNpmRidPublish`, `SkipNpmPointerPublish`, `SkipChannelPromotion`, `SkipWinGetPublish`, `SkipHomebrewValidation`, `SkipReleaseAssets`, `SkipGitHubTasks`, `SkipVSCodeExtensionPublish` (see `docs/release-process.md`). Watch for assumptions that only hold for stable (`IsPrerelease=false`) or only for prerelease — npm publishing is currently blocked for prereleases until non-`latest` dist-tag support lands. Be wary of `AllowNpmLatestDistTagMove` being used outside its documented servicing scenario.
+- **Versioning math** — version string parsing/formatting, SemVer comparisons, prerelease label handling, `aspire update` "newer than" comparisons. Daily versions sort below stable under standard SemVer; getting this backwards causes the CLI to either refuse to update or to "update" stable users down to daily.
+- **Feature flags tied to channel** — flags like `StagingChannelEnabled` and config like `overrideStagingFeed`. Verify defaults are appropriate per channel and that flipping a default doesn't change behavior for already-installed CLIs at a different quality.
+
+**Reasoning checklist — apply per change**
+
+For each non-trivial change, explicitly answer:
+
+1. **Local run**: does the change work in `./build.sh` + `dotnet run` from a fresh contributor checkout (`AspireCliChannel=local`, no signing, no published feeds)?
+2. **PR build**: does the change still behave correctly when carried by a PR-build install (`get-aspire-cli-pr.{sh,ps1}`, identity `pr-<N>`), including the diagnostic-override-driven validation flows in `debug-aspire-channel.{sh,ps1}`?
+3. **Daily build**: what happens when the same code ships in a daily build consumed via `-q dev` / `daily` channel? Are prerelease versions still resolved? Does the install-route sidecar still point at daily? Does `aspire update` keep daily users on daily?
+4. **Staging build**: does staging-channel synthesis still gate correctly (identity, project pin, feature flag, override)? Does `ShouldUseSharedStagingFeed` still route a staging-identity CLI to its per-commit darc feed regardless of version shape? Does the change accidentally enable staging on daily/local/PR builds, or accidentally disable it on staging builds? Does it work for **polyglot** apphosts (which have no baked nuget.config), not just C#?
+5. **Stable / GA build**: does the change survive promotion to the GA darc channel and publication to NuGet.org and npm? Does it respect `IsPrerelease=false` semantics in `release-publish-nuget`? Are stable users protected from accidentally pulling prerelease packages, daily feeds, or staging-only manifests?
+6. **Cross-channel transitions**: what happens when a user installed via WinGet / Homebrew / install script / `dotnet tool install` / npm / VS Code extension runs `aspire update --self`? Does the install-route sidecar route the update back through the original channel? Does discovery (`InstallationDiscovery`, `PeerInstallProbe`, `WingetFirstRunProbe`) still surface the right install?
+7. **Idempotency / re-runs**: if this change is in the release pipeline or GitHub workflows, does it stay idempotent under the documented `Skip*` re-run flags, including the npm-specific ones (`SkipNpmPublish`, `SkipNpmRidPublish`, `SkipNpmPointerPublish`) and the npm propagation delay? (See `docs/release-process.md` → "Handling Failures".)
+8. **Validation tooling**: if the change touches staging-feed routing, run or recommend running `eng/scripts/debug-aspire-channel.{sh,ps1}` (or its `debug-staging` / `debug-stable` wrappers) against a PR build to confirm the resolved feed and quality match the validation matrix in `docs/cli-staging-validation.md`.
+
+If any of these questions cannot be answered confidently from the diff alone, flag it as a review comment asking the author to confirm.
 
 ### Reviewing refactored / moved code
 
