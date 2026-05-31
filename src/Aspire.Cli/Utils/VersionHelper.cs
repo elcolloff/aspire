@@ -31,7 +31,8 @@ internal static class VersionHelper
         Func<T, string?> versionSelector,
         [MaybeNullWhen(false)] out T match,
         string? channelName,
-        bool hasPrHives)
+        bool hasPrHives,
+        CliExecutionContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(versionSelector);
@@ -42,7 +43,7 @@ internal static class VersionHelper
             return false;
         }
 
-        var cliVersion = GetDefaultSdkVersion();
+        var cliVersion = GetDefaultSdkVersion(context);
         foreach (var candidate in candidates)
         {
             if (string.Equals(versionSelector(candidate), cliVersion, StringComparison.OrdinalIgnoreCase))
@@ -56,7 +57,7 @@ internal static class VersionHelper
         return false;
     }
 
-    public static string GetDefaultTemplateVersion()
+    public static string GetDefaultTemplateVersion(CliExecutionContext? context = null)
     {
         // Honor the same diagnostic override that PackagingService uses to simulate a
         // different CLI identity/version for end-to-end staging validation. Without this,
@@ -69,15 +70,18 @@ internal static class VersionHelper
         // version" warning and stamps the wrong SDK version into newly-scaffolded
         // projects.
         //
-        // Scope is deliberately narrow:
-        //   * The env var is documented on PackagingService as a diagnostic override.
-        //   * It is read here via Environment.GetEnvironmentVariable (not IConfiguration)
-        //     to keep this static helper dependency-free.
-        //   * Real shipped builds never set this variable, so production behavior is
-        //     identical to reading the assembly attribute.
+        // Read the env var through CliExecutionContext when a context is supplied so the
+        // process-environment vs. test-supplied-dictionary distinction matches the rest of
+        // the CLI (see CliExecutionContext.GetEnvironmentVariable's "if a custom env was
+        // provided, do not fall back to the process" contract). When no context is
+        // supplied (call sites that don't have one handy, like the banner / telemetry),
+        // fall back to the process env directly — those callers never participated in the
+        // override loop before this PR, so process-env reads preserve their behavior.
         // See https://github.com/microsoft/aspire/blob/main/docs/cli-staging-validation.md
         // and PackagingService.OverrideCliInformationalVersionConfigKey.
-        var overrideVersion = Environment.GetEnvironmentVariable("overrideCliInformationalVersion");
+        var overrideVersion = context is not null
+            ? context.GetEnvironmentVariable("overrideCliInformationalVersion")
+            : Environment.GetEnvironmentVariable("overrideCliInformationalVersion");
         if (!string.IsNullOrWhiteSpace(overrideVersion))
         {
             return overrideVersion;
@@ -90,9 +94,9 @@ internal static class VersionHelper
     /// Gets the default Aspire SDK version based on the CLI version.
     /// The CLI version is the SDK version — the bundled server and packages must match.
     /// </summary>
-    public static string GetDefaultSdkVersion()
+    public static string GetDefaultSdkVersion(CliExecutionContext? context = null)
     {
-        var version = GetDefaultTemplateVersion();
+        var version = GetDefaultTemplateVersion(context);
 
         // Strip the commit SHA suffix (e.g., "9.2.0+abc123" -> "9.2.0")
         var plusIndex = version.IndexOf('+');

@@ -1621,7 +1621,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                 return;
             }
 
-            var cliVersion = VersionHelper.GetDefaultSdkVersion();
+            var cliVersion = VersionHelper.GetDefaultSdkVersion(_executionContext);
             if (!IsKnownIncompatibleSkew(cliVersion, configuredSdkVersion))
             {
                 return;

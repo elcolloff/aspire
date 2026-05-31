@@ -149,18 +149,18 @@ internal class PackagingService : IPackagingService
         // (e.g. an override that ultimately resolves to a non-staging identity still warns).
         WarnIfStagingDiagnosticOverridesActive();
 
-        var defaultChannel = PackageChannel.CreateImplicitChannel(_nuGetPackageCache, _features, _logger);
+        var defaultChannel = PackageChannel.CreateImplicitChannel(_nuGetPackageCache, _features, _logger, _executionContext);
         
         var stableChannel = PackageChannel.CreateExplicitChannel(PackageChannelNames.Stable, PackageChannelQuality.Stable, new[]
         {
             new PackageMapping(PackageMapping.AllPackages, PackageSources.NuGetOrg)
-        }, _nuGetPackageCache, _features, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/ga/daily", logger: _logger);
+        }, _nuGetPackageCache, _features, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/ga/daily", logger: _logger, executionContext: _executionContext);
 
         var dailyChannel = PackageChannel.CreateExplicitChannel(PackageChannelNames.Daily, PackageChannelQuality.Prerelease, new[]
         {
             new PackageMapping("Aspire*", "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet9/nuget/v3/index.json"),
             new PackageMapping(PackageMapping.AllPackages, PackageSources.NuGetOrg)
-        }, _nuGetPackageCache, _features, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/daily", logger: _logger);
+        }, _nuGetPackageCache, _features, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/daily", logger: _logger, executionContext: _executionContext);
 
         var prPackageChannels = new List<PackageChannel>();
 
@@ -273,7 +273,7 @@ internal class PackagingService : IPackagingService
         {
             new PackageMapping("Aspire*", packagesPath),
             new PackageMapping(PackageMapping.AllPackages, PackageSources.NuGetOrg)
-        }, _nuGetPackageCache, _features, pinnedVersion: pinnedVersion, logger: _logger);
+        }, _nuGetPackageCache, _features, pinnedVersion: pinnedVersion, logger: _logger, executionContext: _executionContext);
     }
 
     internal static DirectoryInfo? TryResolvePrInstallPackagesDirectory(string? processPath, string identityChannel)
@@ -322,11 +322,11 @@ internal class PackagingService : IPackagingService
     // Used by the staging-channel synthesis to route stabilizing builds to the SHA-derived darc
     // feed instead of the shared dotnet9 daily feed. Falls back to false on any error so we
     // preserve the historical Both/shared-feed behavior rather than silently misrouting.
-    private static bool IsStableShapedCliVersionFromAssembly()
+    private bool IsStableShapedCliVersionFromAssembly()
     {
         try
         {
-            var version = VersionHelper.GetDefaultSdkVersion();
+            var version = VersionHelper.GetDefaultSdkVersion(_executionContext);
             return !string.IsNullOrEmpty(version) && !version.Contains('-');
         }
         catch
@@ -487,7 +487,7 @@ internal class PackagingService : IPackagingService
         {
             new PackageMapping("Aspire*", stagingFeedUrl),
             new PackageMapping(PackageMapping.AllPackages, PackageSources.NuGetOrg)
-        }, _nuGetPackageCache, _features, configureGlobalPackagesFolder: !useSharedFeed, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/rc/daily", pinnedVersion: pinnedVersion, logger: _logger);
+        }, _nuGetPackageCache, _features, configureGlobalPackagesFolder: !useSharedFeed, cliDownloadBaseUrl: "https://aka.ms/dotnet/9/aspire/rc/daily", pinnedVersion: pinnedVersion, logger: _logger, executionContext: _executionContext);
 
         // Surface the resolved staging routing so users can see what `--channel staging` actually
         // picked (the "show what was resolved" suggestion from the issue RCA). Pinned version is
@@ -657,7 +657,7 @@ internal class PackagingService : IPackagingService
         }
 
         // Get the CLI's own version and strip build metadata (+hash)
-        var cliVersion = Utils.VersionHelper.GetDefaultTemplateVersion();
+        var cliVersion = Utils.VersionHelper.GetDefaultTemplateVersion(_executionContext);
         var plusIndex = cliVersion.IndexOf('+');
         return plusIndex >= 0 ? cliVersion[..plusIndex] : cliVersion;
     }
