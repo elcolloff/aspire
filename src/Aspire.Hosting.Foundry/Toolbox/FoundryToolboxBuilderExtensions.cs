@@ -137,20 +137,42 @@ public static class FoundryToolboxBuilderExtensions
     /// <summary>
     /// Adds an MCP tool definition to the Toolbox.
     /// </summary>
+    /// <param name="builder">The resource builder for the Toolbox.</param>
+    /// <param name="name">The tool name.</param>
+    /// <param name="endpoint">The MCP endpoint (string URI or endpoint reference).</param>
+    /// <param name="options">Optional auth/headers configuration.</param>
+    /// <returns>A reference to the <see cref="IResourceBuilder{T}"/> for chaining.</returns>
+    /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport("withMcpTool")]
     internal static IResourceBuilder<FoundryToolboxResource> WithMcpToolForPolyglot(
         this IResourceBuilder<FoundryToolboxResource> builder,
         string name,
-        [AspireUnion(typeof(string), typeof(EndpointReference))] object endpoint)
+        [AspireUnion(typeof(string), typeof(EndpointReference))] object endpoint,
+        FoundryToolboxMcpToolOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
 
-        // Polyglot callers don't yet have a way to express the configure callback so headers/auth
-        // is currently a .NET-only feature. Tracked as a follow-up.
+        // Project the polyglot options onto the same configure callback the .NET overloads use so
+        // headers/auth wiring stays consistent across surface areas.
+        Action<FoundryToolboxMcpToolDefinition>? configure = options is null
+            ? null
+            : tool =>
+            {
+                if (options.AuthorizationToken is not null)
+                {
+                    tool.AuthorizationTokenExpression = options.AuthorizationToken;
+                }
+
+                foreach (var header in options.Headers)
+                {
+                    tool.Headers[header.Key] = header.Value;
+                }
+            };
+
         return endpoint switch
         {
-            string endpointString => builder.WithMcpTool(name, endpointString),
-            EndpointReference endpointReference => builder.WithMcpTool(name, endpointReference),
+            string endpointString => builder.WithMcpTool(name, endpointString, configure),
+            EndpointReference endpointReference => builder.WithMcpTool(name, endpointReference, configure),
             _ => throw new ArgumentException("Endpoint must be a string or endpoint reference.", nameof(endpoint))
         };
     }
