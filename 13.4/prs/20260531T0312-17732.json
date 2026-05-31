@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "Protocol selection support for Foundry hosted agents; grouped with existing hosted-agent builder API updates entry",
+  "mergedAt": "2026-05-31T03:12:40Z",
+  "number": 17732,
+  "runDate": "2026-05-31T05:31:53Z",
+  "status": "included",
+  "title": "Add Foundry hosted agent protocol selection"
+}
