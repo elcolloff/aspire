@@ -86,7 +86,19 @@ internal sealed partial class CliTemplateFactory
                         _interactionService.DisplayError("Automatic 'aspire restore' failed for the new TypeScript starter project. Run 'aspire restore' in the project directory for more details.");
                         return new TemplateResult((int)CliExitCodes.FailedToBuildArtifacts, outputPath);
                     }
-                    await _templateNuGetConfigService.CreateOrUpdateNuGetConfigForSourceOverrideAsync(inputs.Source, inputs.Channel, outputPath, cancellationToken);
+                    // Prefer the source-override NuGet.config when --source was supplied; otherwise
+                    // fall back to a channel-derived NuGet.config so the new project carries the
+                    // same Aspire.* → channel-feed package source mapping that C# starters get
+                    // (DotNetTemplateFactory.cs line ~549-552). Without this, the implicit channel
+                    // used by `aspire add` (IntegrationPackageSearchService always includes it so
+                    // prerelease-only packages stay reachable on Stable-pinned projects) resolves
+                    // Aspire.Hosting.* from the user's ambient NuGet.org and surfaces a stale
+                    // version alongside the staging darc-feed match — the bug PR #17743 was meant
+                    // to close end-to-end for polyglot apphosts.
+                    if (!await _templateNuGetConfigService.CreateOrUpdateNuGetConfigForSourceOverrideAsync(inputs.Source, inputs.Channel, outputPath, cancellationToken))
+                    {
+                        await _templateNuGetConfigService.CreateOrUpdateNuGetConfigWithoutPromptAsync(inputs.Channel, outputPath, cancellationToken);
+                    }
 
                     return new TemplateResult((int)CliExitCodes.Success, outputPath);
                 }), emoji: KnownEmojis.Rocket);

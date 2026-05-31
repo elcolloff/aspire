@@ -2027,6 +2027,81 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task NewCommandWithTypeScriptStarterAndExplicitChannelWritesChannelDerivedNuGetConfig()
+    {
+        // Regression for the symptom that PR #17743 missed for polyglot apphosts: with a
+        // resolved Explicit channel (e.g., staging) and no --source override, the TS starter
+        // must drop a project-local NuGet.config that pins Aspire.* at the channel's feed.
+        // Without it, IntegrationPackageSearchService's always-on Implicit channel resolves
+        // Aspire.Hosting.* from ambient nuget.org during `aspire add` and surfaces a stale
+        // version alongside the staging darc-feed match. C# starters get this via
+        // DotNetTemplateFactory's PromptToCreateOrUpdateNuGetConfigAsync fallback; this test
+        // pins the equivalent fallback for the TS starter.
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        const string channelFeed = "https://pkgs.dev.azure.com/dnceng/public/_packaging/darc-pub-microsoft-aspire-abcdef12/nuget/v3/index.json";
+
+        var services = CreateServiceCollection(workspace, options =>
+        {
+            options.DotNetCliRunnerFactory = _ => new TestDotNetCliRunner
+            {
+                SearchPackagesAsyncCallback = (dir, query, exactMatch, prerelease, take, skip, nugetSource, useCache, runnerOptions, cancellationToken) =>
+                {
+                    var package = new NuGetPackage { Id = "Aspire.ProjectTemplates", Source = "nuget", Version = "13.4.0-preview.1.99999.1" };
+                    return (0, new NuGetPackage[] { package });
+                }
+            };
+
+            options.PackagingServiceFactory = _ => new TestPackagingService
+            {
+                GetChannelsAsyncCallback = cancellationToken =>
+                {
+                    var stagingCache = new FakeNuGetPackageCache
+                    {
+                        GetTemplatePackagesAsyncCallback = (dir, prerelease, nugetConfig, ct) =>
+                        {
+                            var package = new NuGetPackage { Id = "Aspire.ProjectTemplates", Source = "darc", Version = "13.4.0-preview.1.99999.1" };
+                            return Task.FromResult<IEnumerable<NuGetPackage>>([package]);
+                        }
+                    };
+                    var stagingChannel = PackageChannel.CreateExplicitChannel(
+                        "staging",
+                        PackageChannelQuality.Prerelease,
+                        [
+                            new PackageMapping("Aspire*", channelFeed),
+                            new PackageMapping(PackageMapping.AllPackages, PackageSources.NuGetOrg),
+                        ],
+                        stagingCache,
+                        new TestFeatures());
+                    return Task.FromResult<IEnumerable<PackageChannel>>([stagingChannel]);
+                }
+            };
+        });
+
+        services.AddSingleton<IAppHostProjectFactory>(new TestTypeScriptStarterProjectFactory((directory, cancellationToken, _) =>
+        {
+            var modulesDir = Directory.CreateDirectory(Path.Combine(directory.FullName, ".aspire", "modules"));
+            File.WriteAllText(Path.Combine(modulesDir.FullName, "aspire.ts"), "// generated sdk");
+            return Task.FromResult(true);
+        }));
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("new aspire-ts-starter --name TestApp --output ./output --channel staging --localhost-tld false");
+
+        var exitCode = await result.InvokeAsync().DefaultTimeout();
+
+        Assert.Equal(CliExitCodes.Success, exitCode);
+
+        var nugetConfigPath = Path.Combine(workspace.WorkspaceRoot.FullName, "output", "nuget.config");
+        Assert.True(File.Exists(nugetConfigPath), $"Expected channel-derived NuGet.config at '{nugetConfigPath}'.");
+
+        var doc = XDocument.Load(nugetConfigPath);
+        var packageSources = doc.Root!.Element("packageSources")!;
+        Assert.Contains(packageSources.Elements("add"), e => (string?)e.Attribute("value") == channelFeed);
+        Assert.Equal(["Aspire*"], GetPackagePatternsForSource(doc, channelFeed));
+    }
+
+    [Fact]
     public async Task NewCommandNonInteractiveDoesNotPrompt()
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);

@@ -103,7 +103,12 @@ internal sealed partial class CliTemplateFactory
 
             if (!isCsharp)
             {
-                await _templateNuGetConfigService.CreateOrUpdateNuGetConfigForSourceOverrideAsync(inputs.Source, inputs.Channel, outputPath, cancellationToken);
+                // See CliTemplateFactory.TypeScriptStarterTemplate for why the channel-derived
+                // NuGet.config fallback is required when no --source override is supplied.
+                if (!await _templateNuGetConfigService.CreateOrUpdateNuGetConfigForSourceOverrideAsync(inputs.Source, inputs.Channel, outputPath, cancellationToken))
+                {
+                    await _templateNuGetConfigService.CreateOrUpdateNuGetConfigWithoutPromptAsync(inputs.Channel, outputPath, cancellationToken);
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
