@@ -117,73 +117,23 @@ public class ToolboxTests
 
         using var app = builder.Build();
         var hostedAgent = Assert.Single(builder.Resources.OfType<AzureHostedAgentResource>());
+
+        // Seed the Bicep outputs that the AzureCognitiveServicesProjectResource exposes via
+        // GetConnectionProperties(): the resolution path walks every env var callback on the
+        // hosted agent's target resource, so any project output reachable through a `WithReference`
+        // chain must be resolvable for the test to focus on the toolbox connection string assertion.
         project.Resource.Outputs["endpoint"] = "https://project.example.com";
-
-        // TEMP DEBUG: capture env var callback keys + values from python app + hosted agent + project,
-        // so that on failure the assertion message contains enough info to diagnose CI-only failures.
-        var dump = new System.Text.StringBuilder();
-        dump.AppendLine("---- TEMP DEBUG DUMP ----");
-        foreach (var (label, res) in new[]
-        {
-            ("python-app (agent.Resource)", (IResource)agent.Resource),
-            ("hosted-agent", hostedAgent),
-            ("project (my-project)", project.Resource)
-        })
-        {
-            dump.AppendLine($"== {label} env vars ==");
-            if (!res.TryGetEnvironmentVariables(out var callbacks))
-            {
-                dump.AppendLine("  (no env var callbacks)");
-                continue;
-            }
-            var ctx = new EnvironmentCallbackContext(builder.ExecutionContext, res, new Dictionary<string, object>());
-            foreach (var cb in callbacks)
-            {
-                try
-                {
-                    await cb.Callback(ctx);
-                }
-                catch (Exception ex)
-                {
-                    dump.AppendLine($"  (callback threw: {ex.GetType().Name}: {ex.Message})");
-                }
-            }
-            dump.AppendLine($"  count = {ctx.EnvironmentVariables.Count}");
-            foreach (var (k, v) in ctx.EnvironmentVariables)
-            {
-                dump.AppendLine($"  {k} = [{v?.GetType().FullName}] {v}");
-            }
-        }
-
-        // Dump pipeline steps and annotations on the python app to spot a leak via annotation sharing.
-        dump.AppendLine("== python-app annotations ==");
-        foreach (var ann in agent.Resource.Annotations)
-        {
-            dump.AppendLine($"  {ann.GetType().FullName}");
-        }
-        dump.AppendLine($"== project.Outputs keys ==");
-        foreach (var key in project.Resource.Outputs.Keys)
-        {
-            dump.AppendLine($"  {key} = {project.Resource.Outputs[key]}");
-        }
-        dump.AppendLine("---- END DUMP ----");
+        project.Resource.Outputs["APPLICATION_INSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=test;IngestionEndpoint=https://test.example.com/";
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        try
-        {
-            var envVars = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
-                builder.ExecutionContext,
-                hostedAgent,
-                agent.Resource,
-                NullLogger<ToolboxTests>.Instance,
-                cts.Token);
+        var envVars = await AzureHostedAgentResource.GetResolvedEnvironmentVariablesAsync(
+            builder.ExecutionContext,
+            hostedAgent,
+            agent.Resource,
+            NullLogger<ToolboxTests>.Instance,
+            cts.Token);
 
-            Assert.Equal("https://project.example.com/toolboxes/field-tools/versions/v1/mcp?api-version=v1", envVars["ConnectionStrings__field-tools"]);
-        }
-        catch (Exception ex)
-        {
-            throw new Xunit.Sdk.XunitException($"Resolution failed: {ex.GetType().FullName}: {ex.Message}\n\n{dump}\n\nStack:\n{ex.StackTrace}", ex);
-        }
+        Assert.Equal("https://project.example.com/toolboxes/field-tools/versions/v1/mcp?api-version=v1", envVars["ConnectionStrings__field-tools"]);
     }
 
     [Fact]
