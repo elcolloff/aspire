@@ -218,19 +218,85 @@ ENV
         # cache, and is left in place on exit (it lives under the system temp dir).
         local nuget_packages="${TMPDIR:-/tmp}/aspire-debug-nuget/${sha8}"
         mkdir -p "$nuget_packages"
+
+        # An interactive shell sources the user's startup files AFTER we set the
+        # environment, so if those files prepend something to PATH (commonly
+        # `export PATH="$HOME/.aspire/bin:$PATH"` from a prior `aspire` install)
+        # they shadow our --cli build with an unrelated `aspire` binary. To make
+        # our `aspire` win unconditionally, we drop a shim at a path that runs
+        # AFTER the user's rc loads:
+        #   * zsh: ZDOTDIR=<rcdir>; <rcdir>/.zshrc sources the real ~/.zshrc and
+        #     then re-prepends our shim dir to PATH.
+        #   * bash: --rcfile <rcdir>/bashrc with the same source-then-prepend.
+        # Other shells fall back to the old env-only PATH export (best effort).
+        local shim_root rcdir
+        shim_root="$(mktemp -d -t aspire-debug-shim.XXXXXX)"
+        rcdir="$shim_root/rc"
+        mkdir -p "$shim_root/bin" "$rcdir"
+        # The shim is just a small forwarder so `which aspire`, command lookup,
+        # and any subshells inside this session all resolve to OUR cli_path.
+        cat > "$shim_root/bin/aspire" <<SHIM
+#!/usr/bin/env bash
+exec "$cli_path" "\$@"
+SHIM
+        chmod +x "$shim_root/bin/aspire"
+
+        local target_shell="${SHELL:-/bin/bash}"
+        local shell_name
+        shell_name="$(basename "$target_shell")"
+
         say ">> Launching an interactive subshell. Run 'aspire new', 'aspire add', etc."
         say "   'aspire' resolves to: $cli_path"
         say "   NuGet packages cache: $nuget_packages (isolated from your global cache)"
         say "   Type 'exit' to leave and restore normal CLI behavior."
         say ""
-        channel="staging" \
-            overrideCliIdentityChannel="$identity" \
-            overrideCliInformationalVersion="$info_version" \
-            NUGET_PACKAGES="$nuget_packages" \
-            PATH="${cli_dir}:${PATH}" \
-            ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
-            "${SHELL:-/bin/bash}" -i
-        return $?
+
+        case "$shell_name" in
+            zsh)
+                # Custom ZDOTDIR: source the user's real rc first, then re-prepend
+                # our shim dir so it beats anything their rc added to PATH.
+                cat > "$rcdir/.zshrc" <<ZSHRC
+[[ -f "\$HOME/.zshrc" ]] && source "\$HOME/.zshrc"
+export PATH="$shim_root/bin:\$PATH"
+ZSHRC
+                channel="staging" \
+                    overrideCliIdentityChannel="$identity" \
+                    overrideCliInformationalVersion="$info_version" \
+                    NUGET_PACKAGES="$nuget_packages" \
+                    ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
+                    ZDOTDIR="$rcdir" \
+                    "$target_shell" -i
+                ;;
+            bash)
+                cat > "$rcdir/bashrc" <<BASHRC
+[[ -f "\$HOME/.bashrc" ]] && source "\$HOME/.bashrc"
+export PATH="$shim_root/bin:\$PATH"
+BASHRC
+                channel="staging" \
+                    overrideCliIdentityChannel="$identity" \
+                    overrideCliInformationalVersion="$info_version" \
+                    NUGET_PACKAGES="$nuget_packages" \
+                    ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
+                    "$target_shell" --rcfile "$rcdir/bashrc" -i
+                ;;
+            *)
+                # Unknown shell -- best-effort PATH export. If the user's rc
+                # files re-prepend to PATH, the developer can still invoke the
+                # shim directly: $shim_root/bin/aspire
+                say "warning: unrecognized shell '$shell_name'; PATH may be overridden by your rc files."
+                say "         If that happens, invoke the shim directly: $shim_root/bin/aspire"
+                channel="staging" \
+                    overrideCliIdentityChannel="$identity" \
+                    overrideCliInformationalVersion="$info_version" \
+                    NUGET_PACKAGES="$nuget_packages" \
+                    PATH="$shim_root/bin:${PATH}" \
+                    ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
+                    "$target_shell" -i
+                ;;
+        esac
+        local exit_code=$?
+        rm -rf "$shim_root"
+        return $exit_code
     fi
 
     # Throwaway working directory pinned to channel: staging so 'aspire add'
