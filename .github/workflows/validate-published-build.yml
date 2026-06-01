@@ -61,18 +61,30 @@ jobs:
       - name: Filter CLI E2E test matrix
         id: filter_cli_e2e
         shell: pwsh
-        env:
-          ALL_TESTS: ${{ steps.generate_tests_matrix.outputs.all_tests }}
         run: |
-          $allTests = $env:ALL_TESTS | ConvertFrom-Json
-          $cliE2ETests = @($allTests.include | Where-Object {
+          # Read the canonical matrix from disk rather than the action's
+          # `all_tests` output: composite-action output propagation has
+          # silently dropped the value when the expanded matrix is large
+          # (~157KB with IncludeCliE2ETests=true). The canonical file is
+          # written into the parent workspace by enumerate-tests and is
+          # what we want here anyway (per-test, not per-OS).
+          $canonicalMatrix = "${{ github.workspace }}/artifacts/canonical-test-matrix.json"
+          if (-not (Test-Path $canonicalMatrix)) {
+            Write-Error "Canonical test matrix not found at $canonicalMatrix"
+            exit 1
+          }
+
+          $canonical = Get-Content $canonicalMatrix -Raw | ConvertFrom-Json
+          $cliE2ETests = @($canonical.tests | Where-Object {
             $_.projectName -eq 'Aspire.Cli.EndToEnd.Tests' -and $_.type -eq 'class'
           })
 
           if ($cliE2ETests.Count -eq 0) {
-            Write-Error "No Aspire.Cli.EndToEnd.Tests class entries were found in the generated test matrix."
+            Write-Error "No Aspire.Cli.EndToEnd.Tests class entries were found in the canonical test matrix."
             exit 1
           }
+
+          Write-Host "Found $($cliE2ETests.Count) CLI E2E class entries"
 
           $matrix = ConvertTo-Json @{ include = @($cliE2ETests) } -Compress -Depth 10
           "cli_e2e_matrix=$matrix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
