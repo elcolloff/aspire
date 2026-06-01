@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "No matching 13.4 changelog entry found; references product PR microsoft/aspire#17297 which is in milestone 13.5",
+  "mergedAt": "2026-06-01T04:15:39Z",
+  "number": 1142,
+  "runDate": "2026-06-01T05:40:46Z",
+  "status": "excluded",
+  "title": "Document Aspire CLI npm install method"
+}
