@@ -104,12 +104,26 @@ app.get('/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
+// TEMPORARY: log inbound auth header presence so we can see in the ACA log stream whether the
+// Foundry data plane forwards the Authorization header set by the toolbox. Masked so the secret
+// doesn't actually leave the container. Remove before committing.
+function maskToken(value: string | undefined): string {
+    if (!value) return '<missing>';
+    const stripped = value.replace(/^Bearer\s+/i, '');
+    if (stripped.length <= 8) return 'Bearer ***';
+    return `Bearer ${stripped.slice(0, 4)}...${stripped.slice(-4)}`;
+}
+
 // Bearer token middleware. The token comes from MCP_BEARER_TOKEN; the AppHost forwards the same
 // value to the Toolbox so its outbound calls authenticate cleanly.
 app.use((req, res, next) => {
     const auth = req.header('authorization') ?? '';
-    const expected = `Bearer ${TOKEN}`;
-    if (auth !== expected) {
+    console.log(
+        `[auth] ${req.method} ${req.path} auth=${maskToken(auth)} ` +
+        `ua=${req.header('user-agent') ?? '<missing>'} ` +
+        `src=${req.header('x-app-source') ?? req.header('x-ms-source') ?? '<missing>'}`
+    );
+    if (auth !== `Bearer ${TOKEN}`) {
         res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid bearer token.' });
         return;
     }
