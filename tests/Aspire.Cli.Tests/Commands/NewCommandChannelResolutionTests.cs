@@ -124,7 +124,9 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     /// </summary>
     [Theory]
     [InlineData(PackageChannelNames.Daily, "13.4.0-preview.1.99999.1", null)]
-    [InlineData(PackageChannelNames.Stable, "13.5.0", "13.5.0")]
+    // PackageChannelNames.Stable is intentionally NOT covered here — see
+    // `NewCommand_StableIdentity_NoChannelArg_DoesNotPersistStablePin_Cli` for why the
+    // stable identity must not pin `aspire.config.json#channel`.
     public async Task NewCommand_NoChannelArg_ResolvesTemplateFromIdentityChannel(string identityChannel, string identityChannelVersion, string? expectedVersion)
     {
         var captured = await CaptureTemplateInputsAsync(
@@ -298,7 +300,10 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     [InlineData("pr-99999", "13.4.0-pr.99999.gabc123")]
     [InlineData(PackageChannelNames.Daily, "13.4.0-preview.1.99999.1")]
     [InlineData(PackageChannelNames.Staging, "13.4.0-rc.1.99999.1")]
-    [InlineData(PackageChannelNames.Stable, "13.5.0")]
+    // PackageChannelNames.Stable is intentionally NOT covered here — see
+    // `NewCommand_StableIdentity_NoChannelArg_DoesNotPersistStablePin_DotNet` for why the
+    // stable identity must not flow through `inputs.Channel` (which would then be persisted
+    // into `aspire.config.json#channel` by `DotNetTemplateFactory`).
     public async Task NewCommand_DotNetRuntimeTemplate_NoChannelArg_ForwardsIdentityChannelToInputs(string identityChannel, string identityChannelVersion)
     {
         var captured = await CaptureTemplateInputsAsync(
@@ -379,6 +384,63 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
 
         Assert.Equal("13.4.0-preview.1.99999.1", captured.Version);
         Assert.Equal(PackageChannelNames.Daily, captured.Channel);
+    }
+
+    /// <summary>
+    /// Prerelease-visibility invariant for a shipped (identity=<c>stable</c>) CLI on the
+    /// CLI-runtime template path (TypeScript / Python / Go polyglot starters). Resolving
+    /// identity to the registered <c>stable</c> channel and persisting <c>"stable"</c> as
+    /// <c>aspire.config.json#channel</c> looks symmetric to daily/staging/pr, but
+    /// the <c>stable</c> channel is constructed with <see cref="PackageChannelQuality.Stable"/>.
+    /// A subsequent <c>aspire add</c> pinned to that channel filters out prerelease packages
+    /// on nuget.org — including community-published <c>13.4.0-preview</c> integrations the
+    /// team has not yet shipped as stable. <c>aspire init</c> avoids the trap via
+    /// <c>ShouldPersistChannelName</c> (which excludes <c>"stable"</c>); <c>aspire new</c>
+    /// must agree, leaving <c>inputs.Channel</c> as <see langword="null"/> so the polyglot
+    /// scaffold writes no channel pin and later <c>aspire add</c> walks the Implicit
+    /// (nuget.org, <see cref="PackageChannelQuality.Both"/>) channel.
+    /// <para>
+    /// Red test: today <c>NewCommand.ResolveIdentityChannelNameAsync</c> gates only on
+    /// <see cref="PackageChannelType.Explicit"/> and therefore returns <c>"stable"</c>,
+    /// hiding the matrix cell (stable identity × prerelease package × <c>aspire new</c> × TS).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task NewCommand_StableIdentity_NoChannelArg_DoesNotPersistStablePin_Cli()
+    {
+        var captured = await CaptureTemplateInputsAsync(
+            identityChannel: PackageChannelNames.Stable,
+            channelOptionArg: null,
+            identityChannelVersion: "13.5.0",
+            runtime: TemplateRuntime.Cli);
+
+        Assert.Null(captured.Channel);
+    }
+
+    /// <summary>
+    /// DotNet-runtime mirror of <see cref="NewCommand_StableIdentity_NoChannelArg_DoesNotPersistStablePin_Cli"/>
+    /// for the C# <c>aspire-starter</c> / <c>aspire-starter-csharp-typescript</c> templates.
+    /// <see cref="DotNetTemplateFactory"/> persists <c>aspire.config.json#channel</c>
+    /// whenever the resolved channel is <see cref="PackageChannelType.Explicit"/>, so the
+    /// only place to break the chain is here in <see cref="NewCommand"/>: when the identity
+    /// is <c>stable</c>, <c>inputs.Channel</c> must be <see langword="null"/> so the factory's
+    /// Explicit-gate is never entered and the scaffolded project inherits ambient
+    /// (<see cref="PackageChannelQuality.Both"/>) NuGet behavior — keeping community
+    /// <c>13.4.0-preview</c> integrations visible after a shipped-stable <c>aspire new</c>.
+    /// <para>
+    /// Red test for the matrix cell (stable identity × prerelease package × <c>aspire new</c> × C#).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task NewCommand_StableIdentity_NoChannelArg_DoesNotPersistStablePin_DotNet()
+    {
+        var captured = await CaptureTemplateInputsAsync(
+            identityChannel: PackageChannelNames.Stable,
+            channelOptionArg: null,
+            identityChannelVersion: "13.5.0",
+            runtime: TemplateRuntime.DotNet);
+
+        Assert.Null(captured.Channel);
     }
 
     /// <summary>

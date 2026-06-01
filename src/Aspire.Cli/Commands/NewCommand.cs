@@ -456,9 +456,14 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
                         return new ResolveTemplateVersionResult { ErrorMessage = $"No template versions found in channel '{selectedChannel.Name}'." };
                     }
 
-                    // Only persist explicit channel names (e.g. local, daily) — implicit channels
-                    // (stable/nuget.org) should not be written so aspire add uses its default behavior.
-                    var channelName = selectedChannel.Type is PackageChannelType.Explicit ? selectedChannel.Name : null;
+                    // Only persist channel names that pass `ShouldPersistChannelName` —
+                    // Implicit channels (nuget.org fallback) and the `stable` channel itself
+                    // are deliberately left unpinned so `aspire add` and later restores walk
+                    // ambient NuGet configuration and continue to surface prerelease packages
+                    // (a stable-pin would route through PackageChannelQuality.Stable and hide
+                    // them). Mirrors the same gate at the end of `ResolveIdentityChannelNameAsync`
+                    // and `InitCommand.ResolvePersistableChannelNameAsync`.
+                    var channelName = selectedChannel.ShouldPersistChannelName() ? selectedChannel.Name : null;
 
                     return new ResolveTemplateVersionResult { Version = package.Version, ChannelName = channelName };
                 }
@@ -589,11 +594,17 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
         var match = channels.FirstOrDefault(c =>
             string.Equals(c.Name, identity, StringComparisons.ChannelName));
 
-        // Only persist Explicit channel names — Implicit channels (the nuget.org fallback)
-        // are deliberately left unpinned so `aspire add` and later restores use ambient
-        // NuGet configuration. Mirrors the same rule applied at the end of
-        // ResolveCliTemplateVersionAsync.
-        return match is { Type: PackageChannelType.Explicit } ? match.Name : null;
+        // Only persist channel names that pass `ShouldPersistChannelName` — Implicit channels
+        // (the nuget.org fallback) and the `stable` channel itself are deliberately left
+        // unpinned so `aspire add` and later restores use ambient NuGet configuration and
+        // continue to surface prerelease packages from nuget.org. Persisting `"stable"` in
+        // `aspire.config.json#channel` would route subsequent `aspire add` calls through the
+        // Stable channel (PackageChannelQuality.Stable), filtering out a 13.4.0-preview
+        // community integration the team published before its matching stable release —
+        // the exact regression that motivated `ShouldPersistChannelName` in the first place.
+        // Mirrors `InitCommand.ResolvePersistableChannelNameAsync` so polyglot `aspire init`
+        // and `aspire new` agree on what gets pinned.
+        return match?.ShouldPersistChannelName() is true ? match.Name : null;
     }
 }
 
