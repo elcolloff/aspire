@@ -444,6 +444,57 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     }
 
     /// <summary>
+    /// Regression test for the DotNet-runtime arm of the staging-emulation bug
+    /// reproduced via <c>eng/scripts/debug-staging.sh</c>: a locally built CLI
+    /// (identity=<c>local</c>) running with <c>overrideCliIdentityChannel=staging</c>
+    /// would route <c>aspire add</c> correctly through <see cref="IPackagingService"/>
+    /// (which already consults <see cref="IPackagingService.GetEffectiveIdentityChannel"/>)
+    /// but <c>aspire new &lt;C# starter&gt;</c> would silently fall back to
+    /// the Implicit (nuget.org) channel. The cause was
+    /// <see cref="NewCommand"/>'s <c>ResolveIdentityChannelNameAsync</c> reading
+    /// <see cref="CliExecutionContext.IdentityChannel"/> directly (returning
+    /// <c>"local"</c>, which never matches any registered Explicit channel), so
+    /// <see cref="TemplateInputs.Channel"/> was set to <see langword="null"/> and
+    /// <c>DotNetTemplateFactory</c> resolved <c>Aspire.ProjectTemplates</c> from
+    /// nuget.org — picking the last-shipped stable (e.g. <c>13.3.5</c>) instead of
+    /// the staging build's matching prerelease on the darc feed.
+    /// </summary>
+    [Fact]
+    public async Task NewCommand_LocalIdentityWithStagingOverride_DotNet_PropagatesEffectiveChannel()
+    {
+        var captured = await CaptureTemplateInputsAsync(
+            identityChannel: PackageChannelNames.Local,
+            channelOptionArg: null,
+            identityChannelVersion: "13.4.0-preview.6.26280.1",
+            runtime: TemplateRuntime.DotNet,
+            effectiveIdentityChannelOverride: PackageChannelNames.Staging);
+
+        Assert.Equal(PackageChannelNames.Staging, captured.Channel);
+    }
+
+    /// <summary>
+    /// CLI-runtime mirror of <see cref="NewCommand_LocalIdentityWithStagingOverride_DotNet_PropagatesEffectiveChannel"/>
+    /// for polyglot starters (TypeScript / Python / Go). The CLI-runtime branch was already
+    /// override-aware via <c>ResolveCliTemplateVersionAsync</c>, so this asserts no regression:
+    /// not only does <c>inputs.Channel</c> become <c>"staging"</c>, but version resolution
+    /// also wins against the staging channel rather than falling through to Implicit, so
+    /// the scaffolded project's <c>aspire.config.json</c> pin and Aspire.ProjectTemplates
+    /// version stay mutually satisfiable on the darc feed.
+    /// </summary>
+    [Fact]
+    public async Task NewCommand_LocalIdentityWithStagingOverride_Cli_PropagatesEffectiveChannel()
+    {
+        var captured = await CaptureTemplateInputsAsync(
+            identityChannel: PackageChannelNames.Local,
+            channelOptionArg: null,
+            identityChannelVersion: "13.4.0-preview.6.26280.1",
+            runtime: TemplateRuntime.Cli,
+            effectiveIdentityChannelOverride: PackageChannelNames.Staging);
+
+        Assert.Equal(PackageChannelNames.Staging, captured.Channel);
+    }
+
+    /// <summary>
     /// Invokes <see cref="NewCommand"/> with a fake template that captures the
     /// <see cref="TemplateInputs"/> handed to it. Its <c>Version</c> reflects which channel
     /// won template-version resolution; its <c>Channel</c> reflects what the template
@@ -464,7 +515,8 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
         string? identityChannelVersion,
         IEnumerable<string>? identityChannelVersions = null,
         TemplateRuntime runtime = TemplateRuntime.Cli,
-        string? versionOptionArg = null)
+        string? versionOptionArg = null,
+        string? effectiveIdentityChannelOverride = null)
     {
         using var workspace = TemporaryWorkspace.Create(outputHelper);
 
@@ -504,7 +556,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
 
             options.TemplateProviderFactory = _ => new SingleTemplateProvider(fakeTemplate);
 
-            options.PackagingServiceFactory = _ => BuildPackagingService(identityChannel, identityChannelVersion, identityChannelVersions);
+            options.PackagingServiceFactory = _ => BuildPackagingService(identityChannel, identityChannelVersion, identityChannelVersions, effectiveIdentityChannelOverride);
         });
 
         using var serviceProvider = services.BuildServiceProvider();
@@ -528,10 +580,22 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
     private static IPackagingService BuildPackagingService(
         string identityChannel,
         string? identityChannelVersion,
-        IEnumerable<string>? identityChannelVersions)
+        IEnumerable<string>? identityChannelVersions,
+        string? effectiveIdentityChannelOverride = null)
     {
         var identityVersions = identityChannelVersions?.ToArray()
             ?? (identityChannelVersion is null ? [] : [identityChannelVersion]);
+
+        // The "effective" channel is what PackagingService.GetEffectiveIdentityChannel
+        // returns: the diagnostic-override channel name when active
+        // (overrideCliIdentityChannel under eng/scripts/debug-staging.sh), otherwise
+        // the identity baked into the binary. The non-stable explicit channel registered
+        // below tracks this effective name so a `local`-identity + `staging`-override
+        // test scenario advertises a `staging` channel (matching production
+        // PackagingService synthesis under the same env vars).
+        var effectiveChannel = string.IsNullOrWhiteSpace(effectiveIdentityChannelOverride)
+            ? identityChannel
+            : effectiveIdentityChannelOverride;
 
         // Implicit channel always returns the stable token so a "fell-through to Implicit"
         // outcome is distinguishable from an identity-channel pickup.
@@ -565,8 +629,8 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
         // scenario calls for it. Deliberately omitted in the "identity not registered"
         // case so fallback to Implicit can be observed.
         var isDailyOrStaging = identityVersions.Length > 0 &&
-            !string.Equals(identityChannel, PackageChannelNames.Stable, StringComparison.OrdinalIgnoreCase) &&
-            !identityChannel.StartsWith("pr-", StringComparison.OrdinalIgnoreCase);
+            !string.Equals(effectiveChannel, PackageChannelNames.Stable, StringComparison.OrdinalIgnoreCase) &&
+            !effectiveChannel.StartsWith("pr-", StringComparison.OrdinalIgnoreCase);
         if (isDailyOrStaging)
         {
             var explicitCache = new FakeNuGetPackageCache
@@ -576,7 +640,7 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
                         identityVersions.Select(version => new NuGetPackage { Id = "Aspire.ProjectTemplates", Source = "nuget", Version = version }))
             };
             channels.Add(PackageChannel.CreateExplicitChannel(
-                identityChannel,
+                effectiveChannel,
                 PackageChannelQuality.Prerelease,
                 [
                     new PackageMapping("Aspire*", "https://example.invalid/feed/v3/index.json"),
@@ -611,7 +675,10 @@ public class NewCommandChannelResolutionTests(ITestOutputHelper outputHelper)
 
         return new TestPackagingService
         {
-            GetChannelsAsyncCallback = _ => Task.FromResult<IEnumerable<PackageChannel>>(channels)
+            GetChannelsAsyncCallback = _ => Task.FromResult<IEnumerable<PackageChannel>>(channels),
+            GetEffectiveIdentityChannelCallback = string.IsNullOrWhiteSpace(effectiveIdentityChannelOverride)
+                ? null
+                : () => effectiveIdentityChannelOverride,
         };
     }
 

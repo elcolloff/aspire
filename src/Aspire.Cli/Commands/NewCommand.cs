@@ -584,7 +584,29 @@ internal sealed class NewCommand : BaseCommand, IPackageMetaPrefetchingCommand
     /// </summary>
     private async Task<string?> ResolveIdentityChannelNameAsync(CancellationToken cancellationToken)
     {
-        var identity = ExecutionContext.IdentityChannel;
+        // Consult IPackagingService.GetEffectiveIdentityChannel first so the
+        // overrideCliIdentityChannel diagnostic env var (used by
+        // eng/scripts/debug-staging.sh to validate staging feed routing from a
+        // locally built CLI) is honored on the DotNet-runtime template path.
+        // Without this, a local-identity CLI run with overrideCliIdentityChannel=staging
+        // would correctly route through PackagingService for `aspire add` but leave
+        // TemplateInputs.Channel null for `aspire new <C# starter>`, so
+        // DotNetTemplateFactory would search only the Implicit (nuget.org) channel
+        // and silently resolve the last-shipped stable Aspire.ProjectTemplates
+        // (e.g. 13.3.5) instead of the staging build's matching version on the
+        // darc feed. Mirrors the same fix in
+        // `ResolveCliTemplateVersionAsync` (CLI-runtime path) and
+        // `InitCommand.ResolvePersistableChannelNameAsync` so all three template-
+        // selection entry points stay consistent under the diagnostic override.
+        //
+        // Falls back to ExecutionContext.IdentityChannel when the packaging service
+        // returns empty (used by test fakes that don't model identity routing).
+        var identity = _packagingService.GetEffectiveIdentityChannel();
+        if (string.IsNullOrWhiteSpace(identity))
+        {
+            identity = ExecutionContext.IdentityChannel;
+        }
+
         if (string.IsNullOrWhiteSpace(identity))
         {
             return null;
