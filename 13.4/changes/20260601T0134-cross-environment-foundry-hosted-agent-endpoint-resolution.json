@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "Resolves two cross-compute-environment gaps for Foundry hosted agents: publishers (ACA, App Service, Kubernetes) now correctly delegate endpoint resolution to the owning compute environment rather than failing when a referenced resource lives in a different environment, and referencing a hosted agent automatically provisions the consumer's managed identity with the Azure AI User role on the Foundry account — eliminating two manual post-deploy steps.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🌉",
+  "firstMergedAt": "2026-06-01T01:34:38Z",
+  "lastMergedAt": "2026-06-01T01:34:38Z",
+  "name": "Cross-environment Foundry hosted-agent endpoint resolution and RBAC auto-wiring",
+  "owner": "davidfowl",
+  "prs": [
+    17756
+  ]
+}
