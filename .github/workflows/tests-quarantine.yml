@@ -2,7 +2,8 @@
 #
 # COPILOT INSTRUCTIONS:
 # - Keep the shared 'paths:' entries (specialized-test-runner.yml,
-#   run-tests.yml, build-cli-e2e-image.yml) in sync across
+#   run-tests.yml, build-cli-e2e-image.yml,
+#   .github/actions/download-cli-e2e-images/**) in sync across
 #   tests-outerloop.yml and tests-quarantine.yml. Each workflow also lists itself.
 # - Validate that each path exists in the repository before adding or
 #   updating the list
@@ -30,6 +31,7 @@ on:
       - '.github/workflows/specialized-test-runner.yml'
       - '.github/workflows/run-tests.yml'
       - '.github/workflows/build-cli-e2e-image.yml'
+      - '.github/actions/download-cli-e2e-images/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

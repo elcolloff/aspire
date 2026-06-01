@@ -117,34 +117,10 @@ jobs:
       - name: Verify Docker is running
         run: docker info
 
-      - name: Download prebuilt CLI E2E Docker image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Download and load prebuilt CLI E2E Docker images
+        uses: ./.github/actions/download-cli-e2e-images
         with:
-          name: cli-e2e-dotnet-image
-          path: ${{ github.workspace }}/cli-e2e-image
-
-      - name: Download prebuilt CLI E2E polyglot Docker image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cli-e2e-polyglot-image
-          path: ${{ github.workspace }}/cli-e2e-image
-
-      - name: Download prebuilt CLI E2E Java Docker image
-        if: ${{ contains(matrix.shortname, 'Java') }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cli-e2e-polyglot-java-image
-          path: ${{ github.workspace }}/cli-e2e-image
-
-      - name: Load prebuilt CLI E2E Docker images
-        shell: bash
-        run: |
-          set -euo pipefail
-          eng/scripts/load-cli-e2e-images.sh \
-            --image-dir "${{ github.workspace }}/cli-e2e-image" \
-            --require-dotnet true \
-            --require-polyglot true \
-            --require-java "${{ contains(matrix.shortname, 'Java') }}"
+          require-java: ${{ contains(matrix.shortname, 'Java') }}
 
       - name: Build E2E test project
         run: dotnet build tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj

@@ -1,0 +1,103 @@
+name: 'Download CLI E2E Docker images'
+description: |
+  Downloads the prebuilt Aspire CLI E2E Docker image artifacts produced by
+  build-cli-e2e-image.yml and loads them into the local Docker daemon via
+  eng/scripts/load-cli-e2e-images.sh. Each image variant can be required or
+  skipped independently. The script exports the ASPIRE_E2E_*_IMAGE and
+  ASPIRE_E2E_REQUIRE_*_IMAGE environment variables consumed by the tests.
+
+inputs:
+  require-dotnet:
+    description: |
+      Whether the .NET CLI E2E image (cli-e2e-dotnet-image) is required.
+      Must be the string 'true' or 'false'.
+    required: false
+    default: 'true'
+  require-polyglot:
+    description: |
+      Whether the polyglot CLI E2E image (cli-e2e-polyglot-image) is required.
+      Must be the string 'true' or 'false'.
+    required: false
+    default: 'true'
+  require-java:
+    description: |
+      Whether the Java polyglot CLI E2E image (cli-e2e-polyglot-java-image)
+      is required. Must be the string 'true' or 'false'.
+    required: false
+    default: 'false'
+  image-dir:
+    description: 'Directory the image tarballs are downloaded into and loaded from.'
+    required: false
+    default: '${{ github.workspace }}/cli-e2e-image'
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      # The download steps below gate on `inputs.require-* == 'true'` while the
+      # load script accepts true|false|auto. If a caller passes anything other
+      # than the documented true/false the download step would silently skip
+      # while the load step would still try to require the image, producing a
+      # confusing missing-artifact error. Fail fast with a clear message.
+      #
+      # Inputs are routed through `env:` rather than interpolated directly into
+      # the script body so a future input value cannot be injected as shell.
+      env:
+        REQUIRE_DOTNET: ${{ inputs.require-dotnet }}
+        REQUIRE_POLYGLOT: ${{ inputs.require-polyglot }}
+        REQUIRE_JAVA: ${{ inputs.require-java }}
+      run: |
+        set -euo pipefail
+        for pair in \
+          "require-dotnet=$REQUIRE_DOTNET" \
+          "require-polyglot=$REQUIRE_POLYGLOT" \
+          "require-java=$REQUIRE_JAVA"; do
+          name="${pair%%=*}"
+          value="${pair#*=}"
+          case "$value" in
+            true|false) ;;
+            *)
+              echo "::error::Input '$name' must be 'true' or 'false', got '$value'."
+              exit 1
+              ;;
+          esac
+        done
+
+    - name: Download prebuilt CLI E2E Docker image
+      if: ${{ inputs.require-dotnet == 'true' }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-e2e-dotnet-image
+        path: ${{ inputs.image-dir }}
+
+    - name: Download prebuilt CLI E2E polyglot Docker image
+      if: ${{ inputs.require-polyglot == 'true' }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-e2e-polyglot-image
+        path: ${{ inputs.image-dir }}
+
+    - name: Download prebuilt CLI E2E Java Docker image
+      if: ${{ inputs.require-java == 'true' }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: cli-e2e-polyglot-java-image
+        path: ${{ inputs.image-dir }}
+
+    - name: Load prebuilt CLI E2E Docker images
+      shell: bash
+      # Route inputs through env so untrusted values cannot expand into the
+      # shell command line.
+      env:
+        IMAGE_DIR: ${{ inputs.image-dir }}
+        REQUIRE_DOTNET: ${{ inputs.require-dotnet }}
+        REQUIRE_POLYGLOT: ${{ inputs.require-polyglot }}
+        REQUIRE_JAVA: ${{ inputs.require-java }}
+      run: |
+        set -euo pipefail
+        eng/scripts/load-cli-e2e-images.sh \
+          --image-dir "$IMAGE_DIR" \
+          --require-dotnet "$REQUIRE_DOTNET" \
+          --require-polyglot "$REQUIRE_POLYGLOT" \
+          --require-java "$REQUIRE_JAVA"
