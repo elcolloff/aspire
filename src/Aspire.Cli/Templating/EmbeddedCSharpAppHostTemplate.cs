@@ -103,7 +103,7 @@ internal static class EmbeddedCSharpAppHostTemplate
         string ApplyPathTransform(string segment)
         {
             var tokensApplied = ApplyTokens(segment, projectName, aspireVersion, ports, hostName, userSecretsId);
-            return RewriteTemplateProjectExtension(tokensApplied);
+            return EmbeddedTemplatePathHelpers.RewriteTemplateProjectExtension(tokensApplied);
         }
 
         logger.LogDebug(
@@ -124,29 +124,8 @@ internal static class EmbeddedCSharpAppHostTemplate
 
     // Source files in the embedded template tree use the `._csproj` extension
     // so the repo-wide MSBuild traversal (eng/Build.props) does not match them.
-    // Rewrite to `.csproj` (and the analogous `._fsproj` / `._vbproj` shapes for
-    // forward compatibility) only on the trailing segment of the path so a
-    // directory that happens to contain that token is not affected.
-    private static string RewriteTemplateProjectExtension(string segment)
-    {
-        if (segment.EndsWith("._csproj", StringComparison.Ordinal))
-        {
-            return string.Concat(segment.AsSpan(0, segment.Length - "._csproj".Length), ".csproj");
-        }
-
-        if (segment.EndsWith("._fsproj", StringComparison.Ordinal))
-        {
-            return string.Concat(segment.AsSpan(0, segment.Length - "._fsproj".Length), ".fsproj");
-        }
-
-        if (segment.EndsWith("._vbproj", StringComparison.Ordinal))
-        {
-            return string.Concat(segment.AsSpan(0, segment.Length - "._vbproj".Length), ".vbproj");
-        }
-
-        return segment;
-    }
-
+    // The path transformer rewrites to `.csproj` on output via
+    // EmbeddedTemplatePathHelpers.RewriteTemplateProjectExtension.
     private static string ApplyTokens(
         string content,
         string projectName,
