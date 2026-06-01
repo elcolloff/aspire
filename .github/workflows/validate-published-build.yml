@@ -135,9 +135,10 @@ jobs:
         uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           global-json-file: global.json
-
-      - name: Restore
-        run: ./restore.sh
+        env:
+          # Share the install dir with Arcade so ./build.sh below reuses the
+          # same .NET install rather than re-downloading via eng/common/tools.sh.
+          DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet
 
       - name: Verify Docker is running
         run: docker info
@@ -147,8 +148,14 @@ jobs:
         with:
           require-java: ${{ contains(matrix.shortname, 'Java') }}
 
-      - name: Build E2E test project
-        run: dotnet build tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj
+      - name: Restore and build E2E test project
+        # Scoped Arcade restore+build for just the test project — avoids the
+        # full-repo `./restore.sh` and the redundant implicit restore that
+        # `dotnet build` would otherwise do. Mirrors run-tests.yml.
+        env:
+          DOTNET_ROOT: ${{ github.workspace }}/.dotnet
+          MSBUILDTERMINALLOGGER: "false"
+        run: ./build.sh -restore -ci -build -projects ${{ github.workspace }}/tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj
 
       - name: Run CLI E2E tests against published build
         # Install via the channel (ASPIRE_E2E_QUALITY) rather than by version so
@@ -169,6 +176,7 @@ jobs:
           # installed CLI (no runsheet metadata pipeline) so the values are
           # duplicated here. Keep them in sync if eng/Testing.props changes.
           dotnet test --project tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj \
+            --no-restore \
             --no-build \
             -- \
             --ignore-exit-code 8 \
