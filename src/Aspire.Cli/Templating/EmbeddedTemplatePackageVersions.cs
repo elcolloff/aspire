@@ -45,6 +45,9 @@ internal static class EmbeddedTemplatePackageVersions
     public static string OpenTelemetryInstrumentationRuntimeVersion
         => Get("OpenTelemetryInstrumentationRuntimeVersion");
 
+    public static string MicrosoftAspNetCoreOpenApiPreviewVersion
+        => Get("MicrosoftAspNetCoreOpenApiPreviewVersion");
+
     private static string Get(string key)
     {
         if (s_metadata.Value.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
