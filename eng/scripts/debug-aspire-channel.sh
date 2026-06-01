@@ -325,6 +325,19 @@ ENV
         local nuget_packages="${TMPDIR:-/tmp}/aspire-debug-nuget/${sha8}"
         mkdir -p "$nuget_packages"
 
+        # Expose the developer's real global cache as a READ-ONLY fallback. NuGet
+        # consults NUGET_FALLBACK_PACKAGES after NUGET_PACKAGES on lookup but never
+        # writes to it, so non-Aspire transitive dependencies that are version-stable
+        # across feeds (DCP / Microsoft.DeveloperControlPlane.*, .NET runtime packs,
+        # template-engine assets) resolve from the existing cache instead of having
+        # to be re-downloaded into the isolated dir, while any Aspire.* package
+        # restored under the staging override still lands ONLY in $nuget_packages.
+        # Without this, the polyglot apphost server fails to launch because DCP's
+        # tools/dcp binary is missing from the isolated cache:
+        #   Could not invoke 'run': The Aspire orchestration component is not
+        #   installed at "$nuget_packages/microsoft.developercontrolplane.<rid>/<ver>/tools/dcp".
+        local nuget_fallback="${NUGET_FALLBACK_PACKAGES:-${HOME}/.nuget/packages}"
+
         # An interactive shell sources the user's startup files AFTER we set the
         # environment, so if those files prepend something to PATH (commonly
         # `export PATH="$HOME/.aspire/bin:$PATH"` from a prior `aspire` install)
@@ -353,7 +366,7 @@ SHIM
 
         say ">> Launching an interactive subshell. Run 'aspire new', 'aspire add', etc."
         say "   'aspire' resolves to: $cli_path"
-        say "   NuGet packages cache: $nuget_packages (isolated from your global cache)"
+        say "   NuGet packages cache: $nuget_packages (isolated; falls back read-only to $nuget_fallback)"
         say "   Type 'exit' to leave and restore normal CLI behavior."
         say ""
 
@@ -370,6 +383,7 @@ ZSHRC
                     overrideCliInformationalVersion="$info_version" \
                     overrideStagingQuality="Both" \
                     NUGET_PACKAGES="$nuget_packages" \
+                    NUGET_FALLBACK_PACKAGES="$nuget_fallback" \
                     ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
                     ZDOTDIR="$rcdir" \
                     "$target_shell" -i
@@ -384,6 +398,7 @@ BASHRC
                     overrideCliInformationalVersion="$info_version" \
                     overrideStagingQuality="Both" \
                     NUGET_PACKAGES="$nuget_packages" \
+                    NUGET_FALLBACK_PACKAGES="$nuget_fallback" \
                     ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
                     "$target_shell" --rcfile "$rcdir/bashrc" -i
                 ;;
@@ -398,6 +413,7 @@ BASHRC
                     overrideCliInformationalVersion="$info_version" \
                     overrideStagingQuality="Both" \
                     NUGET_PACKAGES="$nuget_packages" \
+                    NUGET_FALLBACK_PACKAGES="$nuget_fallback" \
                     PATH="$shim_root/bin:${PATH}" \
                     ASPIRE_DEBUG_BUILD_PROMPT="aspire(${kind}:${sha8})" \
                     "$target_shell" -i
