@@ -8,16 +8,19 @@ namespace Aspire.Cli.Templating;
 
 /// <summary>
 /// Processes conditional blocks in template content. Blocks are delimited by
-/// marker lines of the form <c>{{#name}}</c> / <c>{{/name}}</c>. When a block
-/// is included, the marker lines are stripped and the inner content is kept;
-/// when excluded, the marker lines and their content are removed entirely.
-/// Marker lines may contain leading comment characters (e.g. <c>// {{#name}}</c>
-/// or <c># {{#name}}</c>) — the entire line is always removed.
+/// marker lines of the form <c>{{#name}}</c> / <c>{{/name}}</c> (positive) or
+/// <c>{{^name}}</c> / <c>{{/name}}</c> (inverted, Mustache-style — kept when the
+/// condition is <see langword="false"/>). When a block is included, the marker
+/// lines are stripped and the inner content is kept; when excluded, the marker
+/// lines and their content are removed entirely. Marker lines may contain leading
+/// comment characters (e.g. <c>// {{#name}}</c> or <c># {{#name}}</c>) — the
+/// entire line is always removed.
 /// </summary>
 /// <remarks>
 /// Blocks must not overlap or nest across different condition names. Each condition
 /// is processed independently in enumeration order. Overlapping blocks produce
-/// undefined behavior.
+/// undefined behavior. Positive and inverted blocks for the same condition may
+/// appear in any order in the template; each form is processed in a separate pass.
 /// </remarks>
 internal static partial class ConditionalBlockProcessor
 {
@@ -32,7 +35,10 @@ internal static partial class ConditionalBlockProcessor
     {
         foreach (var (blockName, include) in conditions)
         {
-            content = ProcessBlock(content, blockName, include);
+            // Positive section: {{#name}}...{{/name}} — kept when condition is true.
+            content = ProcessBlock(content, blockName, startMarkerChar: '#', include);
+            // Inverted section: {{^name}}...{{/name}} — kept when condition is false.
+            content = ProcessBlock(content, blockName, startMarkerChar: '^', !include);
         }
 
         Debug.Assert(
@@ -42,7 +48,7 @@ internal static partial class ConditionalBlockProcessor
         return content;
     }
 
-    [GeneratedRegex(@"\{\{[#/][a-zA-Z][\w-]*\}\}")]
+    [GeneratedRegex(@"\{\{[#/^][a-zA-Z][\w-]*\}\}")]
     private static partial Regex LeftoverMarkerPattern();
 
     /// <summary>
@@ -56,8 +62,11 @@ internal static partial class ConditionalBlockProcessor
     /// </param>
     /// <returns>The processed content.</returns>
     internal static string ProcessBlock(string content, string blockName, bool include)
+        => ProcessBlock(content, blockName, startMarkerChar: '#', include);
+
+    private static string ProcessBlock(string content, string blockName, char startMarkerChar, bool include)
     {
-        var startPattern = $"{{{{#{blockName}}}}}";
+        var startPattern = $"{{{{{startMarkerChar}{blockName}}}}}";
         var endPattern = $"{{{{/{blockName}}}}}";
 
         while (true)
@@ -72,7 +81,7 @@ internal static partial class ConditionalBlockProcessor
             if (endIdx < 0)
             {
                 throw new InvalidOperationException(
-                    $"Template contains opening marker '{{{{#{blockName}}}}}' without a matching closing marker '{{{{/{blockName}}}}}'.");
+                    $"Template contains opening marker '{{{{{startMarkerChar}{blockName}}}}}' without a matching closing marker '{{{{/{blockName}}}}}'.");
             }
 
             // Find the full start marker line (including leading whitespace/comments and trailing newline).

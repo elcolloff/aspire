@@ -108,6 +108,81 @@ public class TemplateRendererTests
         await Task.CompletedTask;
     }
 
+    [Fact]
+    public async Task RenderAsync_AppliesPathTransformer_RenamesFilesAndDirectories()
+    {
+        using var sourceDir = new TempDirectory();
+        // Simulates a multi-project template tree where both a directory name
+        // (`{{projectName}}.AppHost/`) and a file inside it
+        // (`{{projectName}}.csproj`) need to be templated.
+        Directory.CreateDirectory(Path.Combine(sourceDir.Path, "{{projectName}}.AppHost"));
+        File.WriteAllText(Path.Combine(sourceDir.Path, "{{projectName}}.AppHost", "{{projectName}}.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(sourceDir.Path, "README.md"), "Hello {{projectName}}!");
+
+        using var outputDir = new TempDirectory();
+        var source = new DirectoryTemplateSource(new DirectoryInfo(sourceDir.Path));
+        var renderer = new TemplateRenderer(NullLogger.Instance);
+
+        await renderer.RenderAsync(
+            source,
+            outputDir.Path,
+            content => content.Replace("{{projectName}}", "MyApp"),
+            CancellationToken.None,
+            pathTransformer: path => path.Replace("{{projectName}}", "MyApp"));
+
+        Assert.True(Directory.Exists(Path.Combine(outputDir.Path, "MyApp.AppHost")));
+        Assert.True(File.Exists(Path.Combine(outputDir.Path, "MyApp.AppHost", "MyApp.csproj")));
+        Assert.True(File.Exists(Path.Combine(outputDir.Path, "README.md")));
+        Assert.Equal("Hello MyApp!", File.ReadAllText(Path.Combine(outputDir.Path, "README.md")));
+    }
+
+    [Fact]
+    public async Task RenderAsync_PathTransformer_DefaultsToIdentity()
+    {
+        // When no path transformer is supplied, file/directory names pass through
+        // unchanged. This protects callers (and binary fixtures) from having their
+        // paths munged by a content transformer that was only designed for text.
+        using var sourceDir = new TempDirectory();
+        File.WriteAllText(Path.Combine(sourceDir.Path, "{{name}}.txt"), "content");
+
+        using var outputDir = new TempDirectory();
+        var source = new DirectoryTemplateSource(new DirectoryInfo(sourceDir.Path));
+        var renderer = new TemplateRenderer(NullLogger.Instance);
+
+        await renderer.RenderAsync(
+            source,
+            outputDir.Path,
+            content => content.Replace("{{name}}", "rendered"),
+            CancellationToken.None);
+
+        // Filename is left untouched because no path transformer was supplied.
+        Assert.True(File.Exists(Path.Combine(outputDir.Path, "{{name}}.txt")));
+    }
+
+    [Fact]
+    public async Task RenderAsync_PathTransformer_CanDifferFromContentTransformer()
+    {
+        // The dual-transformer overload exists specifically so callers that compose
+        // line-oriented content passes (e.g. ConditionalBlockProcessor) can use a
+        // plain token replacer for paths. Cover that explicitly.
+        using var sourceDir = new TempDirectory();
+        File.WriteAllText(Path.Combine(sourceDir.Path, "{{name}}.txt"), "value={{value}}");
+
+        using var outputDir = new TempDirectory();
+        var source = new DirectoryTemplateSource(new DirectoryInfo(sourceDir.Path));
+        var renderer = new TemplateRenderer(NullLogger.Instance);
+
+        await renderer.RenderAsync(
+            source,
+            outputDir.Path,
+            contentTransformer: c => c.Replace("{{value}}", "42").Replace("{{name}}", "ignored-by-content"),
+            CancellationToken.None,
+            pathTransformer: p => p.Replace("{{name}}", "from-path-transformer"));
+
+        Assert.True(File.Exists(Path.Combine(outputDir.Path, "from-path-transformer.txt")));
+        Assert.Equal("value=42", File.ReadAllText(Path.Combine(outputDir.Path, "from-path-transformer.txt")));
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public TempDirectory()

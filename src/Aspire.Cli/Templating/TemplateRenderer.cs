@@ -51,18 +51,35 @@ internal sealed class TemplateRenderer
 
     /// <summary>
     /// Renders <paramref name="source"/> into <paramref name="outputPath"/>,
-    /// applying <paramref name="contentTransformer"/> to every text file.
-    /// Creates parent directories as needed. Overwrites existing files.
+    /// applying <paramref name="contentTransformer"/> to every text file and
+    /// (optionally) <paramref name="pathTransformer"/> to every relative file path
+    /// before it is written. Creates parent directories as needed and overwrites
+    /// existing files.
     /// </summary>
+    /// <param name="source">The template source providing the file tree to render.</param>
+    /// <param name="outputPath">Absolute or relative path to the output directory.</param>
+    /// <param name="contentTransformer">Function applied to the text content of every non-binary file.</param>
+    /// <param name="cancellationToken">Cancellation token observed between files and during async I/O.</param>
+    /// <param name="pathTransformer">
+    /// Optional. Applied to each <see cref="TemplateFile.RelativePath"/> before the
+    /// on-disk path is computed so callers can template file names and directory
+    /// names (e.g. <c>{{projectName}}.csproj</c> → <c>MyApp.csproj</c>). Defaults
+    /// to identity when not supplied — file and directory names pass through
+    /// unchanged. Pass an explicit transformer (typically a plain token
+    /// replacer) when the template tree has tokens in its paths.
+    /// </param>
     public async Task RenderAsync(
         ITemplateSource source,
         string outputPath,
         Func<string, string> contentTransformer,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, string>? pathTransformer = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         ArgumentNullException.ThrowIfNull(contentTransformer);
+
+        pathTransformer ??= static p => p;
 
         var files = source.EnumerateFiles();
         _logger.LogDebug("Rendering {FileCount} template files to '{OutputPath}'.", files.Count, outputPath);
@@ -71,8 +88,13 @@ internal sealed class TemplateRenderer
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Apply the path transformer to every '/'-separated segment so file
+            // names AND directory names can be templated (e.g. `{{projectName}}.csproj`
+            // or `{{projectName}}.AppHost/AppHost.cs`).
+            var transformedRelative = TransformRelativePath(file.RelativePath, pathTransformer);
+
             // Source-side paths are always '/'-separated by contract on TemplateFile.
-            var nativeRelative = file.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+            var nativeRelative = transformedRelative.Replace('/', Path.DirectorySeparatorChar);
             var filePath = Path.Combine(outputPath, nativeRelative);
             var fileDirectory = Path.GetDirectoryName(filePath);
             if (!string.IsNullOrEmpty(fileDirectory))
@@ -101,5 +123,19 @@ internal sealed class TemplateRenderer
                 await writer.FlushAsync(cancellationToken);
             }
         }
+    }
+
+    private static string TransformRelativePath(string relativePath, Func<string, string> pathTransformer)
+    {
+        // Apply the transformer per-segment rather than over the whole path so a
+        // transformer that incidentally produces a '/' (e.g. token expansion) can't
+        // accidentally split a single segment into two directories.
+        var segments = relativePath.Split('/');
+        for (var i = 0; i < segments.Length; i++)
+        {
+            segments[i] = pathTransformer(segments[i]);
+        }
+
+        return string.Join('/', segments);
     }
 }
