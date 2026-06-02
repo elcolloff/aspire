@@ -145,6 +145,11 @@ internal sealed class GuestRuntime
     /// <param name="launcher">Strategy for launching the process.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="afterAppHostLaunchedAsync">Callback invoked after the AppHost execute command has launched.</param>
+    /// <param name="appHostLaunchOptions">
+    /// Optional launch options forwarded to the launcher for the long-running AppHost execute command only.
+    /// Pre-execute commands (e.g. <c>tsc --noEmit</c>) and dependency installation are short-lived and
+    /// keep today's force-kill behavior, so this is not passed there.
+    /// </param>
     /// <returns>A tuple of the exit code and captured output (null when launched via extension).</returns>
     public async Task<(int ExitCode, OutputCollector? Output)> RunAsync(
         FileInfo appHostFile,
@@ -153,7 +158,8 @@ internal sealed class GuestRuntime
         bool watchMode,
         IGuestProcessLauncher launcher,
         CancellationToken cancellationToken,
-        Func<Task>? afterAppHostLaunchedAsync = null)
+        Func<Task>? afterAppHostLaunchedAsync = null,
+        GuestLaunchOptions? appHostLaunchOptions = null)
     {
         var useWatchCommand = watchMode && _spec.WatchExecute is not null;
         var commandSpec = useWatchCommand
@@ -173,7 +179,7 @@ internal sealed class GuestRuntime
         var phase = useWatchCommand
             ? ProfilingTelemetry.Values.GuestCommandPhaseWatchExecute
             : ProfilingTelemetry.Values.GuestCommandPhaseExecute;
-        return await ExecuteCommandAsync(commandSpec, appHostFile, directory, environmentVariables, null, phase, launcher, cancellationToken, afterLaunchAsync: afterAppHostLaunchedAsync);
+        return await ExecuteCommandAsync(commandSpec, appHostFile, directory, environmentVariables, null, phase, launcher, cancellationToken, afterLaunchAsync: afterAppHostLaunchedAsync, launchOptions: appHostLaunchOptions);
     }
 
     /// <summary>
@@ -252,7 +258,8 @@ internal sealed class GuestRuntime
         string phase,
         IGuestProcessLauncher launcher,
         CancellationToken cancellationToken,
-        Func<Task>? afterLaunchAsync = null)
+        Func<Task>? afterLaunchAsync = null,
+        GuestLaunchOptions? launchOptions = null)
     {
         var args = ReplacePlaceholders(commandSpec.Args, appHostFile, directory, additionalArgs);
 
@@ -262,7 +269,7 @@ internal sealed class GuestRuntime
         using var activity = _profilingTelemetry is null
             ? default
             : _profilingTelemetry.StartGuestExecuteCommand(_spec.Language, _spec.DisplayName, commandSpec.Command, args, directory, phase);
-        var (exitCode, output) = await launcher.LaunchAsync(commandSpec.Command, args, directory, mergedEnvironment, cancellationToken, afterLaunchAsync: afterLaunchAsync);
+        var (exitCode, output) = await launcher.LaunchAsync(commandSpec.Command, args, directory, mergedEnvironment, cancellationToken, afterLaunchAsync: afterLaunchAsync, options: launchOptions);
         activity.SetProcessExitCode(exitCode);
         if (exitCode != 0)
         {
@@ -313,7 +320,7 @@ internal sealed class GuestRuntime
     /// <summary>
     /// Creates the default process-based launcher for this runtime.
     /// </summary>
-    public ProcessGuestLauncher CreateDefaultLauncher() => new(_spec.Language, _logger, _fileLoggerProvider, _commandResolver);
+    public ProcessGuestLauncher CreateDefaultLauncher() => new(_spec.Language, _logger, fileLoggerProvider: _fileLoggerProvider, commandResolver: _commandResolver);
 
     /// <summary>
     /// Replaces placeholders in command arguments with actual values.

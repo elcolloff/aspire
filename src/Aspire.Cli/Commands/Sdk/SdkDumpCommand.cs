@@ -196,11 +196,16 @@ internal sealed class SdkDumpCommand : BaseCommand
                 return CliExitCodes.FailedToBuildArtifacts;
             }
 
-            await using var serverSession = AppHostServerSession.Start(
+            await using var serverSession = new AppHostServerSession(
                 appHostServerProject,
                 environmentVariables: null,
                 debug: false,
-                _logger);
+                _logger,
+                cancellationToken);
+            // Short-lived RPC session: discard the completion task; disposal flows the exit code
+            // through the activity scope and the only failure mode we care about surfaces via the
+            // RPC call below.
+            _ = serverSession.StartAsync();
 
             // Connect and get capabilities
             var rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
@@ -295,11 +300,16 @@ internal sealed class SdkDumpCommand : BaseCommand
                 return CliExitCodes.FailedToBuildArtifacts;
             }
 
-            await using var serverSession = AppHostServerSession.Start(
+            await using var serverSession = new AppHostServerSession(
                 appHostServerProject,
                 environmentVariables: null,
                 debug: false,
-                _logger);
+                _logger,
+                cancellationToken);
+            // Short-lived RPC session: discard the completion task; disposal flows the exit code
+            // through the activity scope and the only failure mode we care about surfaces via the
+            // RPC call below.
+            _ = serverSession.StartAsync();
 
             var rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
             outputDirectory.Create();

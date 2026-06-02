@@ -136,11 +136,16 @@ internal sealed class ScaffoldingService : IScaffoldingService
         }
 
         // Step 2: Start the server temporarily for scaffolding and code generation
-        await using var serverSession = AppHostServerSession.Start(
+        await using var serverSession = new AppHostServerSession(
             appHostServerProject,
             environmentVariables: null,
             debug: false,
-            _logger);
+            _logger,
+            cancellationToken);
+        // Short-lived RPC session: discard the completion task; disposal flows the exit code
+        // through the activity scope and the only failure mode we care about surfaces via the
+        // RPC call below.
+        _ = serverSession.StartAsync();
 
         // Step 3: Connect to server and get scaffold templates via RPC
         var rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);

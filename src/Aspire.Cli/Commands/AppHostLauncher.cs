@@ -33,7 +33,7 @@ internal sealed class AppHostLauncher(
     AspireCliTelemetry telemetry,
     ProfilingTelemetry profilingTelemetry,
     FileLoggerProvider fileLoggerProvider,
-    ProcessShutdownService processShutdownService,
+    DetachedAppHostShutdownService processShutdownService,
     IDetachedProcessLauncher detachedProcessLauncher,
     ILogger<AppHostLauncher> logger,
     TimeProvider timeProvider)

@@ -152,7 +152,6 @@ internal static class CliTestHelper
         services.AddSingleton<PlaywrightCliInstaller>();
         services.AddSingleton(options.ScaffoldingServiceFactory);
         services.AddSingleton<IAppHostServerProjectFactory, AppHostServerProjectFactory>();
-        services.AddSingleton(options.AppHostServerSessionFactory);
         services.AddSingleton<ILanguageDiscovery, DefaultLanguageDiscovery>();
         services.AddSingleton(options.LanguageServiceFactory);
         services.AddSingleton<TemplateNuGetConfigService>();
@@ -162,7 +161,19 @@ internal static class CliTestHelper
         services.AddSingleton(options.LayoutDiscoveryFactory);
         services.AddSingleton<IDetachedProcessLauncher, DefaultDetachedProcessLauncher>();
         services.AddTransient<LayoutProcessRunner>();
-        services.AddTransient<ProcessShutdownService>();
+        services.AddTransient<DetachedAppHostShutdownService>();
+        // Mirror Program.cs:414 so consumers (e.g. GuestAppHostProject) that depend on the
+        // interface receive the same DetachedAppHostShutdownService instance the abstraction
+        // wraps. Without this, DI returns null and Run-path tests construct the project with
+        // a missing dependency, masking wiring regressions.
+        services.AddTransient<IProcessTreeGracefulShutdownSignaler>(sp => sp.GetRequiredService<DetachedAppHostShutdownService>());
+        // Match Program.Main's parameterless GracefulShutdownService + 5s finalDrainBudget for CCM
+        // so tests exercise the same shutdown ladder budget as production. RunCommand and
+        // GuestAppHostProject require these services in production wiring.
+        services.AddSingleton<GracefulShutdownService>();
+        services.AddSingleton(sp => new ConsoleCancellationManager(
+            sp.GetRequiredService<GracefulShutdownService>(),
+            finalDrainBudget: TimeSpan.FromSeconds(5)));
         services.AddSingleton(options.BundlePayloadProviderFactory);
         services.AddSingleton(options.BundleServiceFactory);
         services.AddSingleton<BundleNuGetService>();
@@ -620,11 +631,6 @@ internal sealed class CliServiceCollectionTestOptions
         var defaultProject = projects.FirstOrDefault(p => p.LanguageId == KnownLanguageId.CSharp)
             ?? serviceProvider.GetService<DotNetAppHostProject>();
         return new TestLanguageService { DefaultProject = defaultProject };
-    };
-
-    public Func<IServiceProvider, IAppHostServerSessionFactory> AppHostServerSessionFactory { get; set; } = (IServiceProvider serviceProvider) =>
-    {
-        return new TestAppHostServerSessionFactory();
     };
 
     // Layout discovery - returns null by default (no bundle layout), causing SDK mode fallback

@@ -13,6 +13,7 @@ using Aspire.Cli.DotNet;
 using Aspire.Cli.Layout;
 using Aspire.Cli.NuGet;
 using Aspire.Cli.Packaging;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Aspire.Shared;
@@ -846,48 +847,83 @@ internal sealed class PrebuiltAppHostServer : IAppHostServerProject, IDisposable
     internal static string RedactSourceForDisplay(string source) => PackageSourceRedactor.RedactForDisplay(source);
 
     /// <inheritdoc />
-    public (string SocketPath, Process Process, OutputCollector OutputCollector) Run(
+    public AppHostServerRunResult Run(
         int hostPid,
         IReadOnlyDictionary<string, string>? environmentVariables = null,
         string[]? additionalArgs = null,
-        bool debug = false)
+        bool debug = false,
+        bool isolateConsole = false,
+        WindowsConsoleProcessJob? consoleProcessJob = null)
     {
         var startInfo = CreateStartInfo(hostPid, environmentVariables, additionalArgs, debug);
+        var outputCollector = new OutputCollector();
+        var arguments = startInfo.ArgumentList.ToArray();
+
+        // Pulled out so the inherited-console (event-based) and isolated (handler-based) paths
+        // produce identical log/collector output. The log level + prefix differ from the dotnet-based
+        // server (see DotNetBasedAppHostServerProject.Run) — keeping them here keeps both spawn
+        // variants on the same per-line behavior for this server.
+        void OnStdout(int pid, string line)
+        {
+            // Promoted from LogTrace to LogDebug so that apphost-server stdout reaches the
+            // CLI's on-disk log under the default file-logger filter (Debug). Previously
+            // these lines were dropped entirely, which made apphost-side warnings
+            // (for example, "LoaderExceptions" from the type-discovery path) invisible to
+            // anyone diagnosing a "no code generator found" / "no language support found"
+            // error. See https://github.com/microsoft/aspire/issues/16729.
+            _logger.LogDebug("PrebuiltAppHostServer({ProcessId}) stdout: {Line}", pid, line);
+            outputCollector.AppendOutput(line);
+        }
+
+        void OnStderr(int pid, string line)
+        {
+            // Promoted from LogTrace to LogInformation so that apphost-server stderr is
+            // visible at the default console log level (Information). Stderr is reserved
+            // for genuine problems in well-behaved server processes, so surfacing it
+            // by default is appropriate. See https://github.com/microsoft/aspire/issues/16729.
+            _logger.LogInformation("PrebuiltAppHostServer({ProcessId}) stderr: {Line}", pid, line);
+            outputCollector.AppendError(line);
+        }
+
+        if (isolateConsole)
+        {
+            var isolated = IsolatedConsoleSpawner.StartIsolated(startInfo, consoleProcessJob, OnStdout, OnStderr);
+            return new AppHostServerRunResult(
+                _socketPath,
+                isolated.Process,
+                outputCollector,
+                startInfo.FileName,
+                arguments,
+                isolated);
+        }
 
         var process = Process.Start(startInfo)!;
 
-        var outputCollector = new OutputCollector();
         process.OutputDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                // Promoted from LogTrace to LogDebug so that apphost-server stdout reaches the
-                // CLI's on-disk log under the default file-logger filter (Debug). Previously
-                // these lines were dropped entirely, which made apphost-side warnings
-                // (for example, "LoaderExceptions" from the type-discovery path) invisible to
-                // anyone diagnosing a "no code generator found" / "no language support found"
-                // error. See https://github.com/microsoft/aspire/issues/16729.
-                _logger.LogDebug("PrebuiltAppHostServer({ProcessId}) stdout: {Line}", process.Id, e.Data);
-                outputCollector.AppendOutput(e.Data);
+                OnStdout(process.Id, e.Data);
             }
         };
         process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                // Promoted from LogTrace to LogInformation so that apphost-server stderr is
-                // visible at the default console log level (Information). Stderr is reserved
-                // for genuine problems in well-behaved server processes, so surfacing it
-                // by default is appropriate. See https://github.com/microsoft/aspire/issues/16729.
-                _logger.LogInformation("PrebuiltAppHostServer({ProcessId}) stderr: {Line}", process.Id, e.Data);
-                outputCollector.AppendError(e.Data);
+                OnStderr(process.Id, e.Data);
             }
         };
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        return (_socketPath, process, outputCollector);
+        return new AppHostServerRunResult(
+            _socketPath,
+            process,
+            outputCollector,
+            startInfo.FileName,
+            arguments,
+            ProcessLifetimeAdapter.ForProcess(process));
     }
 
     internal ProcessStartInfo CreateStartInfo(

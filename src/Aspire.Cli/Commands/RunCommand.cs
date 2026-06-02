@@ -73,10 +73,16 @@ internal sealed class RunCommand : BaseCommand
     private readonly ICliHostEnvironment _hostEnvironment;
     private readonly ProfilingTelemetry _profilingTelemetry;
     private readonly TimeProvider _timeProvider;
+    private readonly ConsoleCancellationManager _cancellationManager;
     private bool _isDetachMode;
     private const int MaxDisplayedAppHostStartupOutputLines = 80;
 
     private static readonly TimeSpan s_appHostStartupCancellationTimeout = TimeSpan.FromSeconds(5);
+
+    // Graceful shutdown budget for `aspire run`. DCP gets a cooperative window to drain DCP
+    // resources before the central drain budget arms and ladders escalate to forceful kill.
+    // See plan §10 for the budget rationale.
+    internal static readonly TimeSpan s_gracefulShutdownBudget = TimeSpan.FromSeconds(5);
 
     // Guest AppHosts can bring up the temporary server/backchannel and then fail immediately
     // afterward when the guest startup process hits a syntax, pre-execute, or model validation
@@ -111,7 +117,8 @@ internal sealed class RunCommand : BaseCommand
         FileLoggerProvider fileLoggerProvider,
         ICliHostEnvironment hostEnvironment,
         ProfilingTelemetry profilingTelemetry,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ConsoleCancellationManager cancellationManager)
         : base("run", RunCommandStrings.Description, features, updateNotifier, executionContext, interactionService, telemetry)
     {
         _runner = runner;
@@ -128,6 +135,7 @@ internal sealed class RunCommand : BaseCommand
         _hostEnvironment = hostEnvironment;
         _profilingTelemetry = profilingTelemetry;
         _timeProvider = timeProvider;
+        _cancellationManager = cancellationManager;
 
         Options.Add(s_detachOption);
         Options.Add(s_noBuildOption);
@@ -138,6 +146,12 @@ internal sealed class RunCommand : BaseCommand
 
     protected override async Task<CommandResult> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
+        // Give DCP a cooperative window to drain resources before the central drain budget
+        // arms and shutdown ladders escalate to forceful kill. Without this, GracefulShutdownToken
+        // fires immediately on the first signal/RequestShutdown and isolation/AttachConsole buys
+        // nothing because every ladder sees the graceful window already expired.
+        _cancellationManager.ConfigureForCommand(s_gracefulShutdownBudget);
+
         var passedAppHostProjectFile = parseResult.GetValue(AppHostLauncher.s_appHostOption);
         var detach = parseResult.GetValue(s_detachOption);
         _isDetachMode = detach;
@@ -510,10 +524,10 @@ internal sealed class RunCommand : BaseCommand
             {
                 runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "canceled");
 
-                // The user cancelled (e.g. Ctrl+C); the linked CTS we passed to project.RunAsync
-                // propagated the cancellation and the OCE bubbled out with the linked token.
-                // Treat as successful exit since the user intentionally stopped the AppHost.
-                return CommandResult.Cancelled(CliExitCodes.Success);
+                // The user cancelled (e.g. Ctrl+C) OR an internal RequestShutdown fired the central
+                // token — distinguishing them by RequestedExitCode so internal-failure exit codes
+                // (e.g. guest exited non-zero) surface instead of being masked as success.
+                return MapCancellationToResult();
             }
             finally
             {
@@ -535,9 +549,10 @@ internal sealed class RunCommand : BaseCommand
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "canceled");
 
-            // Command is designed to be cancellable by the user (e.g. Ctrl+C) at any time.
-            // Treat cancellation as a successful exit since the user intentionally stopped the AppHost.
-            return CommandResult.Cancelled(CliExitCodes.Success);
+            // Command is designed to be cancellable by the user (e.g. Ctrl+C) at any time, but also
+            // by internal RequestShutdown(failureCode). Distinguish via CCM.RequestedExitCode so
+            // internal-failure exit codes are surfaced rather than swallowed as success.
+            return MapCancellationToResult();
         }
         catch (ProjectLocatorException ex)
         {
@@ -615,6 +630,25 @@ internal sealed class RunCommand : BaseCommand
         return errorMessage is null
             ? CommandResult.FromExitCode(exitCode)
             : CommandResult.Failure(exitCode, errorMessage);
+    }
+
+    /// <summary>
+    /// Maps a cancellation captured by an OCE catch to a CommandResult, consulting
+    /// <see cref="ConsoleCancellationManager.RequestedExitCode"/> so internal
+    /// <c>RequestShutdown(failureCode)</c> calls surface as failures rather than being masked as
+    /// success by the user-cancel translation. Returns success when no exit code was captured or
+    /// when the captured code matches the conventional Cancelled (130) signal exit.
+    /// </summary>
+    private CommandResult MapCancellationToResult()
+    {
+        var requested = _cancellationManager.RequestedExitCode;
+        if (requested is null or CliExitCodes.Cancelled)
+        {
+            // Ambient cancellation or user Ctrl+C — preserve today's "stopping intentionally is OK" UX.
+            return CommandResult.Cancelled(CliExitCodes.Success);
+        }
+
+        return CommandResult.FromExitCode(requested.Value);
     }
 
     private static async Task<int?> ObserveEarlyDetachedStartupExitAsync(Task<int> pendingRun, CancellationToken cancellationToken)

@@ -15,7 +15,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Aspire.Cli.Tests.Processes;
 
-public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
+public class DetachedAppHostShutdownServiceTests(ITestOutputHelper outputHelper)
 {
     [Fact]
     public async Task TryStopProcessTreeWithDcpAsync_UsesDcpStopProcessTreeArguments()
@@ -50,7 +50,7 @@ public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
             "--pid",
             Environment.ProcessId.ToString(CultureInfo.InvariantCulture),
             "--process-start-time",
-            ProcessShutdownService.FormatDcpProcessStartTime(startTime)
+            DetachedAppHostShutdownService.FormatDcpProcessStartTime(startTime)
         ], capturedArguments);
     }
 
@@ -143,7 +143,7 @@ public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
         }
     }
 
-    private static ProcessShutdownService CreateService(
+    private static DetachedAppHostShutdownService CreateService(
         TemporaryWorkspace workspace,
         string dcpDirectory,
         TestProcessExecutionFactory executionFactory,
@@ -158,12 +158,12 @@ public class ProcessShutdownServiceTests(ITestOutputHelper outputHelper)
             workspace.WorkspaceRoot.CreateSubdirectory("logs"),
             Path.Combine(workspace.WorkspaceRoot.FullName, "test.log"));
 
-        return new ProcessShutdownService(
+        return new DetachedAppHostShutdownService(
             new FixedLayoutDiscovery(dcpDirectory),
             bundleService ?? new NullBundleService(),
             new LayoutProcessRunner(executionFactory),
             executionContext,
-            NullLogger<ProcessShutdownService>.Instance,
+            NullLogger<DetachedAppHostShutdownService>.Instance,
             timeProvider ?? TimeProvider.System);
     }
 

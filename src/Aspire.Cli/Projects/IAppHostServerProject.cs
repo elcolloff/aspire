@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using Aspire.Cli.Configuration;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Utils;
 
 namespace Aspire.Cli.Projects;
@@ -19,6 +20,40 @@ internal sealed record AppHostServerPrepareResult(
     OutputCollector? Output,
     string? ChannelName = null,
     bool NeedsCodeGeneration = false);
+
+/// <summary>
+/// Result of <see cref="IAppHostServerProject.Run"/> — a launched AppHost server process plus
+/// the cleanup handle that owns it.
+/// </summary>
+/// <param name="SocketPath">RPC socket the server is publishing on.</param>
+/// <param name="Process">
+/// The underlying <see cref="System.Diagnostics.Process"/>. Callers may observe state
+/// (<see cref="Process.HasExited"/>, <see cref="Process.Id"/>, etc.) and drive lifecycle APIs
+/// (<see cref="Process.Kill(bool)"/>, <see cref="Process.WaitForExitAsync(CancellationToken)"/>),
+/// but must dispose via <see cref="ProcessLifetime"/> instead of the <see cref="Process"/>
+/// directly so the isolated-spawn path can release its anonymous pipes and stdin handle.
+/// </param>
+/// <param name="OutputCollector">Captured stdout/stderr for failure display.</param>
+/// <param name="FileName">
+/// The launched executable, captured at spawn time. Reading <see cref="ProcessStartInfo.FileName"/>
+/// off <see cref="Process"/> is unreliable on the isolated Windows path (the Process is obtained
+/// via <see cref="Process.GetProcessById(int)"/>, which returns an empty <see cref="ProcessStartInfo"/>),
+/// so telemetry should read identity from this field instead.
+/// </param>
+/// <param name="Arguments">The argument list, captured at spawn time. Same rationale as <paramref name="FileName"/>.</param>
+/// <param name="ProcessLifetime">
+/// Disposes the process and any associated isolated-spawn resources. Always non-null; for the
+/// non-isolated path this is a thin adapter that just disposes <paramref name="Process"/>, for
+/// the isolated path it is the <see cref="IsolatedProcess"/> wrapper that also drains the
+/// stdout/stderr pumps and closes the anonymous pipes + NUL stdin handle on Windows.
+/// </param>
+internal sealed record AppHostServerRunResult(
+    string SocketPath,
+    Process Process,
+    OutputCollector OutputCollector,
+    string FileName,
+    IReadOnlyList<string> Arguments,
+    IAsyncDisposable ProcessLifetime);
 
 /// <summary>
 /// Represents an AppHost server that can be prepared and run.
@@ -58,12 +93,27 @@ internal interface IAppHostServerProject
     /// <param name="environmentVariables">Environment variables to pass to the server.</param>
     /// <param name="additionalArgs">Additional command-line arguments.</param>
     /// <param name="debug">Whether to enable debug logging.</param>
-    /// <returns>The socket path, server process, and an output collector for stdout/stderr.</returns>
-    (string SocketPath, Process Process, OutputCollector OutputCollector) Run(
+    /// <param name="isolateConsole">
+    /// When <see langword="true"/>, on Windows the server is spawned via
+    /// <see cref="IsolatedProcess"/> into its own hidden console (CREATE_NEW_CONSOLE | SW_HIDE)
+    /// so DCP's <c>stop-process-tree</c> can <c>AttachConsole</c> + post <c>CTRL_C_EVENT</c>
+    /// against the server without also signalling the CLI. On Unix the flag is observed but the
+    /// resulting spawn is effectively the same as today's path (a thin <see cref="Process.Start(ProcessStartInfo)"/>
+    /// wrapper) because SIGTERM via the process group is enough. When <see langword="true"/> on
+    /// Windows, <paramref name="consoleProcessJob"/> must be non-null.
+    /// </param>
+    /// <param name="consoleProcessJob">
+    /// Windows-only kill-on-close safety net. Required when <paramref name="isolateConsole"/> is
+    /// <see langword="true"/> on Windows; ignored on Unix and on the non-isolated path.
+    /// </param>
+    /// <returns>The launched server process and its associated cleanup handle.</returns>
+    AppHostServerRunResult Run(
         int hostPid,
         IReadOnlyDictionary<string, string>? environmentVariables = null,
         string[]? additionalArgs = null,
-        bool debug = false);
+        bool debug = false,
+        bool isolateConsole = false,
+        WindowsConsoleProcessJob? consoleProcessJob = null);
 
     /// <summary>
     /// Gets a unique identifier path for this AppHost, used for running instance detection.

@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using Aspire.Cli.Diagnostics;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Microsoft.Extensions.Logging;
@@ -19,7 +20,11 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
     private readonly FileLoggerProvider? _fileLoggerProvider;
     private readonly Func<string, string?> _commandResolver;
 
-    public ProcessGuestLauncher(string language, ILogger logger, FileLoggerProvider? fileLoggerProvider = null, Func<string, string?>? commandResolver = null)
+    public ProcessGuestLauncher(
+        string language,
+        ILogger logger,
+        FileLoggerProvider? fileLoggerProvider = null,
+        Func<string, string?>? commandResolver = null)
     {
         _language = language;
         _logger = logger;
@@ -33,7 +38,8 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         DirectoryInfo workingDirectory,
         IDictionary<string, string> environmentVariables,
         CancellationToken cancellationToken,
-        Func<Task>? afterLaunchAsync = null)
+        Func<Task>? afterLaunchAsync = null,
+        GuestLaunchOptions? options = null)
     {
         var activity = GetCurrentProfilingActivity();
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessResolveStart);
@@ -53,29 +59,8 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessResolved, TelemetryConstants.Tags.ProcessExecutablePath, resolvedCommandPath);
         _logger.LogDebug("{ExecutingCommandPrefix}{Command} {Args}", CliLogFormat.MessagePrefixes.Executing, resolvedCommandPath, string.Join(" ", args));
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = resolvedCommandPath,
-            WorkingDirectory = workingDirectory.FullName,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        foreach (var arg in args)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
-
         var effectiveEnvironmentVariables = environmentVariables.ToDictionary();
         ProfilingTelemetry.AddActivityContextToEnvironment(activity, effectiveEnvironmentVariables);
-        foreach (var (key, value) in effectiveEnvironmentVariables)
-        {
-            startInfo.EnvironmentVariables[key] = value;
-        }
-
-        using var process = new Process { StartInfo = startInfo };
 
         var outputCollector = new OutputCollector(_fileLoggerProvider, CliLogFormat.Categories.AppHost);
         var stdoutCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,117 +68,335 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         var firstStdoutSeen = 0;
         var firstStderrSeen = 0;
 
-        process.OutputDataReceived += (sender, e) =>
+        // Per-line handlers are shared between the two spawn paths. The pid arrives via parameter
+        // rather than being closed over because the isolated path uses an Action<IsolatedProcess, string>
+        // at construction time, and we want both paths to fire telemetry/log lines against the same
+        // pid the line actually came from (no race against the Process variable assignment).
+        void HandleStdoutLine(int pid, string line)
         {
-            if (e.Data is null)
+            if (Interlocked.Exchange(ref firstStdoutSeen, 1) == 0)
             {
-                // ProcessDataReceivedEventArgs.Data is null when the redirected stdout stream closes.
-                stdoutCompleted.TrySetResult();
+                AddEvent(activity, ProfilingTelemetry.Events.GuestFirstStdout, TelemetryConstants.Tags.ProcessPid, pid);
             }
-            else
-            {
-                if (Interlocked.Exchange(ref firstStdoutSeen, 1) == 0)
-                {
-                    AddEvent(activity, ProfilingTelemetry.Events.GuestFirstStdout, TelemetryConstants.Tags.ProcessPid, process.Id);
-                }
 
-                _logger.LogTrace("{Language}({ProcessId}) stdout: {Line}", _language, process.Id, e.Data);
-                outputCollector.AppendOutput(e.Data);
-            }
-        };
-
-        process.ErrorDataReceived += (sender, e) =>
-        {
-            if (e.Data is null)
-            {
-                // ProcessDataReceivedEventArgs.Data is null when the redirected stderr stream closes.
-                stderrCompleted.TrySetResult();
-            }
-            else
-            {
-                if (Interlocked.Exchange(ref firstStderrSeen, 1) == 0)
-                {
-                    AddEvent(activity, ProfilingTelemetry.Events.GuestFirstStderr, TelemetryConstants.Tags.ProcessPid, process.Id);
-                }
-
-                _logger.LogTrace("{Language}({ProcessId}) stderr: {Line}", _language, process.Id, e.Data);
-                outputCollector.AppendError(e.Data);
-            }
-        };
-
-        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStart);
-        process.Start();
-        _logger.LogDebug("{Language} guest process {ProcessId} started: {Command}", _language, process.Id, resolvedCommandPath);
-        activity?.SetTag(TelemetryConstants.Tags.ProcessPid, process.Id);
-        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStarted, TelemetryConstants.Tags.ProcessPid, process.Id);
-        if (afterLaunchAsync is not null)
-        {
-            await afterLaunchAsync().ConfigureAwait(false);
+            _logger.LogTrace("{Language}({ProcessId}) stdout: {Line}", _language, pid, line);
+            outputCollector.AppendOutput(line);
         }
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        void HandleStderrLine(int pid, string line)
+        {
+            if (Interlocked.Exchange(ref firstStderrSeen, 1) == 0)
+            {
+                AddEvent(activity, ProfilingTelemetry.Events.GuestFirstStderr, TelemetryConstants.Tags.ProcessPid, pid);
+            }
+
+            _logger.LogTrace("{Language}({ProcessId}) stderr: {Line}", _language, pid, line);
+            outputCollector.AppendError(line);
+        }
+
+        Process process;
+        IAsyncDisposable? lifetime = null;
+        Task stdoutDrain;
+        Task stderrDrain;
+
+        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStart);
 
         try
         {
-            var waitForExitTask = process.WaitForExitAsync(cancellationToken);
-
-            using var _ = cancellationToken.Register(() =>
-                _logger.LogInformation("Cancellation requested while waiting for {Language} guest process {ProcessId} to exit", _language, process.Id));
-
-            await waitForExitTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The guest process is the AppHost's primary process for this language. When the caller
-            // cancels - either because the user pressed Ctrl+C or because a fatal startup condition
-            // (e.g. the AppHost server backchannel timed out) escalated into a teardown - we must kill
-            // the process tree, otherwise the AppHost stays alive after the CLI returns and the run
-            // appears to hang from the user's perspective.
-            //
-            // We don't rethrow the OperationCanceledException because the caller in GuestAppHostProject
-            // uses the returned exit code to distinguish user cancellation from internal teardown
-            // (e.g. surfacing captured output when the guest was killed because the AppHost system
-            // failed). Wait without honoring cancellation so the OS reports the final exit code and
-            // the redirected output streams have time to drain.
-            if (!process.HasExited)
+            if (options?.IsolateConsoleForGracefulShutdown == true)
             {
-                _logger.LogInformation("Killing {Language} guest process tree {ProcessId}", _language, process.Id);
-                try
+                // Run-path spawn: isolated console group + anonymous-pipe stdio so DCP's
+                // AttachConsole + GenerateConsoleCtrlEvent dance can target the guest without
+                // also signalling the CLI itself. Build the canonical ProcessStartInfo first so
+                // env/arg shape stays identical to the inherited branch; IsolatedConsoleSpawner
+                // translates to IsolatedProcessStartInfo and fail-fasts on Windows + null job.
+                var startInfo = new ProcessStartInfo
                 {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch (Exception killEx)
+                    FileName = resolvedCommandPath,
+                    WorkingDirectory = workingDirectory.FullName,
+                };
+
+                foreach (var arg in args)
                 {
-                    _logger.LogDebug(killEx, "Failed to kill guest process {ProcessId} after cancellation", process.Id);
+                    startInfo.ArgumentList.Add(arg);
                 }
+
+                foreach (var (key, value) in effectiveEnvironmentVariables)
+                {
+                    startInfo.Environment[key] = value;
+                }
+
+                var isolatedChild = IsolatedConsoleSpawner.StartIsolated(
+                    startInfo,
+                    options.ConsoleProcessJob,
+                    HandleStdoutLine,
+                    HandleStderrLine);
+                process = isolatedChild.Process;
+                stdoutDrain = isolatedChild.StandardOutputClosed;
+                stderrDrain = isolatedChild.StandardErrorClosed;
+                lifetime = isolatedChild;
             }
             else
             {
-                _logger.LogDebug("{Language} guest process {ProcessId} already exited before kill", _language, process.Id);
+                // Inherited-console spawn — today's behavior, retained for non-Run callers
+                // (publish, scaffolding) where the new-console dance is unnecessary.
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = resolvedCommandPath,
+                    WorkingDirectory = workingDirectory.FullName,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                foreach (var arg in args)
+                {
+                    startInfo.ArgumentList.Add(arg);
+                }
+
+                foreach (var (key, value) in effectiveEnvironmentVariables)
+                {
+                    startInfo.EnvironmentVariables[key] = value;
+                }
+
+                var inheritedProcess = new Process { StartInfo = startInfo };
+                // Publish the lifetime immediately so a fault between here and the end of the
+                // wiring block (Start, BeginOutputReadLine, BeginErrorReadLine) still runs disposal
+                // through the finally — Process owns an OS handle even before Start.
+                lifetime = ProcessLifetimeAdapter.ForProcess(inheritedProcess);
+                inheritedProcess.OutputDataReceived += (sender, e) =>
+                {
+                    if (e.Data is null)
+                    {
+                        // ProcessDataReceivedEventArgs.Data is null when the redirected stdout stream closes.
+                        stdoutCompleted.TrySetResult();
+                    }
+                    else
+                    {
+                        HandleStdoutLine(inheritedProcess.Id, e.Data);
+                    }
+                };
+                inheritedProcess.ErrorDataReceived += (sender, e) =>
+                {
+                    if (e.Data is null)
+                    {
+                        // ProcessDataReceivedEventArgs.Data is null when the redirected stderr stream closes.
+                        stderrCompleted.TrySetResult();
+                    }
+                    else
+                    {
+                        HandleStderrLine(inheritedProcess.Id, e.Data);
+                    }
+                };
+                inheritedProcess.Start();
+                inheritedProcess.BeginOutputReadLine();
+                inheritedProcess.BeginErrorReadLine();
+                process = inheritedProcess;
+                stdoutDrain = stdoutCompleted.Task;
+                stderrDrain = stderrCompleted.Task;
             }
 
-            _logger.LogDebug("Waiting for {Language} guest process {ProcessId} to exit after kill", _language, process.Id);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            _logger.LogDebug("{Language} guest process {ProcessId} started: {Command}", _language, process.Id, resolvedCommandPath);
+            activity?.SetTag(TelemetryConstants.Tags.ProcessPid, process.Id);
+            AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStarted, TelemetryConstants.Tags.ProcessPid, process.Id);
+            if (afterLaunchAsync is not null)
+            {
+                await afterLaunchAsync().ConfigureAwait(false);
+            }
+
+            try
+            {
+                using var _ = cancellationToken.Register(() =>
+                    _logger.LogInformation("Cancellation requested while waiting for {Language} guest process {ProcessId} to exit", _language, process.Id));
+
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The guest process is the AppHost's primary process for this language. When the caller
+                // cancels - either because the user pressed Ctrl+C or because a fatal startup condition
+                // (e.g. the AppHost server backchannel timed out) escalated into a teardown - we must kill
+                // the process tree, otherwise the AppHost stays alive after the CLI returns and the run
+                // appears to hang from the user's perspective.
+                //
+                // We don't rethrow the OperationCanceledException because the caller in GuestAppHostProject
+                // uses the returned exit code to distinguish user cancellation from internal teardown
+                // (e.g. surfacing captured output when the guest was killed because the AppHost system
+                // failed). Wait without honoring cancellation so the OS reports the final exit code and
+                // the redirected output streams have time to drain.
+                await ShutdownGuestProcessAsync(process, options, cancellationToken).ConfigureAwait(false);
+            }
+
+            _logger.LogDebug("{Language} guest process {ProcessId} exited with code {ExitCode}", _language, process.Id, process.ExitCode);
+
+            activity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
+            AddEvent(activity, ProfilingTelemetry.Events.GuestProcessExited, TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
+
+            // Wait for the redirected streams to finish draining so no trailing lines are lost.
+            // Pass a fresh token rather than the outer cancellation token: when WaitForExitAsync
+            // above was canceled we deliberately killed the process and want to give the streams
+            // their full 5s grace period to flush trailing lines, otherwise drain would short-circuit
+            // immediately and we'd both drop output and log a misleading "drain timeout" warning.
+            if (!await WaitForDrainAsync(Task.WhenAll(stdoutDrain, stderrDrain)))
+            {
+                AddEvent(activity, ProfilingTelemetry.Events.GuestOutputDrainTimeout, TelemetryConstants.Tags.ProcessPid, process.Id);
+                _logger.LogWarning("{Language}({ProcessId}): Timed out waiting for output streams to drain after process exit", _language, process.Id);
+            }
+
+            return (process.ExitCode, outputCollector);
         }
-
-        _logger.LogDebug("{Language} guest process {ProcessId} exited with code {ExitCode}", _language, process.Id, process.ExitCode);
-
-        activity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
-        AddEvent(activity, ProfilingTelemetry.Events.GuestProcessExited, TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
-
-        // Wait for the redirected streams to finish draining so no trailing lines are lost.
-        // Pass a fresh token rather than the outer cancellation token: when WaitForExitAsync
-        // above was canceled we deliberately killed the process and want to give the streams
-        // their full 5s grace period to flush trailing lines, otherwise drain would short-circuit
-        // immediately and we'd both drop output and log a misleading "drain timeout" warning.
-        if (!await WaitForDrainAsync(Task.WhenAll(stdoutCompleted.Task, stderrCompleted.Task)))
+        finally
         {
-            AddEvent(activity, ProfilingTelemetry.Events.GuestOutputDrainTimeout, TelemetryConstants.Tags.ProcessPid, process.Id);
-            _logger.LogWarning("{Language}({ProcessId}): Timed out waiting for output streams to drain after process exit", _language, process.Id);
+            // Single disposal site for both spawn paths. The lifetime is either an IsolatedProcess
+            // (which drains pumps + closes the anonymous pipes + NUL stdin handle on top of
+            // disposing the Process) or a ProcessLifetimeAdapter that just disposes the Process.
+            // Null when the spawn itself threw (e.g. IsolatedConsoleSpawner fail-fast) — nothing
+            // to dispose in that case.
+            if (lifetime is not null)
+            {
+                await lifetime.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task ShutdownGuestProcessAsync(
+        Process process,
+        GuestLaunchOptions? options,
+        CancellationToken cancellationToken)
+    {
+        // Force-kill path: take this when graceful infra isn't wired (non-Run callers — publish,
+        // extension adapter, anyone not opting into the central shutdown budget). We don't have
+        // a central token to bound a graceful wait against, so kill the tree and let
+        // WaitForDrainAsync surface any trailing output. This preserves the previous tactical
+        // behavior (graceful on Unix, force-kill on Windows) for callers that pass no options.
+        if (options?.GracefulShutdownSignaler is null || options.ShutdownService is null)
+        {
+            _logger.LogInformation("Stopping {Language} guest process tree {ProcessId}", _language, process.Id);
+            try
+            {
+                await ProcessTerminator.ShutdownAsync(
+                    process,
+                    requestGracefulShutdown: !OperatingSystem.IsWindows(),
+                    entireProcessTree: true,
+                    _logger,
+                    $"{_language} guest",
+                    gracefulShutdownCancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to shut down {Language} guest process {ProcessId}.", _language, SafePid(process));
+            }
+
+            return;
         }
 
-        return (process.ExitCode, outputCollector);
+        // Run-path graceful ladder — mirrors AppHostServerSession.ShutdownAsync. Whoever
+        // initiated shutdown (CCM via RequestShutdown/Cancel) already started the central
+        // graceful clock; we only consume the token.
+        var gracefulToken = options.ShutdownService.Token;
+
+        // Phase 1: best-effort graceful signal bounded by the central token. The DCP path on
+        // Windows shells out (layout discovery + DCP process launch + wait) and could consume
+        // the entire graceful window before we ever reach WaitForExitAsync. Sharing the central
+        // token means a 2nd-Ctrl+C Expire() interrupts the slow DCP shell-out exactly the same
+        // way it interrupts the WaitForExitAsync below.
+        try
+        {
+            DateTimeOffset? startTime = TryGetStartTime(process);
+            await options.GracefulShutdownSignaler.RequestProcessTreeGracefulShutdownAsync(
+                process.Id,
+                startTime,
+                includeStartTimeForDcp: false,
+                gracefulToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (gracefulToken.IsCancellationRequested)
+        {
+            // Graceful budget expired before the signal could be issued; fall through to kill.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to issue graceful shutdown to {Language} guest (pid {Pid}); escalating to kill.", _language, SafePid(process));
+        }
+
+        // Phase 2: wait for exit bounded by the same central token.
+        try
+        {
+            await process.WaitForExitAsync(gracefulToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Graceful budget expired; fall through to kill.
+        }
+
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        // Phase 3: ALWAYS tree-kill on escalation. Even when the graceful signal returned
+        // cleanly, the tree may still be alive — e.g. on Windows, tsx wraps node and swallows
+        // Ctrl+C/Ctrl+Break, leaving the child node and any further descendants running after
+        // the tsx shell exits. Tree-kill is the only guarantee that nothing is orphaned.
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // Process exited between HasExited check and Kill — nothing to do.
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to kill {Language} guest (pid {Pid}).", _language, SafePid(process));
+            return;
+        }
+
+        // Phase 4: brief separately-bounded drain after kill — independent of central token
+        // because by now the central budget has already expired. 1 s is enough for the OS to
+        // reap the process so the subsequent ExitCode read succeeds.
+        try
+        {
+            using var killDrain = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            await process.WaitForExitAsync(killDrain.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Best-effort; nothing more we can do.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error draining killed {Language} guest (pid {Pid}).", _language, SafePid(process));
+        }
+    }
+
+    private static DateTimeOffset? TryGetStartTime(Process process)
+    {
+        // Process.StartTime can throw InvalidOperationException on a process whose handle was
+        // closed or that has exited in some states. Treat as unavailable rather than aborting
+        // the graceful path — the Unix branch ignores StartTime entirely, and the Windows DCP
+        // branch only uses it when includeStartTimeForDcp is true (which it isn't here).
+        try
+        {
+            return process.StartTime;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static int SafePid(Process process)
+    {
+        try
+        {
+            return process.Id;
+        }
+        catch (Exception)
+        {
+            return -1;
+        }
     }
 
     private static Activity? GetCurrentProfilingActivity()
@@ -237,5 +440,6 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         {
             return false;
         }
+
     }
 }

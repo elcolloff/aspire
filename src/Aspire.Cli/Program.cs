@@ -277,7 +277,7 @@ public class Program
         return (factory, fileLoggerProvider);
     }
 
-    internal static async Task<IHost> BuildApplicationAsync(string[] args, CliStartupContext startupContext, Dictionary<string, string?>? configurationValues = null)
+    internal static async Task<IHost> BuildApplicationAsync(string[] args, CliStartupContext startupContext, Dictionary<string, string?>? configurationValues = null, ConsoleCancellationManager? cancellationManager = null, GracefulShutdownService? gracefulShutdownService = null)
     {
         // Check for --non-interactive flag early
         var nonInteractive = args?.Any(a => a == CommonOptionNames.NonInteractive) ?? false;
@@ -331,6 +331,20 @@ public class Program
         // Register logging options so components can read the user's chosen log level
         builder.Services.AddSingleton(startupContext.LoggingOptions);
 
+        // Register CCM and the graceful shutdown service as instance singletons so the DI container
+        // does not take disposal ownership — Program.Main owns the lifetime via `using` statements.
+        // Tests that drive BuildApplicationAsync directly without passing them in still work because
+        // the registrations are gated on non-null arguments.
+        if (cancellationManager is not null)
+        {
+            builder.Services.AddSingleton(cancellationManager);
+        }
+
+        if (gracefulShutdownService is not null)
+        {
+            builder.Services.AddSingleton(gracefulShutdownService);
+        }
+
         // Configure OpenTelemetry tracing. TelemetryManager reads configuration and creates
         // separate TracerProvider instances:
         // - Azure Monitor provider with filtering (only exports activities with EXTERNAL_TELEMETRY=true)
@@ -383,8 +397,21 @@ public class Program
         builder.Services.AddTelemetryServices();
         builder.Services.AddTransient<IProcessExecutionFactory, ProcessExecutionFactory>();
         builder.Services.AddSingleton<IDetachedProcessLauncher, DefaultDetachedProcessLauncher>();
+        // Windows-only crash-time safety net for interactive children spawned by
+        // IsolatedProcess. Holding this as a CLI-lifetime singleton means the
+        // OS closes the job handle automatically on process exit, firing KILL_ON_JOB_CLOSE on
+        // any assigned children that haven't already exited (e.g. orphaned tsx after the CLI
+        // crashes). On non-Windows, process-group reparenting + ordinary signal delivery cover
+        // the same case, so no registration is needed.
+        if (OperatingSystem.IsWindows())
+        {
+            builder.Services.AddSingleton<WindowsConsoleProcessJob>();
+        }
         builder.Services.AddTransient<LayoutProcessRunner>();
-        builder.Services.AddTransient<ProcessShutdownService>();
+        builder.Services.AddTransient<DetachedAppHostShutdownService>();
+        // Forward the interface to the existing concrete service so consumers can depend on the
+        // abstraction (used by AppHostServerSession + GuestLaunchOptions in the aspire run path).
+        builder.Services.AddTransient<IProcessTreeGracefulShutdownSignaler>(sp => sp.GetRequiredService<DetachedAppHostShutdownService>());
 
         // Register certificate tool runner - uses native CertificateManager directly (no subprocess needed)
         builder.Services.AddSingleton(sp => CertificateManager.Create(sp.GetRequiredService<ILogger<NativeCertificateToolRunner>>()));
@@ -487,9 +514,6 @@ public class Program
 
         // Language discovery for polyglot support.
         builder.Services.AddSingleton<ILanguageDiscovery, DefaultLanguageDiscovery>();
-
-        // AppHost server session factory for RPC communication.
-        builder.Services.AddSingleton<IAppHostServerSessionFactory, AppHostServerSessionFactory>();
 
         // AppHost project handlers.
         builder.Services.AddSingleton<DotNetAppHostProject>();
@@ -783,8 +807,13 @@ public class Program
     {
         // Setup handling of CTRL-C and SIGTERM as early as possible so that if
         // we get a signal anywhere that is not handled by Spectre Console
-        // already that we know to trigger cancellation.
-        using var cancellationManager = new ConsoleCancellationManager(processTerminationTimeout: TimeSpan.FromSeconds(5));
+        // already that we know to trigger cancellation. The graceful service is
+        // constructed first and handed to CCM so the two share the same lifetime
+        // and CCM can drive timing from the signal handler. Both are registered
+        // as DI singletons below via AddSingleton(instance) so the container does
+        // not take disposal ownership.
+        using var gracefulShutdownService = new GracefulShutdownService();
+        using var cancellationManager = new ConsoleCancellationManager(gracefulShutdownService, finalDrainBudget: TimeSpan.FromSeconds(5));
 
         Console.OutputEncoding = Encoding.UTF8;
 
@@ -815,7 +844,7 @@ public class Program
         IHost? app = null;
         try
         {
-            app = await BuildApplicationAsync(args, startupContext);
+            app = await BuildApplicationAsync(args, startupContext, cancellationManager: cancellationManager, gracefulShutdownService: gracefulShutdownService);
             await app.StartAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -922,6 +951,15 @@ public class Program
 
                 // Log exit code for debugging
                 logger.LogInformation("Exit code: {ExitCode}", exitCode);
+            }
+            catch (OperationCanceledException)
+            {
+                // When the command observed cancellation and propagated OCE rather than returning
+                // a normal exit code, surface the code declared by whichever caller initiated
+                // shutdown — Ctrl+C (SIGINT/SIGTERM code) or an internal RequestShutdown(failureCode).
+                // Fall back to the generic Cancelled code only when nothing was declared.
+                exitCode = cancellationManager.RequestedExitCode ?? CliExitCodes.Cancelled;
+                logger.LogInformation("Command cancelled. Exit code: {ExitCode}", exitCode);
             }
             catch (Exception ex)
             {

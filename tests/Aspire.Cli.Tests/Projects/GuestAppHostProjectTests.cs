@@ -5,6 +5,7 @@ using Aspire.Cli.Configuration;
 using Aspire.Cli.Diagnostics;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Packaging;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.TestServices;
@@ -921,6 +922,14 @@ public class GuestAppHostProjectTests : IDisposable
             identityChannel: identityChannel,
             logFilePath: logFilePath);
 
+        // Construct real graceful-shutdown collaborators so the contract matches production:
+        // GuestAppHostProject requires these services even when a test exits the Run path early
+        // (e.g. via FailedToBuildArtifacts) without exercising them. A no-op signaler stands in
+        // for DetachedAppHostShutdownService because none of the tests in this fixture drive the
+        // launcher or AppHostServerSession code paths that would actually invoke it.
+        var gracefulShutdownService = new GracefulShutdownService();
+        var cancellationManager = new ConsoleCancellationManager(gracefulShutdownService, finalDrainBudget: TimeSpan.FromSeconds(5));
+
         return new GuestAppHostProject(
             language: language,
             interactionService: interactionService ?? new TestInteractionService(),
@@ -935,7 +944,16 @@ public class GuestAppHostProjectTests : IDisposable
             executionContext: executionContext,
             logger: NullLogger<GuestAppHostProject>.Instance,
             fileLoggerProvider: new FileLoggerProvider(logFilePath, new TestStartupErrorWriter()),
-            profilingTelemetry: _profilingTelemetry);
+            profilingTelemetry: _profilingTelemetry,
+            cancellationManager: cancellationManager,
+            gracefulShutdownSignaler: new NoOpGracefulSignaler(),
+            shutdownService: gracefulShutdownService);
+    }
+
+    private sealed class NoOpGracefulSignaler : IProcessTreeGracefulShutdownSignaler
+    {
+        public Task<bool> RequestProcessTreeGracefulShutdownAsync(int pid, DateTimeOffset? startTime, bool includeStartTimeForDcp, CancellationToken cancellationToken)
+            => Task.FromResult(true);
     }
 
 }

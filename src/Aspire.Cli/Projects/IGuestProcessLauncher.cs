@@ -1,9 +1,53 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Aspire.Cli.Processes;
 using Aspire.Cli.Utils;
 
 namespace Aspire.Cli.Projects;
+
+/// <summary>
+/// Optional knobs that govern how a guest process is spawned and torn down. Defaults
+/// preserve today's behavior for non-Run callers (publish, scaffolding) — they spawn
+/// inheriting the parent console and fall back to force-kill on cancellation. The
+/// <c>aspire run</c> path passes a populated record so the launcher uses the same
+/// new-console + graceful-then-tree-kill ladder that <c>AppHostServerSession</c> uses
+/// for the AppHost server child.
+/// </summary>
+/// <param name="IsolateConsoleForGracefulShutdown">
+/// When <see langword="true"/>, spawn the guest via
+/// <see cref="IsolatedProcess"/> so it lands in its own hidden console
+/// group. Required on Windows for the AttachConsole + GenerateConsoleCtrlEvent dance
+/// (executed by <see cref="DetachedAppHostShutdownService"/>) to target the guest
+/// without also signalling the CLI itself. No-op on Unix where SIGTERM is sufficient.
+/// </param>
+/// <param name="GracefulShutdownSignaler">
+/// The per-OS "ask this process tree to shut down" primitive (DCP <c>stop-process-tree</c>
+/// on Windows, SIGTERM via <c>ProcessSignaler</c> on Unix). When non-<see langword="null"/>
+/// (and <paramref name="ShutdownService"/> is non-<see langword="null"/>), the launcher's
+/// cancellation path issues this signal before escalating to <c>Process.Kill</c>.
+/// </param>
+/// <param name="ShutdownService">
+/// The central graceful-shutdown budget. Its <see cref="GracefulShutdownService.Token"/>
+/// bounds both the graceful-signal call and the post-signal wait-for-exit, so a 2nd Ctrl+C
+/// (which calls <see cref="GracefulShutdownService.Expire"/> via the cancellation manager)
+/// interrupts both immediately and the ladder escalates to <c>Kill(entireProcessTree: true)</c>.
+/// </param>
+/// <param name="ConsoleProcessJob">
+/// Windows-only crash-time safety net. When supplied (and
+/// <paramref name="IsolateConsoleForGracefulShutdown"/> is <see langword="true"/>), the
+/// guest process is atomically assigned to this kill-on-close job at spawn time so a CLI
+/// crash takes the guest with it instead of leaving an orphaned process in its own console
+/// group. <see langword="null"/> on non-Windows hosts (Unix process-group semantics handle
+/// the equivalent case via normal signal delivery). DCP and other infrastructure that needs
+/// to outlive the CLI for its own cleanup is expected to use <c>CREATE_BREAKAWAY_FROM_JOB</c>
+/// to opt out of this kill.
+/// </param>
+internal sealed record GuestLaunchOptions(
+    bool IsolateConsoleForGracefulShutdown = false,
+    IProcessTreeGracefulShutdownSignaler? GracefulShutdownSignaler = null,
+    GracefulShutdownService? ShutdownService = null,
+    WindowsConsoleProcessJob? ConsoleProcessJob = null);
 
 /// <summary>
 /// Strategy for launching a guest language process.
@@ -19,5 +63,6 @@ internal interface IGuestProcessLauncher
         DirectoryInfo workingDirectory,
         IDictionary<string, string> environmentVariables,
         CancellationToken cancellationToken,
-        Func<Task>? afterLaunchAsync = null);
+        Func<Task>? afterLaunchAsync = null,
+        GuestLaunchOptions? options = null);
 }

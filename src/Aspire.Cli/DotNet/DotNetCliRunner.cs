@@ -59,6 +59,11 @@ internal sealed class ProcessInvocationOptions
     /// Useful for background operations like NuGet package cache refreshes.
     /// </summary>
     public bool SuppressLogging { get; set; }
+
+    /// <summary>
+    /// Controls whether cancellation should terminate the whole process tree or only the root process.
+    /// </summary>
+    public bool KillEntireProcessTreeOnCancel { get; set; } = true;
 }
 
 internal sealed class DotNetCliRunner(
@@ -270,6 +275,7 @@ internal sealed class DotNetCliRunner(
             StartDebugSession = options.StartDebugSession,
             Debug = options.Debug,
             SuppressLogging = options.SuppressLogging,
+            KillEntireProcessTreeOnCancel = options.KillEntireProcessTreeOnCancel,
             StandardOutputCallback = line =>
             {
                 var lineCount = Interlocked.Increment(ref outputCounters.StdoutLineCount);

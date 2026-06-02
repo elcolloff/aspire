@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using Aspire.Cli.Processes;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Cli.DotNet;
@@ -90,26 +91,21 @@ internal sealed class ProcessExecution : IProcessExecution
         {
             await _process.WaitForExitAsync(cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            if (!_process.HasExited)
-            {
-                _logger.LogDebug("{FileName}({ProcessId}) wait was canceled, killing it", FileName, _process.Id);
-                TryKillProcessTree();
-            }
+            _logger.LogDebug("{FileName}({ProcessId}) wait was canceled, stopping it", FileName, _process.Id);
+            await ProcessTerminator.ShutdownAsync(
+                _process,
+                requestGracefulShutdown: !OperatingSystem.IsWindows(),
+                _options.KillEntireProcessTreeOnCancel,
+                _logger,
+                FileName,
+                gracefulShutdownCancellationToken: cancellationToken).ConfigureAwait(false);
 
             throw;
         }
 
-        if (!_process.HasExited)
-        {
-            _logger.LogDebug("{FileName}({ProcessId}) has not exited, killing it", FileName, _process.Id);
-            _process.Kill(false);
-        }
-        else
-        {
-            _logger.LogDebug("{FileName}({ProcessId}) exited with code: {ExitCode}", FileName, _process.Id, _process.ExitCode);
-        }
+        _logger.LogDebug("{FileName}({ProcessId}) exited with code: {ExitCode}", FileName, _process.Id, _process.ExitCode);
 
         // Give the forwarders a fresh idle window to consume any buffered tail output produced right before exit.
         RecordForwarderActivity();
@@ -216,17 +212,5 @@ internal sealed class ProcessExecution : IProcessExecution
     private void RecordForwarderActivity()
     {
         Interlocked.Exchange(ref _lastForwarderActivityTimestamp, Stopwatch.GetTimestamp());
-    }
-
-    private void TryKillProcessTree()
-    {
-        try
-        {
-            _process.Kill(entireProcessTree: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "{FileName}({ProcessId}) failed to kill process tree after wait cancellation", FileName, _process.Id);
-        }
     }
 }

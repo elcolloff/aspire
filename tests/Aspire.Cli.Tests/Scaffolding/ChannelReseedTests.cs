@@ -2,13 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Aspire.Cli.Configuration;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Scaffolding;
 using Aspire.Cli.Tests.TestServices;
 using Aspire.Cli.Tests.Utils;
-using Aspire.Cli.Utils;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Diagnostics;
 
 namespace Aspire.Cli.Tests.Scaffolding;
 
@@ -138,11 +137,13 @@ public class ChannelReseedTests(ITestOutputHelper outputHelper)
             return Task.FromResult(new AppHostServerPrepareResult(Success: false, Output: null));
         }
 
-        public (string SocketPath, Process Process, OutputCollector OutputCollector) Run(
+        public AppHostServerRunResult Run(
             int hostPid,
             IReadOnlyDictionary<string, string>? environmentVariables = null,
             string[]? additionalArgs = null,
-            bool debug = false) =>
+            bool debug = false,
+            bool isolateConsole = false,
+            WindowsConsoleProcessJob? consoleProcessJob = null) =>
             throw new NotSupportedException("Run should not be invoked when PrepareAsync fails.");
     }
 }

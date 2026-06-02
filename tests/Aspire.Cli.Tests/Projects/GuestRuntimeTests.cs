@@ -614,7 +614,7 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
             var launcher = new ProcessGuestLauncher(
                 "test",
                 _loggerFactory.CreateLogger<ProcessGuestLauncher>(),
-                fileLoggerProvider,
+                fileLoggerProvider: fileLoggerProvider,
                 commandResolver: cmd => cmd == "dotnet" ? "dotnet" : null);
 
             var (exitCode, output) = await launcher.LaunchAsync(
@@ -886,7 +886,8 @@ public class GuestRuntimeTests(ITestOutputHelper outputHelper)
             DirectoryInfo workingDirectory,
             IDictionary<string, string> environmentVariables,
             CancellationToken cancellationToken,
-            Func<Task>? afterLaunchAsync = null)
+            Func<Task>? afterLaunchAsync = null,
+            GuestLaunchOptions? options = null)
         {
             Calls.Add((command, args));
             LastCommand = command;

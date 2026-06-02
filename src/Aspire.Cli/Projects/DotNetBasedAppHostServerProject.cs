@@ -9,6 +9,7 @@ using System.Xml.Linq;
 using Aspire.Cli.Configuration;
 using Aspire.Cli.DotNet;
 using Aspire.Cli.Packaging;
+using Aspire.Cli.Processes;
 using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Microsoft.Extensions.Logging;
@@ -467,15 +468,20 @@ internal sealed class DotNetBasedAppHostServerProject : IAppHostServerProject
     public string GetInstanceIdentifier() => GetProjectFilePath();
 
     /// <inheritdoc />
-    public (string SocketPath, Process Process, OutputCollector OutputCollector) Run(
+    public AppHostServerRunResult Run(
         int hostPid,
         IReadOnlyDictionary<string, string>? environmentVariables = null,
         string[]? additionalArgs = null,
-        bool debug = false)
+        bool debug = false,
+        bool isolateConsole = false,
+        WindowsConsoleProcessJob? consoleProcessJob = null)
     {
         var assemblyPath = Path.Combine(BuildPath, ProjectDllName);
         var dotnetExe = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
 
+        // Build the canonical ProcessStartInfo first, then translate to IsolatedProcessStartInfo
+        // only if the isolated path is requested. Sharing the env/arg construction avoids drift
+        // between the two branches — every env var and argument lives in exactly one place.
         var startInfo = new ProcessStartInfo(dotnetExe)
         {
             WorkingDirectory = _projectModelPath,
@@ -521,29 +527,62 @@ internal sealed class DotNetBasedAppHostServerProject : IAppHostServerProject
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
 
+        var outputCollector = new OutputCollector();
+        var arguments = startInfo.ArgumentList.ToArray();
+
+        // Pulled out so the inherited-console (event-based) and isolated (handler-based) paths
+        // produce identical log/collector output. Keeps the per-line behavior in one place even
+        // if we end up with a third spawn variant later.
+        void OnStdout(int pid, string line)
+        {
+            _logger.LogTrace("AppHostServer({ProcessId}) stdout: {Line}", pid, line);
+            outputCollector.AppendOutput(line);
+        }
+
+        void OnStderr(int pid, string line)
+        {
+            _logger.LogTrace("AppHostServer({ProcessId}) stderr: {Line}", pid, line);
+            outputCollector.AppendError(line);
+        }
+
+        if (isolateConsole)
+        {
+            var isolated = IsolatedConsoleSpawner.StartIsolated(startInfo, consoleProcessJob, OnStdout, OnStderr);
+            return new AppHostServerRunResult(
+                _socketPath,
+                isolated.Process,
+                outputCollector,
+                startInfo.FileName,
+                arguments,
+                isolated);
+        }
+
         var process = Process.Start(startInfo)!;
 
-        var outputCollector = new OutputCollector();
         process.OutputDataReceived += (sender, e) =>
         {
             if (e.Data is not null)
             {
-                _logger.LogTrace("AppHostServer({ProcessId}) stdout: {Line}", process.Id, e.Data);
-                outputCollector.AppendOutput(e.Data);
+                OnStdout(process.Id, e.Data);
             }
         };
         process.ErrorDataReceived += (sender, e) =>
         {
             if (e.Data is not null)
             {
-                _logger.LogTrace("AppHostServer({ProcessId}) stderr: {Line}", process.Id, e.Data);
-                outputCollector.AppendError(e.Data);
+                OnStderr(process.Id, e.Data);
             }
         };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        return (_socketPath, process, outputCollector);
+        return new AppHostServerRunResult(
+            _socketPath,
+            process,
+            outputCollector,
+            startInfo.FileName,
+            arguments,
+            ProcessLifetimeAdapter.ForProcess(process));
     }
 
     private static string? FindNuGetConfig(string workingDirectory)

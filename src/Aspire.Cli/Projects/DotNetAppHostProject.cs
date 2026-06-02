@@ -320,7 +320,8 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             StandardOutputCallback = runOutputCollector.AppendOutput,
             StandardErrorCallback = runOutputCollector.AppendError,
             StartDebugSession = context.StartDebugSession,
-            Debug = context.Debug
+            Debug = context.Debug,
+            KillEntireProcessTreeOnCancel = ShouldKillEntireProcessTreeOnCancel(OperatingSystem.IsWindows())
         };
 
         // The backchannel completion source is the contract with RunCommand
@@ -384,6 +385,8 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             }
         }
     }
+
+    internal static bool ShouldKillEntireProcessTreeOnCancel(bool isWindows) => !isWindows;
 
     private async Task EnsureDevCertificatesTrustedAsync(AppHostProjectContext context, Dictionary<string, string> env, CancellationToken cancellationToken)
     {
