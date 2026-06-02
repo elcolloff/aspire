@@ -298,7 +298,6 @@ The same pattern applies to any provider that parses the connection string while
 ## Additional documentation
 
 https://aspire.dev/integrations/databases/efcore/migrations/#automated-ef-migrations-with-addefmigrations
-https://learn.microsoft.com/dotnet/aspire/
 https://learn.microsoft.com/ef/core/managing-schemas/migrations/
 
 ## Feedback & contributing
