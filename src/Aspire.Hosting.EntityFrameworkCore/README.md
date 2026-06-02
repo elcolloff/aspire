@@ -250,6 +250,51 @@ for your deployment flow:
 
 Similarly you can use `PublishAsMigrationScript()` if you also want a raw SQL script produced.
 
+#### Troubleshooting: design-time connection strings
+
+Generating a migration bundle runs the EF Core design-time tooling, which creates
+your `DbContext` to discover the model. Providers that parse the connection string
+while the context is being created — for example the Azure Npgsql integration
+(`EnrichAzureNpgsqlDbContext`) — fail at design time because no real connection
+string is available, producing an error such as:
+
+```
+Unable to create a 'DbContext' of type 'AppDbContext'. The exception 'Format of the
+initialization string does not conform to specification starting at index 0.' was
+thrown while attempting to create an instance.
+```
+
+Guard the connection-string-dependent configuration with `EF.IsDesignTime` so EF
+Core can build the model without a connection string. The bundle still receives the
+real connection string at run time via the `--connection` argument Aspire injects:
+
+```csharp
+builder.Services.AddPooledDbContextFactory<AppDbContext>((sp, options) =>
+{
+    if (EF.IsDesignTime)
+    {
+        // At design time (e.g. when generating a migration bundle) no real
+        // connection string is available. Use the parameterless overload so
+        // EF Core can build the model without parsing a connection string.
+        options.UseNpgsql();
+    }
+    else
+    {
+        options.UseNpgsql(builder.Configuration.GetConnectionString("postgresdb"));
+    }
+});
+
+if (!EF.IsDesignTime)
+{
+    // EnrichAzureNpgsqlDbContext configures an Entra ID data source that parses
+    // the connection string, which is not available at design time.
+    builder.EnrichAzureNpgsqlDbContext<AppDbContext>();
+}
+```
+
+The same pattern applies to any provider that parses the connection string while the
+`DbContext` is being created (for example a custom `NpgsqlDataSource`).
+
 ## Additional documentation
 
 <!-- TODO: Update this to the EntityFrameworkCore-specific page once published, https://github.com/microsoft/aspire.dev/issues/536 -->
