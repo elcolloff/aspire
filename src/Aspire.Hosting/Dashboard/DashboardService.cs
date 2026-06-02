@@ -59,6 +59,48 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
         }
     }
 
+    public override async Task GetInteractionAsset(
+        GetInteractionAssetRequest request,
+        IServerStreamWriter<GetInteractionAssetResponse> responseStream,
+        ServerCallContext context)
+    {
+        await ExecuteAsync(
+            GetInteractionAssetInternal,
+            context).ConfigureAwait(false);
+
+        async Task GetInteractionAssetInternal(CancellationToken cancellationToken)
+        {
+            if (!serviceData.TryGetAsset(request.Route, out var asset))
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"Asset route '{request.Route}' was not found."));
+            }
+
+            await responseStream.WriteAsync(new GetInteractionAssetResponse
+            {
+                ContentType = asset.ContentType
+            }, cancellationToken).ConfigureAwait(false);
+
+            using var writeStream = new GrpcChunkedWriteStream(responseStream, cancellationToken);
+
+            try
+            {
+                if (!await serviceData.WriteAssetAsync(request.Route, writeStream, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new RpcException(new Status(StatusCode.NotFound, $"Asset route '{request.Route}' was not found."));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error streaming interaction asset for route '{Route}'.", request.Route);
+                throw new RpcException(new Status(StatusCode.Internal, "An error occurred while streaming the interaction asset."));
+            }
+        }
+    }
+
     public override async Task WatchInteractions(IAsyncStreamReader<WatchInteractionsRequestUpdate> requestStream, IServerStreamWriter<WatchInteractionsResponseUpdate> responseStream, ServerCallContext context)
     {
         await ExecuteAsync(
@@ -131,6 +173,39 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                             var inputInstances = inputs.Inputs.Select(input => CreateInteractionInputDto(input, updateStateOnChangeInputs)).ToList();
                             change.InputsDialog.InputItems.AddRange(inputInstances);
                         }
+                        else if (interaction.InteractionInfo is PageInteractionInfo pageInfo)
+                        {
+                            change.Page = new InteractionPage
+                            {
+                                Route = pageInfo.Route,
+                                Title = pageInfo.PageContext.Title ?? pageInfo.Route
+                            };
+
+                            // If there are active sessions with content, send the latest markdown
+                            // for each session. The dashboard uses session_id to route content
+                            // to the correct visitor.
+                            // For updates (not initial registration), the dashboard will receive
+                            // one message per session that has changed. We send all current sessions
+                            // so the dashboard can reconcile on reconnect.
+                            lock (pageInfo.ActiveSessions)
+                            {
+                                foreach (var (sessionId, markdown) in pageInfo.SessionMarkdown)
+                                {
+                                    change.Page.SessionId = sessionId;
+                                    change.Page.MarkdownContent = markdown;
+                                }
+                            }
+                        }
+                        else if (interaction.InteractionInfo is MenuButtonInteractionInfo menuButtonInfo)
+                        {
+                            change.MenuButton = new InteractionMenuButton
+                            {
+                                IconName = menuButtonInfo.Options.IconName,
+                                Text = menuButtonInfo.Options.Text,
+                                Tooltip = menuButtonInfo.Options.Tooltip,
+                                Url = menuButtonInfo.Options.Url
+                            };
+                        }
 
                         await responseStream.WriteAsync(change, cts.Token).ConfigureAwait(false);
                     }
@@ -157,6 +232,86 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
             {
                 // Ensure the write task is cancelled if we exit the loop.
                 cts.Cancel();
+            }
+        }
+    }
+
+    private sealed class GrpcChunkedWriteStream : Stream
+    {
+        private const int ChunkSize = 64 * 1024;
+        private readonly IServerStreamWriter<GetInteractionAssetResponse> _writer;
+        private readonly CancellationToken _serverCancellationToken;
+
+        public GrpcChunkedWriteStream(IServerStreamWriter<GetInteractionAssetResponse> writer, CancellationToken serverCancellationToken)
+        {
+            _writer = writer;
+            _serverCancellationToken = serverCancellationToken;
+        }
+
+        public override bool CanRead => false;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            WriteAsync(buffer.AsMemory(offset, count), _serverCancellationToken).AsTask().GetAwaiter().GetResult();
+        }
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _serverCancellationToken.ThrowIfCancellationRequested();
+
+            var offset = 0;
+            while (offset < buffer.Length)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _serverCancellationToken.ThrowIfCancellationRequested();
+
+                var remaining = buffer.Length - offset;
+                var take = Math.Min(remaining, ChunkSize);
+                var chunk = buffer.Slice(offset, take);
+
+                await _writer.WriteAsync(new GetInteractionAssetResponse
+                {
+                    Content = Google.Protobuf.ByteString.CopyFrom(chunk.Span)
+                }, _serverCancellationToken).ConfigureAwait(false);
+
+                offset += take;
             }
         }
     }

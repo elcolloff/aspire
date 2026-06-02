@@ -551,6 +551,46 @@ internal sealed class DashboardClient : IDashboardClient
         await _incomingInteractionChannel.Writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(setContentType);
+
+        EnsureInitialized();
+
+        using var combinedTokens = CancellationTokenSource.CreateLinkedTokenSource(_clientCancellationToken, cancellationToken);
+
+        try
+        {
+            using var call = _client!.GetInteractionAsset(
+                new GetInteractionAssetRequest { Route = route },
+                headers: _headers,
+                cancellationToken: combinedTokens.Token);
+
+            var contentTypeSet = false;
+            await foreach (var update in call.ResponseStream.ReadAllAsync(combinedTokens.Token).ConfigureAwait(false))
+            {
+                if (!contentTypeSet)
+                {
+                    setContentType(update.ContentType);
+                    contentTypeSet = true;
+                }
+
+                if (update.Content.Length > 0)
+                {
+                    await destination.WriteAsync(update.Content.Memory, combinedTokens.Token).ConfigureAwait(false);
+                }
+            }
+
+            return contentTypeSet;
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     public Task WhenConnected
     {
         get

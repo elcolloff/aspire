@@ -23,6 +23,22 @@ public static class DashboardEndpointsBuilder
 
     public static void MapDashboardApi(this IEndpointRouteBuilder endpoints, DashboardOptions dashboardOptions)
     {
+        endpoints.MapGet("/pages/assets/{*route}", async (string route, HttpContext httpContext, IDashboardClient dashboardClient, CancellationToken cancellationToken) =>
+        {
+            if (!dashboardClient.IsEnabled)
+            {
+                return Results.NotFound();
+            }
+
+            var found = await dashboardClient.CopyInteractionAssetToAsync(
+                route,
+                httpContext.Response.Body,
+                contentType => httpContext.Response.ContentType = contentType,
+                cancellationToken).ConfigureAwait(false);
+
+            return found ? Results.Empty : Results.NotFound();
+        }).SkipStatusCodePages();
+
         IEndpointConventionBuilder builder;
         if (dashboardOptions.Frontend.AuthMode == FrontendAuthMode.BrowserToken)
         {

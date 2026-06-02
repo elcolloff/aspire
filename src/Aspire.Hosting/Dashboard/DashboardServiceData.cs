@@ -128,6 +128,16 @@ internal sealed class DashboardServiceData : IDisposable
         return _interactionService.SubscribeInteractionUpdates();
     }
 
+    internal bool TryGetAsset(string route, out RegisteredAsset asset)
+    {
+        return _interactionService.TryGetAsset(route, out asset);
+    }
+
+    internal Task<bool> WriteAssetAsync(string route, Stream stream, CancellationToken cancellationToken)
+    {
+        return _interactionService.WriteAssetAsync(route, stream, cancellationToken);
+    }
+
     internal ResourceSnapshotSubscription SubscribeResources()
     {
         return _resourcePublisher.Subscribe();
@@ -169,6 +179,28 @@ internal sealed class DashboardServiceData : IDisposable
 
     internal async Task SendInteractionRequestAsync(WatchInteractionsRequestUpdate request, CancellationToken cancellationToken)
     {
+        // Page visit/leave are handled separately because they don't complete the interaction.
+        // They invoke callbacks on the page context instead.
+        switch (request.KindCase)
+        {
+            case WatchInteractionsRequestUpdate.KindOneofCase.PageVisit:
+                // Fire-and-forget: ProcessPageVisitAsync runs the OnVisit callback which may be
+                // long-running (e.g., streaming content in a loop). Awaiting it here would block
+                // the receive loop and prevent processing subsequent messages like PageLeave.
+                _ = _interactionService.ProcessPageVisitAsync(
+                    request.InteractionId,
+                    request.PageVisit.SessionId,
+                    request.PageVisit.QueryParameters,
+                    cancellationToken);
+                return;
+            case WatchInteractionsRequestUpdate.KindOneofCase.PageLeave:
+                await _interactionService.ProcessPageLeaveAsync(
+                    request.InteractionId,
+                    request.PageLeave.SessionId,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+        }
+
         await _interactionService.ProcessInteractionFromClientAsync(
             request.InteractionId,
             (interaction, serviceProvider, logger) =>

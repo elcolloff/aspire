@@ -965,3 +965,8 @@ fluent-tooltip[anchor="dialog_close"] > div {
 fluent-dialog#chat-modal-dialog fluent-button[appearance=stealth]:not(:hover)::part(control) {
     background: var(--chat-background-color);
 }
+
+.custom-page-content {
+    padding: calc(var(--design-unit) * 4px);
+    padding-top: calc(var(--design-unit) * 4px);
+}

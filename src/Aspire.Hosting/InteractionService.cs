@@ -25,6 +25,7 @@ internal class InteractionService : IInteractionService
     private Action<Interaction>? OnInteractionUpdated { get; set; }
     private readonly object _onInteractionUpdatedLock = new();
     private readonly InteractionCollection _interactionCollection = new();
+    private readonly Dictionary<string, RegisteredAsset> _assetRegistrations = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<InteractionService> _logger;
     private readonly DistributedApplicationOptions _distributedApplicationOptions;
     private readonly IServiceProvider _serviceProvider;
@@ -276,6 +277,114 @@ internal class InteractionService : IInteractionService
         }
     }
 
+    public IDisposable RegisterPage(string route, PageContext context)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(context);
+        EnsureServiceAvailable();
+
+        lock (_onInteractionUpdatedLock)
+        {
+            // Check for duplicate route registration.
+            foreach (var existing in _interactionCollection)
+            {
+                if (existing.InteractionInfo is Interaction.PageInteractionInfo existingPage &&
+                    string.Equals(existingPage.Route, route, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"A page with route '{route}' is already registered.");
+                }
+            }
+
+            var interactionCts = new CancellationTokenSource();
+            var pageInfo = new Interaction.PageInteractionInfo(route, context);
+            var newState = new Interaction(context.Title ?? route, null, InteractionOptions.Default, pageInfo, interactionCts.Token);
+
+            _interactionCollection.Add(newState);
+            OnInteractionUpdated?.Invoke(newState);
+
+            return new InteractionRegistration(this, newState, interactionCts);
+        }
+    }
+
+    public IDisposable RegisterMenuButton(MenuButtonOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        EnsureServiceAvailable();
+
+        var interactionCts = new CancellationTokenSource();
+        var menuButtonInfo = new Interaction.MenuButtonInteractionInfo(options);
+        var newState = new Interaction(options.Text, null, InteractionOptions.Default, menuButtonInfo, interactionCts.Token);
+        AddInteractionUpdate(newState);
+
+        return new InteractionRegistration(this, newState, interactionCts);
+    }
+
+    public IDisposable RegisterAsset(string route, string contentType, AssetContext context)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(contentType);
+        ArgumentNullException.ThrowIfNull(context);
+        EnsureServiceAvailable();
+
+        route = NormalizeAssetRoute(route);
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (_assetRegistrations.ContainsKey(route))
+            {
+                throw new InvalidOperationException($"An asset with route '{route}' is already registered.");
+            }
+
+            _assetRegistrations[route] = new RegisteredAsset(contentType, context);
+        }
+
+        return new AssetRegistration(this, route);
+    }
+
+    public IDisposable RegisterAsset(string route, string contentType, byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        // Keep a private copy to avoid accidental mutation of caller-provided buffers.
+        var contentCopy = content.ToArray();
+
+        return RegisterAsset(route, contentType, new AssetContext
+        {
+            OnGet = async context =>
+            {
+                await context.Stream.WriteAsync(contentCopy, context.CancellationToken).ConfigureAwait(false);
+            }
+        });
+    }
+
+    internal bool TryGetAsset(string route, out RegisteredAsset asset)
+    {
+        route = NormalizeAssetRoute(route);
+
+        lock (_onInteractionUpdatedLock)
+        {
+            return _assetRegistrations.TryGetValue(route, out asset!);
+        }
+    }
+
+    internal async Task<bool> WriteAssetAsync(string route, Stream stream, CancellationToken cancellationToken)
+    {
+        if (!TryGetAsset(route, out var asset))
+        {
+            return false;
+        }
+
+        await asset.Context.OnGet(new AssetGetContext
+        {
+            Route = route,
+            Services = _serviceProvider,
+            Stream = stream,
+            CancellationToken = cancellationToken
+        }).ConfigureAwait(false);
+
+        return true;
+    }
+
     // For testing.
     internal List<Interaction> GetCurrentInteractions()
     {
@@ -292,6 +401,27 @@ internal class InteractionService : IInteractionService
         interactionState.State = Interaction.InteractionState.Complete;
         interactionState.CompletionTcs.TrySetResult(new InteractionCompletionState { Complete = true });
         AddInteractionUpdate(interactionState);
+    }
+
+    private sealed class InteractionRegistration(InteractionService service, Interaction interaction, CancellationTokenSource cts) : IDisposable
+    {
+        public void Dispose()
+        {
+            service.OnInteractionCancellation(interaction);
+            cts.Cancel();
+            cts.Dispose();
+        }
+    }
+
+    private sealed class AssetRegistration(InteractionService service, string route) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (service._onInteractionUpdatedLock)
+            {
+                service._assetRegistrations.Remove(route);
+            }
+        }
     }
 
     private void AddInteractionUpdate(Interaction interactionUpdate)
@@ -383,6 +513,104 @@ internal class InteractionService : IInteractionService
             // Either broadcast out the interaction is complete, or its updated state.
             OnInteractionUpdated?.Invoke(interactionState);
         }
+    }
+
+    /// <summary>
+    /// Handles a page visit from the dashboard. Creates a visitor session and invokes the page's OnVisit callback.
+    /// The callback receives a SendMarkdownAsync function that pushes content updates back to the dashboard
+    /// by broadcasting interaction updates with the session's markdown content.
+    /// </summary>
+    internal async Task ProcessPageVisitAsync(int interactionId, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    {
+        Interaction? interactionState;
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (!_interactionCollection.TryGetValue(interactionId, out interactionState))
+            {
+                _logger.LogDebug("No page interaction found with ID {InteractionId} for visit.", interactionId);
+                return;
+            }
+        }
+
+        if (interactionState.InteractionInfo is not Interaction.PageInteractionInfo pageInfo)
+        {
+            _logger.LogDebug("Interaction {InteractionId} is not a page interaction.", interactionId);
+            return;
+        }
+
+        var visitorCts = CancellationTokenSource.CreateLinkedTokenSource(interactionState.CancellationToken, cancellationToken);
+
+        lock (pageInfo.ActiveSessions)
+        {
+            pageInfo.ActiveSessions[sessionId] = visitorCts;
+        }
+
+        if (pageInfo.PageContext.OnVisit is { } onVisit)
+        {
+            var visitContext = new PageVisitContext
+            {
+                SessionId = sessionId,
+                Services = _serviceProvider,
+                QueryParameters = queryParameters,
+                CancellationToken = visitorCts.Token,
+                SendMarkdownAsync = (markdown, ct) =>
+                {
+                    // Store the markdown in the page info so the dashboard can retrieve it for this session.
+                    // Then broadcast an update to notify the dashboard.
+                    pageInfo.SessionMarkdown[sessionId] = markdown;
+                    UpdateInteraction(interactionState);
+                    return Task.CompletedTask;
+                }
+            };
+
+            try
+            {
+                await onVisit(visitContext).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when visitor leaves or page is removed.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in page OnVisit callback for session '{SessionId}'.", sessionId);
+            }
+        }
+    }
+
+    internal async Task ProcessPageLeaveAsync(int interactionId, string sessionId, CancellationToken _)
+    {
+        Interaction? interactionState;
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (!_interactionCollection.TryGetValue(interactionId, out interactionState))
+            {
+                _logger.LogDebug("No page interaction found with ID {InteractionId} for leave.", interactionId);
+                return;
+            }
+        }
+
+        if (interactionState.InteractionInfo is not Interaction.PageInteractionInfo pageInfo)
+        {
+            return;
+        }
+
+        CancellationTokenSource? visitorCts;
+
+        lock (pageInfo.ActiveSessions)
+        {
+            if (!pageInfo.ActiveSessions.Remove(sessionId, out visitorCts))
+            {
+                return;
+            }
+            pageInfo.SessionMarkdown.Remove(sessionId);
+        }
+
+        // Cancel the visitor's token to signal the OnVisit callback to stop.
+        await visitorCts.CancelAsync().ConfigureAwait(false);
+        visitorCts.Dispose();
     }
 
     /// <summary>
@@ -525,7 +753,26 @@ internal class InteractionService : IInteractionService
             throw new InvalidOperationException($"{nameof(InteractionService)} is not available because the dashboard is not enabled or because this command is running in non-interactive CLI mode.");
         }
     }
+
+    private static string NormalizeAssetRoute(string route)
+    {
+        route = route.Trim();
+
+        if (route.StartsWith('/'))
+        {
+            route = route[1..];
+        }
+
+        if (string.IsNullOrWhiteSpace(route))
+        {
+            throw new ArgumentException("Asset route cannot be empty.", nameof(route));
+        }
+
+        return route;
+    }
 }
+
+internal sealed record RegisteredAsset(string ContentType, AssetContext Context);
 
 internal class InteractionCollection : KeyedCollection<int, Interaction>
 {
@@ -606,6 +853,40 @@ internal class Interaction
         }
 
         public InteractionInputCollection Inputs { get; }
+    }
+
+    internal sealed class PageInteractionInfo : InteractionInfoBase
+    {
+        public PageInteractionInfo(string route, PageContext pageContext)
+        {
+            Route = route;
+            PageContext = pageContext;
+        }
+
+        public string Route { get; }
+        public PageContext PageContext { get; }
+
+        /// <summary>
+        /// Tracks active visitor sessions. Key is the session ID, value is the CTS that is
+        /// cancelled when the visitor leaves.
+        /// </summary>
+        public Dictionary<string, CancellationTokenSource> ActiveSessions { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Stores the latest markdown content per visitor session. Updated by SendMarkdownAsync
+        /// and read by the dashboard when streaming content updates.
+        /// </summary>
+        public Dictionary<string, string> SessionMarkdown { get; } = new(StringComparer.Ordinal);
+    }
+
+    internal sealed class MenuButtonInteractionInfo : InteractionInfoBase
+    {
+        public MenuButtonInteractionInfo(MenuButtonOptions options)
+        {
+            Options = options;
+        }
+
+        public MenuButtonOptions Options { get; }
     }
 }
 

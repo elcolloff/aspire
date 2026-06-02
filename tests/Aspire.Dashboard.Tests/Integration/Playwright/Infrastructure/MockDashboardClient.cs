@@ -68,6 +68,11 @@ public sealed class MockDashboardClient : IDashboardClient
         throw new NotImplementedException();
     }
 
+    public Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
     public ResourceViewModel? GetResource(string resourceName) => null;
 
     public IReadOnlyList<ResourceViewModel> GetResources() => _resources ?? [];

@@ -59,6 +59,26 @@ internal sealed class TestInteractionService : IInteractionService
     {
         throw new NotImplementedException();
     }
+
+    public IDisposable RegisterPage(string route, PageContext context)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IDisposable RegisterMenuButton(MenuButtonOptions options)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IDisposable RegisterAsset(string route, string contentType, AssetContext context)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IDisposable RegisterAsset(string route, string contentType, byte[] content)
+    {
+        throw new NotImplementedException();
+    }
 }
 
 #pragma warning restore ASPIREINTERACTION001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.

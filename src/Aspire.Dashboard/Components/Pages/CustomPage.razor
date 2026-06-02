@@ -1,0 +1,29 @@
+@page "/pages/{*Route}"
+@using Aspire.Dashboard.Components.Controls
+@using Aspire.Dashboard.Model.Interaction
+@using Aspire.Dashboard.Model.Markdown
+@using Aspire.Dashboard.Resources
+@using Aspire.DashboardService.Proto.V1
+@implements IAsyncDisposable
+
+<PageTitle>@_pageTitle</PageTitle>
+
+@if (_pageNotFound)
+{
+    <div class="custom-page-unavailable">
+        <h3>This page is no longer available.</h3>
+        <p>The page at this route has been removed by the application host.</p>
+    </div>
+}
+else if (_markdownContent is not null)
+{
+    <div class="custom-page-content">
+        <MarkdownRenderer Markdown="@_markdownContent" MarkdownProcessor="@_markdownProcessor" SuppressParagraphOnNewLines="false" />
+    </div>
+}
+else
+{
+    <div class="custom-page-loading">
+        <FluentProgressRing />
+    </div>
+}

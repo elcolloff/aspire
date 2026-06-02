@@ -10,6 +10,7 @@ using Aspire.Hosting.Tests.Utils.Grpc;
 using Aspire.Hosting.Utils;
 using Aspire.Shared.ConsoleLogs;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -682,6 +683,73 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
 
         // Assert
         await Assert.ThrowsAnyAsync<Exception>(() => task).DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task GetInteractionAsset_StreamsContentInChunks()
+    {
+        // Arrange
+        var interactionService = new InteractionService(
+            NullLogger<InteractionService>.Instance,
+            new DistributedApplicationOptions(),
+            new ServiceCollection().BuildServiceProvider(),
+            new ConfigurationBuilder().Build());
+
+        var payload = new byte[200_000];
+        Array.Fill(payload, (byte)'A');
+
+        using var registration = interactionService.RegisterAsset("scripts/large.bin", "application/octet-stream", payload);
+        using var dashboardServiceData = CreateDashboardServiceData(interactionService: interactionService);
+        var dashboardService = new DashboardServiceImpl(
+            dashboardServiceData,
+            new TestHostEnvironment(),
+            new TestHostApplicationLifetime(),
+            new ConfigurationBuilder().Build(),
+            NullLogger<DashboardServiceImpl>.Instance);
+
+        var context = TestServerCallContext.Create();
+        var writer = new TestServerStreamWriter<GetInteractionAssetResponse>(context);
+
+        // Act
+        var task = dashboardService.GetInteractionAsset(new GetInteractionAssetRequest { Route = "scripts/large.bin" }, writer, context);
+
+        // Assert
+        var firstMessage = await writer.ReadNextAsync().DefaultTimeout();
+        Assert.Equal("application/octet-stream", firstMessage.ContentType);
+        Assert.Empty(firstMessage.Content);
+
+        var totalBytes = 0;
+        var expectedChunkCount = (int)Math.Ceiling(payload.Length / 65536d);
+        for (var i = 0; i < expectedChunkCount; i++)
+        {
+            var update = await writer.ReadNextAsync().DefaultTimeout();
+            totalBytes += update.Content.Length;
+        }
+
+        await task.DefaultTimeout();
+        Assert.Equal(payload.Length, totalBytes);
+    }
+
+    [Fact]
+    public async Task GetInteractionAsset_UnknownRoute_ReturnsNotFound()
+    {
+        // Arrange
+        using var dashboardServiceData = CreateDashboardServiceData();
+        var dashboardService = new DashboardServiceImpl(
+            dashboardServiceData,
+            new TestHostEnvironment(),
+            new TestHostApplicationLifetime(),
+            new ConfigurationBuilder().Build(),
+            NullLogger<DashboardServiceImpl>.Instance);
+
+        var context = TestServerCallContext.Create();
+        var writer = new TestServerStreamWriter<GetInteractionAssetResponse>(context);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            dashboardService.GetInteractionAsset(new GetInteractionAssetRequest { Route = "missing.js" }, writer, context));
+
+        Assert.Equal(StatusCode.NotFound, ex.StatusCode);
     }
 
     [Fact]

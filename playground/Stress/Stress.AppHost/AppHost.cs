@@ -3,6 +3,8 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using System.Reflection;
 
 #pragma warning disable ASPIREDOTNETTOOL
 
@@ -123,4 +125,76 @@ builder.AddProject<Projects.Stress_Empty>("empty-profile-2", launchProfileName: 
 
 builder.AddNoStatusResource("no-status-resource");
 
+builder.OnBeforeStart((@event, ct) =>
+{
+    var interactionService = @event.Services.GetRequiredService<IInteractionService>();
+
+    // Add a custom page with a counter that increments every second.
+    interactionService.RegisterPage("counter", new PageContext
+    {
+        Title = "Counter",
+        OnVisit = async visitContext =>
+        {
+            var logger = visitContext.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CounterPage");
+
+            visitContext.CancellationToken.Register(() => logger.LogInformation("Visitor {SessionId} left the counter page.", visitContext.SessionId));
+
+            var count = 0;
+            while (!visitContext.CancellationToken.IsCancellationRequested)
+            {
+                count++;
+                await visitContext.SendMarkdownAsync(
+                    $"""
+                    # Counter
+
+                    Current count: **{count}**
+
+                    Updates every second.
+                    """, visitContext.CancellationToken);
+                await Task.Delay(1000, visitContext.CancellationToken);
+            }
+        }
+    });
+
+    // Add a menu button that navigates to the counter page.
+    interactionService.RegisterMenuButton(new MenuButtonOptions
+    {
+        IconName = "NumberSymbol",
+        Text = "Counter",
+        Tooltip = "View the live counter page",
+        Url = "/pages/counter"
+    });
+
+    // Add a markdown showcase page that displays all supported markdown syntax.
+    var markdownShowcase = LoadMarkdownShowcase();
+    interactionService.RegisterPage("markdown", new PageContext
+    {
+        Title = "Markdown Showcase",
+        OnVisit = async visitContext =>
+        {
+            await visitContext.SendMarkdownAsync(markdownShowcase, visitContext.CancellationToken);
+        }
+    });
+
+    // Add a menu button that navigates to the markdown showcase page.
+    interactionService.RegisterMenuButton(new MenuButtonOptions
+    {
+        IconName = "Document",
+        Text = "Markdown",
+        Tooltip = "View the markdown showcase page",
+        Url = "/pages/markdown"
+    });
+
+    return Task.CompletedTask;
+});
+
 builder.Build().Run();
+
+static string LoadMarkdownShowcase()
+{
+    using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Stress.AppHost.MarkdownShowcase.txt")
+        ?? throw new InvalidOperationException("MarkdownShowcase.txt embedded resource not found.");
+    using var reader = new StreamReader(stream);
+    return reader.ReadToEnd();
+}
+

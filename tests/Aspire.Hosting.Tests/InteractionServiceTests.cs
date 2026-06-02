@@ -1146,6 +1146,385 @@ public class InteractionServiceTests
             CancellationToken.None);
     }
 
+    [Fact]
+    public void RegisterPage_AddsInteraction()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+
+        // Act
+        var registration = interactionService.RegisterPage("my-page", new PageContext
+        {
+            Title = "My Page",
+            OnVisit = _ => Task.CompletedTask
+        });
+
+        // Assert
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.Equal("My Page", interaction.Title);
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("my-page", pageInfo.Route);
+        Assert.Equal("My Page", pageInfo.PageContext.Title);
+
+        registration.Dispose();
+    }
+
+    [Fact]
+    public void RegisterPage_Dispose_RemovesInteraction()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var registration = interactionService.RegisterPage("my-page", new PageContext
+        {
+            Title = "My Page"
+        });
+        Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Act
+        registration.Dispose();
+
+        // Assert
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public void RegisterPage_NullRoute_ThrowsArgumentNullException()
+    {
+        var interactionService = CreateInteractionService();
+
+        Assert.Throws<ArgumentNullException>(() => interactionService.RegisterPage(null!, new PageContext()));
+    }
+
+    [Fact]
+    public void RegisterPage_NullContext_ThrowsArgumentNullException()
+    {
+        var interactionService = CreateInteractionService();
+
+        Assert.Throws<ArgumentNullException>(() => interactionService.RegisterPage("route", null!));
+    }
+
+    [Fact]
+    public void RegisterPage_WithoutTitle_UseRouteAsTitle()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+
+        // Act
+        var registration = interactionService.RegisterPage("my-route", new PageContext());
+
+        // Assert
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.Equal("my-route", interaction.Title);
+
+        registration.Dispose();
+    }
+
+    [Fact]
+    public async Task RegisterPage_ProcessVisit_InvokesOnVisitCallback()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var visitCalled = new TaskCompletionSource<PageVisitContext>();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Title = "Test",
+            OnVisit = ctx =>
+            {
+                visitCalled.TrySetResult(ctx);
+                return Task.CompletedTask;
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var queryParams = new Dictionary<string, string> { ["key"] = "value" };
+
+        // Act
+        await interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", queryParams, CancellationToken.None);
+
+        // Assert
+        var context = await visitCalled.Task.DefaultTimeout();
+        Assert.Equal("session-1", context.SessionId);
+        Assert.Equal("value", context.QueryParameters["key"]);
+    }
+
+    [Fact]
+    public async Task RegisterPage_SendMarkdown_StoresContent()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        Func<string, CancellationToken, Task>? capturedSendMarkdown = null;
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Title = "Test",
+            OnVisit = async ctx =>
+            {
+                capturedSendMarkdown = ctx.SendMarkdownAsync;
+                await ctx.SendMarkdownAsync("# Hello", ctx.CancellationToken);
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Act
+        await interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(capturedSendMarkdown);
+        var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
+        Assert.Equal("# Hello", pageInfo.SessionMarkdown["session-1"]);
+    }
+
+    [Fact]
+    public async Task RegisterPage_ProcessLeave_CancelsVisitorToken()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var visitTokenCancelled = new TaskCompletionSource<bool>();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Title = "Test",
+            OnVisit = async ctx =>
+            {
+                ctx.CancellationToken.Register(() => visitTokenCancelled.TrySetResult(true));
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, ctx.CancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected.
+                }
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Start the visit in the background so the OnVisit callback is running.
+        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
+
+        // Give the visit callback time to register its cancellation handler.
+        await Task.Delay(50);
+
+        // Act
+        await interactionService.ProcessPageLeaveAsync(interaction.InteractionId, "session-1", CancellationToken.None);
+
+        // Assert
+        Assert.True(await visitTokenCancelled.Task.DefaultTimeout());
+    }
+
+    [Fact]
+    public void RegisterMenuButton_AddsInteraction()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+
+        // Act
+        var registration = interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "Home",
+            Text = "Go Home",
+            Tooltip = "Navigate to home",
+            Url = "/pages/home"
+        });
+
+        // Assert
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.Equal("Go Home", interaction.Title);
+        var menuInfo = Assert.IsType<Interaction.MenuButtonInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("Home", menuInfo.Options.IconName);
+        Assert.Equal("Go Home", menuInfo.Options.Text);
+        Assert.Equal("Navigate to home", menuInfo.Options.Tooltip);
+        Assert.Equal("/pages/home", menuInfo.Options.Url);
+
+        registration.Dispose();
+    }
+
+    [Fact]
+    public void RegisterMenuButton_Dispose_RemovesInteraction()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var registration = interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "Home",
+            Text = "Go Home",
+            Tooltip = "Navigate to home",
+            Url = "/pages/home"
+        });
+        Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Act
+        registration.Dispose();
+
+        // Assert
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public void RegisterMenuButton_NullOptions_ThrowsArgumentNullException()
+    {
+        var interactionService = CreateInteractionService();
+
+        Assert.Throws<ArgumentNullException>(() => interactionService.RegisterMenuButton(null!));
+    }
+
+    [Fact]
+    public void RegisterPage_DashboardDisabled_ThrowsInvalidOperationException()
+    {
+        var interactionService = CreateInteractionService(options: new DistributedApplicationOptions { DisableDashboard = true });
+
+        Assert.Throws<InvalidOperationException>(() => interactionService.RegisterPage("route", new PageContext()));
+    }
+
+    [Fact]
+    public void RegisterMenuButton_DashboardDisabled_ThrowsInvalidOperationException()
+    {
+        var interactionService = CreateInteractionService(options: new DistributedApplicationOptions { DisableDashboard = true });
+
+        Assert.Throws<InvalidOperationException>(() => interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "Home",
+            Text = "Home",
+            Tooltip = "Home",
+            Url = "/pages/home"
+        }));
+    }
+
+    [Fact]
+    public void RegisterPage_MultiplePages_AllTracked()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+
+        // Act
+        var reg1 = interactionService.RegisterPage("page-1", new PageContext { Title = "Page 1" });
+        var reg2 = interactionService.RegisterPage("page-2", new PageContext { Title = "Page 2" });
+
+        // Assert
+        Assert.Equal(2, interactionService.GetCurrentInteractions().Count);
+
+        reg1.Dispose();
+        Assert.Single(interactionService.GetCurrentInteractions());
+
+        reg2.Dispose();
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public void RegisterPage_DuplicateRoute_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        interactionService.RegisterPage("my-page", new PageContext { Title = "First" });
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            interactionService.RegisterPage("my-page", new PageContext { Title = "Second" }));
+        Assert.Contains("my-page", ex.Message);
+    }
+
+    [Fact]
+    public void RegisterPage_DuplicateRoute_CaseInsensitive_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        interactionService.RegisterPage("My-Page", new PageContext { Title = "First" });
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() =>
+            interactionService.RegisterPage("my-page", new PageContext { Title = "Second" }));
+    }
+
+    [Fact]
+    public void RegisterPage_SameRouteAfterDispose_Succeeds()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var reg = interactionService.RegisterPage("my-page", new PageContext { Title = "First" });
+        reg.Dispose();
+
+        // Act — should not throw since the first registration was disposed.
+        var reg2 = interactionService.RegisterPage("my-page", new PageContext { Title = "Second" });
+
+        // Assert
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.Equal("Second", interaction.Title);
+        reg2.Dispose();
+    }
+
+    [Fact]
+    public async Task RegisterAsset_OnGet_WritesToStream()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        using var registration = interactionService.RegisterAsset("scripts/app.js", "application/javascript", new AssetContext
+        {
+            OnGet = async context =>
+            {
+                await context.Stream.WriteAsync("console.log('hello');"u8.ToArray(), context.CancellationToken);
+            }
+        });
+
+        using var stream = new MemoryStream();
+
+        // Act
+        var found = await interactionService.WriteAssetAsync("scripts/app.js", stream, CancellationToken.None);
+
+        // Assert
+        Assert.True(found);
+        Assert.Equal("console.log('hello');", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public async Task RegisterAsset_ByteArrayOverload_UsesRegisteredContent()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var content = "body { color: red; }"u8.ToArray();
+        using var registration = interactionService.RegisterAsset("styles/site.css", "text/css", content);
+
+        using var stream = new MemoryStream();
+
+        // Act
+        var found = await interactionService.WriteAssetAsync("styles/site.css", stream, CancellationToken.None);
+
+        // Assert
+        Assert.True(found);
+        Assert.Equal("body { color: red; }", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public void RegisterAsset_DuplicateRoute_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        using var registration = interactionService.RegisterAsset("logo.svg", "image/svg+xml", []);
+
+        // Act & Assert
+        Assert.Throws<InvalidOperationException>(() => interactionService.RegisterAsset("logo.svg", "image/svg+xml", []));
+    }
+
+    [Fact]
+    public async Task RegisterAsset_SameRouteAfterDispose_Succeeds()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var reg1 = interactionService.RegisterAsset("downloads/file.txt", "text/plain", "first"u8.ToArray());
+        reg1.Dispose();
+
+        // Act
+        using var reg2 = interactionService.RegisterAsset("downloads/file.txt", "text/plain", "second"u8.ToArray());
+        using var stream = new MemoryStream();
+        var found = await interactionService.WriteAssetAsync("downloads/file.txt", stream, CancellationToken.None);
+
+        // Assert
+        Assert.True(found);
+        Assert.Equal("second", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
     private static InteractionService CreateInteractionService(DistributedApplicationOptions? options = null)
     {
         var configuration = new ConfigurationBuilder().Build();
