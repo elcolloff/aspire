@@ -50,6 +50,8 @@ internal static class AuxiliaryBackchannelCapabilities
     /// and JSON-valued resource properties when requested by the client.
     /// </summary>
     public const string V3 = "aux.v3";
+
+    /// <summary>
     /// Terminal feature flag (13.4+): <see cref="GetTerminalInfoResponse.Replicas"/> is populated for
     /// resources configured with WithTerminal. Older clients ignore the new array; new clients
     /// gate UI/CLI affordances on the presence of this capability.
