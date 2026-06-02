@@ -54,6 +54,13 @@ internal sealed class AppHostServerSession : IAsyncDisposable
     private CancellationTokenRegistration _stopRegistration;
     private IAppHostRpcClient? _rpcClient;
     private Task? _shutdownTask;
+    // Captured from AppHostServerRunResult so we read exit-code / has-exited via the
+    // IsolatedProcess wrapper on the isolated Windows path. Reading directly from
+    // _serverProcess.ExitCode / .HasExited on that path throws InvalidOperationException
+    // ("Process was not started by this object") because the managed Process came from
+    // Process.GetProcessById. See https://github.com/dotnet/runtime/issues/45003.
+    private Func<int>? _readExitCode;
+    private Func<bool>? _readHasExited;
 
     public AppHostServerSession(
         IAppHostServerProject project,
@@ -118,16 +125,49 @@ internal sealed class AppHostServerSession : IAsyncDisposable
     public OutputCollector? Output => _output;
 
     /// <summary>
-    /// Gets the underlying server process for read-only observation by the backchannel polling
-    /// loop, or <see langword="null"/> if <see cref="StartAsync"/> has not been called (or threw
-    /// before the process was published).
+    /// Gets whether the underlying AppHost server process has exited, or <see langword="null"/>
+    /// if <see cref="StartAsync"/> has not been called (or threw before the process was
+    /// published). Prefer this over reading <c>ServerProcess.HasExited</c> directly — the
+    /// isolated Windows spawn path uses a <see cref="Process.GetProcessById(int)"/>-derived
+    /// <see cref="Process"/> whose status getters are unreliable; this accessor routes through
+    /// the <see cref="IsolatedProcess"/> wrapper that holds the original CreateProcess handle.
+    /// </summary>
+    public bool? HasServerExited => _readHasExited?.Invoke();
+
+    /// <summary>
+    /// Reads the AppHost server process's exit code if it has exited, or <see langword="null"/>
+    /// if the server is still running, has not been started, or the exit code cannot be read.
+    /// Prefer this over reading <c>ServerProcess.ExitCode</c> directly — see
+    /// <see cref="HasServerExited"/> for the same Windows-isolated-spawn rationale.
+    /// </summary>
+    public int? TryGetServerExitCode()
+    {
+        if (_readExitCode is null || _readHasExited is null || _readHasExited() != true)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _readExitCode();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the underlying server process for read-only observation. Prefer
+    /// <see cref="HasServerExited"/> for has-exited checks and
+    /// <see cref="TryGetServerExitCode"/> for exit-code reads — see those members' remarks.
     /// </summary>
     /// <remarks>
-    /// This is intentionally narrow: the only legitimate consumer is
-    /// <c>StartBackchannelConnectionAsync</c>'s <c>catch (SocketException) when (process.HasExited)</c>
-    /// filter, which distinguishes "server died" from "server still starting up". Callers must not
-    /// invoke <see cref="Process.Kill(bool)"/>, <see cref="Process.WaitForExitAsync(CancellationToken)"/>,
-    /// or other lifecycle APIs on the returned instance — those belong to the session.
+    /// Callers must not invoke <see cref="Process.Kill(bool)"/>,
+    /// <see cref="Process.WaitForExitAsync(CancellationToken)"/>,
+    /// <see cref="Process.ExitCode"/>, or other lifecycle / status APIs on the returned
+    /// instance — those belong to the session (or to <see cref="HasServerExited"/> /
+    /// <see cref="TryGetServerExitCode"/>).
     /// </remarks>
     public Process? ServerProcess => _serverProcess;
 
@@ -208,10 +248,18 @@ internal sealed class AppHostServerSession : IAsyncDisposable
             _serverProcess = result.Process;
             _socketPath = result.SocketPath;
             _output = result.OutputCollector;
+            // Capture the readers from the run result so every status / exit-code check below
+            // (Exited handler, post-Run HasExited probe, dispose-time activity update, kill
+            // fallback) routes through the wrapper instead of the GetProcessById-derived
+            // Process — required for the isolated Windows path.
+            _readExitCode = result.ReadExitCode;
+            _readHasExited = result.ReadHasExited;
 
             try
             {
                 var process = result.Process;
+                var readExitCode = result.ReadExitCode;
+                var readHasExited = result.ReadHasExited;
 
                 _activity.SetProcessId(process.Id);
 
@@ -222,16 +270,16 @@ internal sealed class AppHostServerSession : IAsyncDisposable
 
                 // Hook Exited before we check HasExited to close the race window where the process
                 // could exit between Start returning and our subscription being wired up. Capture the
-                // process + completion locals in the closure so the handler doesn't need to read
-                // mutable fields when it fires from the thread pool.
+                // completion + readers in the closure so the handler doesn't need to read mutable
+                // fields when it fires from the thread pool.
                 process.EnableRaisingEvents = true;
-                process.Exited += (_, _) => TrySetExitCode(completion, process);
+                process.Exited += (_, _) => TrySetExitCode(completion, readExitCode);
 
                 // If the process exited before we hooked Exited (or before EnableRaisingEvents was set),
                 // the event will not fire. Trip the completion ourselves in that case.
-                if (process.HasExited)
+                if (readHasExited())
                 {
-                    TrySetExitCode(completion, process);
+                    TrySetExitCode(completion, readExitCode);
                 }
 
                 // Register on the internal linked CTS. If the caller's token already fired (or DisposeAsync
@@ -250,7 +298,7 @@ internal sealed class AppHostServerSession : IAsyncDisposable
                 _activity.Dispose();
                 try
                 {
-                    if (!result.Process.HasExited)
+                    if (!result.ReadHasExited())
                     {
                         result.Process.Kill(entireProcessTree: true);
                     }
@@ -361,11 +409,11 @@ internal sealed class AppHostServerSession : IAsyncDisposable
             }
         }
 
-        if (_serverProcess is { } process)
+        if (_serverProcess is not null && _readHasExited is { } hasExited && _readExitCode is { } exitCode)
         {
-            if (process.HasExited)
+            if (hasExited())
             {
-                _activity.SetProcessExitCode(process.ExitCode);
+                _activity.SetProcessExitCode(exitCode());
             }
         }
 
@@ -393,11 +441,11 @@ internal sealed class AppHostServerSession : IAsyncDisposable
         _activity.Dispose();
     }
 
-    private static void TrySetExitCode(TaskCompletionSource<int> completion, Process process)
+    private static void TrySetExitCode(TaskCompletionSource<int> completion, Func<int> readExitCode)
     {
         try
         {
-            completion.TrySetResult(process.ExitCode);
+            completion.TrySetResult(readExitCode());
         }
         catch (InvalidOperationException)
         {

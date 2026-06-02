@@ -98,6 +98,13 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         IAsyncDisposable? lifetime = null;
         Task stdoutDrain;
         Task stderrDrain;
+        // Readers for exit-code / has-exited that route through the IsolatedProcess wrapper on
+        // the isolated path. Process.ExitCode on a Process.GetProcessById-derived instance
+        // throws InvalidOperationException on Windows ("Process was not started by this
+        // object") — see https://github.com/dotnet/runtime/issues/45003. The wrapper sidesteps
+        // this by querying GetExitCodeProcess directly against the kept CreateProcess handle.
+        Func<int> readExitCode;
+        Func<bool> readHasExited;
 
         AddEvent(activity, ProfilingTelemetry.Events.GuestProcessStart);
 
@@ -135,6 +142,8 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                 stdoutDrain = isolatedChild.StandardOutputClosed;
                 stderrDrain = isolatedChild.StandardErrorClosed;
                 lifetime = isolatedChild;
+                readExitCode = () => isolatedChild.ExitCode;
+                readHasExited = () => isolatedChild.HasExited;
             }
             else
             {
@@ -195,6 +204,10 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                 process = inheritedProcess;
                 stdoutDrain = stdoutCompleted.Task;
                 stderrDrain = stderrCompleted.Task;
+                // Non-isolated path: Process was created via new Process { StartInfo = ... } +
+                // Start(), so Process.ExitCode / Process.HasExited work normally on every OS.
+                readExitCode = () => inheritedProcess.ExitCode;
+                readHasExited = () => inheritedProcess.HasExited;
             }
 
             _logger.LogDebug("{Language} guest process {ProcessId} started: {Command}", _language, process.Id, resolvedCommandPath);
@@ -228,10 +241,11 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                 await ShutdownGuestProcessAsync(process, options, cancellationToken).ConfigureAwait(false);
             }
 
-            _logger.LogDebug("{Language} guest process {ProcessId} exited with code {ExitCode}", _language, process.Id, process.ExitCode);
+            _logger.LogDebug("{Language} guest process {ProcessId} exited with code {ExitCode}", _language, process.Id, readExitCode());
 
-            activity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
-            AddEvent(activity, ProfilingTelemetry.Events.GuestProcessExited, TelemetryConstants.Tags.ProcessExitCode, process.ExitCode);
+            var finalExitCode = readExitCode();
+            activity?.SetTag(TelemetryConstants.Tags.ProcessExitCode, finalExitCode);
+            AddEvent(activity, ProfilingTelemetry.Events.GuestProcessExited, TelemetryConstants.Tags.ProcessExitCode, finalExitCode);
 
             // Wait for the redirected streams to finish draining so no trailing lines are lost.
             // Pass a fresh token rather than the outer cancellation token: when WaitForExitAsync
@@ -244,7 +258,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
                 _logger.LogWarning("{Language}({ProcessId}): Timed out waiting for output streams to drain after process exit", _language, process.Id);
             }
 
-            return (process.ExitCode, outputCollector);
+            return (finalExitCode, outputCollector);
         }
         finally
         {

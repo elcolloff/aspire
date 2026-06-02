@@ -894,7 +894,13 @@ internal sealed class PrebuiltAppHostServer : IAppHostServerProject, IDisposable
                 outputCollector,
                 startInfo.FileName,
                 arguments,
-                isolated);
+                isolated,
+                // Route exit-code/has-exited reads through IsolatedProcess so the isolated
+                // Windows path can use its kept CreateProcess handle instead of the managed
+                // Process.GetProcessById instance (which throws on ExitCode). See
+                // https://github.com/dotnet/runtime/issues/45003.
+                ExitCodeOverride: () => isolated.ExitCode,
+                HasExitedOverride: () => isolated.HasExited);
         }
 
         var process = Process.Start(startInfo)!;

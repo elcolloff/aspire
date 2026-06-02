@@ -612,7 +612,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                     // Use the AppHost system token so that a guest-side failure (which faults the
                     // backchannel completion source and cancels appHostSystemCts) stops the polling loop
                     // promptly.
-                    _ = StartBackchannelConnectionAsync(serverSession.ServerProcess!, backchannelSocketPath, backchannelCompletionSource, enableHotReload, startProjectContext, appHostSystemToken);
+                    _ = StartBackchannelConnectionAsync(serverSession, backchannelSocketPath, backchannelCompletionSource, enableHotReload, startProjectContext, appHostSystemToken);
                     return Task.CompletedTask;
                 }
 
@@ -1033,7 +1033,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                 // as soon as the server is reachable; the post-start work below races alongside it.
                 if (context.BackchannelCompletionSource is not null)
                 {
-                    _ = StartBackchannelConnectionAsync(serverSession.ServerProcess!, backchannelSocketPath, context.BackchannelCompletionSource, enableHotReload: false, startProjectContext, cancellationToken);
+                    _ = StartBackchannelConnectionAsync(serverSession, backchannelSocketPath, context.BackchannelCompletionSource, enableHotReload: false, startProjectContext, cancellationToken);
                 }
 
                 try
@@ -1201,7 +1201,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
     /// Starts connecting to the AppHost server's backchannel server.
     /// </summary>
     private async Task StartBackchannelConnectionAsync(
-        Process process,
+        AppHostServerSession serverSession,
         string socketPath,
         TaskCompletionSource<IAppHostCliBackchannel> backchannelCompletionSource,
         bool enableHotReload,
@@ -1233,10 +1233,16 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                 _logger.LogDebug("Connected to AppHost server backchannel at {SocketPath}", socketPath);
                 return;
             }
-            catch (SocketException ex) when (process.HasExited)
+            // Route HasExited / ExitCode through the session so the isolated Windows spawn path
+            // (which surfaces Process via Process.GetProcessById, whose status getters are
+            // unreliable for processes the BCL did not itself start) goes through the
+            // IsolatedProcess wrapper's GetExitCodeProcess-backed accessors instead.
+            // See https://github.com/dotnet/runtime/issues/45003.
+            catch (SocketException ex) when (serverSession.HasServerExited == true)
             {
-                _logger.LogError("AppHost server process has exited with code {ExitCode}. Unable to connect to backchannel at {SocketPath}", process.ExitCode, socketPath);
-                var message = process.ExitCode == CliExitCodes.Success
+                var exitCode = serverSession.TryGetServerExitCode() ?? -1;
+                _logger.LogError("AppHost server process has exited with code {ExitCode}. Unable to connect to backchannel at {SocketPath}", exitCode, socketPath);
+                var message = exitCode == CliExitCodes.Success
                     ? "AppHost server process has exited"
                     : "AppHost server process has exited unexpectedly";
                 var backchannelException = new FailedToConnectBackchannelConnection(message, ex);

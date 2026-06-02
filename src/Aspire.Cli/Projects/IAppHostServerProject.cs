@@ -32,6 +32,11 @@ internal sealed record AppHostServerPrepareResult(
 /// (<see cref="Process.Kill(bool)"/>, <see cref="Process.WaitForExitAsync(CancellationToken)"/>),
 /// but must dispose via <see cref="ProcessLifetime"/> instead of the <see cref="Process"/>
 /// directly so the isolated-spawn path can release its anonymous pipes and stdin handle.
+/// Callers should prefer the <see cref="ReadExitCode"/> / <see cref="ReadHasExited"/> accessors
+/// over <see cref="Process.ExitCode"/> / <see cref="Process.HasExited"/> for status checks,
+/// because the managed Process returned for the isolated Windows path is obtained via
+/// <see cref="Process.GetProcessById(int)"/> and cannot reliably surface ExitCode/HasExited
+/// (see https://github.com/dotnet/runtime/issues/45003 and <see cref="IsolatedProcess"/>).
 /// </param>
 /// <param name="OutputCollector">Captured stdout/stderr for failure display.</param>
 /// <param name="FileName">
@@ -47,13 +52,37 @@ internal sealed record AppHostServerPrepareResult(
 /// the isolated path it is the <see cref="IsolatedProcess"/> wrapper that also drains the
 /// stdout/stderr pumps and closes the anonymous pipes + NUL stdin handle on Windows.
 /// </param>
+/// <param name="ExitCodeOverride">
+/// Optional override for <see cref="ReadExitCode"/>. The isolated Windows spawn path supplies
+/// one because <see cref="Process.ExitCode"/> on a <see cref="Process.GetProcessById(int)"/>
+/// instance throws <see cref="InvalidOperationException"/>. Non-isolated callers leave this
+/// <see langword="null"/> and the accessor reads from <see cref="Process"/> directly.
+/// </param>
+/// <param name="HasExitedOverride">Optional override for <see cref="ReadHasExited"/>. Same rationale as <paramref name="ExitCodeOverride"/>.</param>
 internal sealed record AppHostServerRunResult(
     string SocketPath,
     Process Process,
     OutputCollector OutputCollector,
     string FileName,
     IReadOnlyList<string> Arguments,
-    IAsyncDisposable ProcessLifetime);
+    IAsyncDisposable ProcessLifetime,
+    Func<int>? ExitCodeOverride = null,
+    Func<bool>? HasExitedOverride = null)
+{
+    /// <summary>
+    /// Reads the child's exit code. Use this instead of <c>Process.ExitCode</c> — on the
+    /// isolated Windows path that property throws because the managed Process came from
+    /// <see cref="Process.GetProcessById(int)"/>; the override consults the kept CreateProcess
+    /// handle directly.
+    /// </summary>
+    public int ReadExitCode() => ExitCodeOverride is { } reader ? reader() : Process.ExitCode;
+
+    /// <summary>
+    /// Reads whether the child has exited. Same rationale as <see cref="ReadExitCode"/> —
+    /// prefer this over <c>Process.HasExited</c> for status checks on the isolated Windows path.
+    /// </summary>
+    public bool ReadHasExited() => HasExitedOverride is { } reader ? reader() : Process.HasExited;
+}
 
 /// <summary>
 /// Represents an AppHost server that can be prepared and run.

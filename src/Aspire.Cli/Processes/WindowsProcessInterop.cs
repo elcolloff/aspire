@@ -175,6 +175,32 @@ internal static partial class WindowsProcessInterop
     [LibraryImport("kernel32.dll", SetLastError = true)]
     public static partial uint ResumeThread(nint hThread);
 
+    // GetExitCodeProcess + WaitForSingleObject are used by IsolatedProcess.Windows so that
+    // IsolatedProcess.ExitCode / HasExited can query the child via the SafeProcessHandle we
+    // kept open from CreateProcessW. Process objects obtained via Process.GetProcessById
+    // cannot reliably surface ExitCode on Windows ("Process was not started by this object"
+    // InvalidOperationException) — see https://github.com/dotnet/runtime/issues/45003. By
+    // holding the original CreateProcess handle and calling Win32 directly we sidestep the
+    // managed-Process state machine that depends on Process.Start having been the producer.
+    // Docs:
+    //   https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess
+    //   https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetExitCodeProcess(SafeProcessHandle hProcess, out uint lpExitCode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    public static partial uint WaitForSingleObject(SafeProcessHandle hHandle, uint dwMilliseconds);
+
+    // GetExitCodeProcess returns STILL_ACTIVE (259) when the process is still running, but
+    // a process can also legitimately exit with code 259. Use WaitForSingleObject with a
+    // zero timeout to disambiguate: WAIT_OBJECT_0 means signaled (truly exited), WAIT_TIMEOUT
+    // means still running. See the GetExitCodeProcess remarks in the docs linked above.
+    public const uint StillActive = 259;
+    public const uint WaitObject0 = 0x00000000;
+    public const uint WaitTimeout = 0x00000102;
+    public const uint WaitFailed = 0xFFFFFFFF;
+
     // Job-object APIs — see
     // https://learn.microsoft.com/windows/win32/procthread/job-objects. We use a job to
     // guarantee that interactive children (and their grandchildren) are killed when the CLI

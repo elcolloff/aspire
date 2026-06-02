@@ -105,6 +105,8 @@ internal sealed class IsolatedProcessStartInfo
 internal sealed partial class IsolatedProcess : IAsyncDisposable
 {
     private readonly Func<TimeSpan, ValueTask> _disposeAsync;
+    private readonly Func<int>? _exitCodeProvider;
+    private readonly Func<bool>? _hasExitedProvider;
     private int _disposed;
 
     private IsolatedProcess(
@@ -113,7 +115,9 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
         IReadOnlyList<string> arguments,
         Task standardOutputClosed,
         Task standardErrorClosed,
-        Func<TimeSpan, ValueTask> disposeAsync)
+        Func<TimeSpan, ValueTask> disposeAsync,
+        Func<int>? exitCodeProvider,
+        Func<bool>? hasExitedProvider)
     {
         Process = process;
         Id = process.Id;
@@ -122,6 +126,8 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
         StandardOutputClosed = standardOutputClosed;
         StandardErrorClosed = standardErrorClosed;
         _disposeAsync = disposeAsync;
+        _exitCodeProvider = exitCodeProvider;
+        _hasExitedProvider = hasExitedProvider;
     }
 
     /// <summary>The underlying <see cref="System.Diagnostics.Process"/> for escape-hatch scenarios.</summary>
@@ -143,11 +149,22 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
     /// <summary>The original argument list. Same rationale as <see cref="FileName"/>.</summary>
     public IReadOnlyList<string> Arguments { get; }
 
-    /// <summary>Mirrors <see cref="Process.HasExited"/>.</summary>
-    public bool HasExited => Process.HasExited;
+    /// <summary>
+    /// Mirrors <see cref="Process.HasExited"/>. The Windows spawn path overrides this with a
+    /// <c>WaitForSingleObject(handle, 0)</c> check against the kept <c>SafeProcessHandle</c>
+    /// because <see cref="Process.HasExited"/> on a <see cref="Process.GetProcessById(int)"/>
+    /// instance is unreliable for processes the managed Process didn't itself start.
+    /// </summary>
+    public bool HasExited => _hasExitedProvider?.Invoke() ?? Process.HasExited;
 
-    /// <summary>Mirrors <see cref="Process.ExitCode"/>.</summary>
-    public int ExitCode => Process.ExitCode;
+    /// <summary>
+    /// Mirrors <see cref="Process.ExitCode"/>. The Windows spawn path overrides this with a
+    /// <c>GetExitCodeProcess</c> call against the kept <c>SafeProcessHandle</c>; without the
+    /// override <see cref="Process.ExitCode"/> throws <see cref="InvalidOperationException"/>
+    /// for processes obtained via <see cref="Process.GetProcessById(int)"/> on Windows.
+    /// See https://github.com/dotnet/runtime/issues/45003.
+    /// </summary>
+    public int ExitCode => _exitCodeProvider?.Invoke() ?? Process.ExitCode;
 
     /// <summary>
     /// Completes when the stdout pump finishes (pipe EOF — i.e. child closed the stream
@@ -241,6 +258,19 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
     /// The Windows path uses this slot to dispose the anonymous pipes and the NUL stdin
     /// handle that are owned by the spawn path, not by the Process.
     /// </param>
+    /// <param name="exitCodeProvider">
+    /// Optional override for <see cref="ExitCode"/>. The Windows spawn path provides one
+    /// because the managed <see cref="Process"/> returned by <see cref="Process.GetProcessById(int)"/>
+    /// cannot reliably surface ExitCode for processes it did not itself start; the override
+    /// reads the exit code via <c>GetExitCodeProcess</c> against the kept CreateProcess handle.
+    /// Unix passes <see langword="null"/> — its <see cref="Process.Start(ProcessStartInfo)"/>
+    /// path produces a Process with a working ExitCode getter.
+    /// </param>
+    /// <param name="hasExitedProvider">
+    /// Optional override for <see cref="HasExited"/>. Same rationale as
+    /// <paramref name="exitCodeProvider"/> — Windows reads via <c>WaitForSingleObject</c>
+    /// against the kept handle; Unix uses the default <see cref="Process.HasExited"/>.
+    /// </param>
     private static IsolatedProcess WrapStartedProcess(
         IsolatedProcessStartInfo startInfo,
         Process process,
@@ -248,7 +278,9 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
         TextReader standardError,
         Action<IsolatedProcess, string> standardOutputHandler,
         Action<IsolatedProcess, string> standardErrorHandler,
-        Func<ValueTask>? extraDispose)
+        Func<ValueTask>? extraDispose,
+        Func<int>? exitCodeProvider = null,
+        Func<bool>? hasExitedProvider = null)
     {
         // Snapshot identity off startInfo now — the caller may mutate the startInfo after
         // we return and we don't want the wrapper to observe those changes.
@@ -308,7 +340,9 @@ internal sealed partial class IsolatedProcess : IAsyncDisposable
             argumentsSnapshot,
             standardOutputClosed: outputTcs.Task,
             standardErrorClosed: errorTcs.Task,
-            DisposeAsync);
+            DisposeAsync,
+            exitCodeProvider,
+            hasExitedProvider);
 
         // The pumps capture 'isolated' as the handler's "sender". The assignment is fully
         // visible to the pump's Task.Run worker by happens-before semantics.
