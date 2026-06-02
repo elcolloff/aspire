@@ -83,7 +83,7 @@ public class NewCommandTemplateConfigPersistenceTests(ITestOutputHelper outputHe
         PrDogfoodNewTemplateCase.CliConfig(KnownTemplateId.PythonStarter, ["--localhost-tld", "false", "--use-redis-cache", "false"]),
         PrDogfoodNewTemplateCase.CliConfig(KnownTemplateId.GoStarter, ["--localhost-tld", "false"]),
         PrDogfoodNewTemplateCase.EmbeddedDotNet("aspire-starter", ["--localhost-tld", "false", "--use-redis-cache", "false"]),
-        PrDogfoodNewTemplateCase.DotNet("aspire-ts-cs-starter", ["--localhost-tld", "false", "--use-redis-cache", "false"]),
+        PrDogfoodNewTemplateCase.EmbeddedDotNet("aspire-ts-cs-starter", ["--localhost-tld", "false", "--use-redis-cache", "false"]),
         PrDogfoodNewTemplateCase.DotNet(KnownTemplateId.DotNetEmptyAppHost, ["--localhost-tld", "false"]),
         PrDogfoodNewTemplateCase.EmbeddedDotNet("aspire-apphost", ["--localhost-tld", "false"]),
         PrDogfoodNewTemplateCase.DotNet("aspire-servicedefaults"),

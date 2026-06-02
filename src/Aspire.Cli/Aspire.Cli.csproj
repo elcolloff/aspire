@@ -273,6 +273,7 @@
     <Compile Remove="Templating\Templates\empty-apphost\**\*.cs" />
     <Compile Remove="Templating\Templates\csharp-apphost\**\*.cs" />
     <Compile Remove="Templating\Templates\csharp-starter\**\*.cs" />
+    <Compile Remove="Templating\Templates\ts-cs-starter\**\*.cs" />
     <EmbeddedResource Include="Templating\Templates\empty-apphost\**\*" LogicalName="empty-apphost.%(RecursiveDir)%(Filename)%(Extension)">
       <WithCulture>false</WithCulture>
     </EmbeddedResource>
@@ -280,6 +281,9 @@
       <WithCulture>false</WithCulture>
     </EmbeddedResource>
     <EmbeddedResource Include="Templating\Templates\csharp-starter\**\*" LogicalName="csharp-starter.%(RecursiveDir)%(Filename)%(Extension)">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Templating\Templates\ts-cs-starter\**\*" LogicalName="ts-cs-starter.%(RecursiveDir)%(Filename)%(Extension)">
       <WithCulture>false</WithCulture>
     </EmbeddedResource>
     <EmbeddedResource Include="Templating\Templates\ts-starter\**\*" LogicalName="ts-starter.%(RecursiveDir)%(Filename)%(Extension)">

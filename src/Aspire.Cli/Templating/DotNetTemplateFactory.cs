@@ -143,7 +143,7 @@ internal class DotNetTemplateFactory(
             TemplatingStrings.AspireJsFrontendStarter_Description,
             (ctx, projectName) => OutputPathHelper.GetUniqueDefaultOutputPath(projectName, ctx.WorkingDirectory.FullName),
             ApplyExtraAspireJsFrontendStarterOptions,
-            (template, inputs, parseResult, ct) => ApplyTemplateAsync(template, inputs, parseResult, PromptForExtraAspireJsFrontendStarterOptionsAsync, ct),
+            ApplyEmbeddedTsCsStarterTemplateAsync,
             languageId: KnownLanguageId.CSharp
             );
 
@@ -249,16 +249,6 @@ internal class DotNetTemplateFactory(
         var extraArgs = new List<string>();
 
         await PromptForDevLocalhostTldOptionAsync(result, extraArgs, cancellationToken);
-
-        return extraArgs.ToArray();
-    }
-
-    private async Task<string[]> PromptForExtraAspireJsFrontendStarterOptionsAsync(ParseResult result, CancellationToken cancellationToken)
-    {
-        var extraArgs = new List<string>();
-
-        await PromptForDevLocalhostTldOptionAsync(result, extraArgs, cancellationToken);
-        await PromptForRedisCacheOptionAsync(result, extraArgs, cancellationToken);
 
         return extraArgs.ToArray();
     }
@@ -607,6 +597,121 @@ internal class DotNetTemplateFactory(
             // aspire.config.json so `aspire update`/`aspire add` stay on the same channel. Implicit
             // (stable/nuget.org) selections are left unwritten — matching the previous flow and the
             // TypeScript starter.
+            if (selection.Channel.Type is PackageChannelType.Explicit)
+            {
+                var config = AspireConfigFile.LoadOrCreate(outputPath);
+                config.Channel = selection.Channel.Name;
+                config.Save(outputPath);
+            }
+
+            if (!await TemplateNuGetConfigService.CreateOrUpdateNuGetConfigForSourceOverrideAsync(inputs.Source, selection.Channel, outputPath, cancellationToken))
+            {
+                await templateNuGetConfigService.PromptToCreateOrUpdateNuGetConfigAsync(selection.Channel, outputPath, cancellationToken);
+            }
+
+            interactionService.DisplaySuccess(string.Format(CultureInfo.CurrentCulture, TemplatingStrings.ProjectCreatedSuccessfully, outputPath));
+
+            return new TemplateResult(CliExitCodes.Success, outputPath);
+        }
+        catch (OperationCanceledException)
+        {
+            return new TemplateResult(CliExitCodes.Cancelled);
+        }
+        catch (CertificateServiceException ex)
+        {
+            interactionService.DisplayError(string.Format(CultureInfo.CurrentCulture, TemplatingStrings.CertificateTrustError, ex.Message));
+            return new TemplateResult(CliExitCodes.FailedToTrustCertificates);
+        }
+        catch (Exceptions.ChannelNotFoundException ex)
+        {
+            interactionService.DisplayError(ex.Message);
+            return new TemplateResult(CliExitCodes.FailedToCreateNewProject);
+        }
+        catch (EmptyChoicesException ex)
+        {
+            interactionService.DisplayError(ex.Message);
+            return new TemplateResult(CliExitCodes.FailedToCreateNewProject);
+        }
+        catch (NuGetPackageCacheException ex)
+        {
+            interactionService.DisplayError(ex.Message);
+            return new TemplateResult(CliExitCodes.FailedToCreateNewProject);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            interactionService.DisplayError(string.Format(CultureInfo.CurrentCulture, TemplatingStrings.FailedToCreateProjectFiles, ex.Message));
+            return new TemplateResult(CliExitCodes.FailedToCreateNewProject);
+        }
+    }
+
+    /// <summary>
+    /// Applies the <c>aspire-ts-cs-starter</c> template (ASP.NET Core / React with a C# AppHost)
+    /// by rendering the multi-project content embedded in the CLI (see
+    /// <see cref="EmbeddedTsCsStarterTemplate"/>), instead of resolving and installing the
+    /// <c>Aspire.ProjectTemplates</c> NuGet package and invoking <c>dotnet new aspire-ts-cs-starter</c>.
+    /// The channel/version is still resolved so the generated projects reference a matching Aspire
+    /// version, and the channel pin + NuGet.config behavior is preserved for parity with the prior
+    /// flow and the other CLI-rendered templates. Unlike the prior flow, no <c>.sln</c> is emitted.
+    /// </summary>
+    private async Task<TemplateResult> ApplyEmbeddedTsCsStarterTemplateAsync(CallbackTemplate template, TemplateInputs inputs, ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        if (!await SdkInstallHelper.EnsureSdkInstalledAsync(sdkInstaller, interactionService, telemetry, cancellationToken: cancellationToken))
+        {
+            return new TemplateResult(CliExitCodes.SdkNotInstalled);
+        }
+
+        var name = await GetProjectNameAsync(inputs, template.Name, parseResult, cancellationToken);
+        var outputPath = await GetOutputPathAsync(inputs, template.PathDeriver, name, parseResult, cancellationToken);
+
+        if (outputPath is null)
+        {
+            return new TemplateResult(CliExitCodes.FailedToCreateNewProject);
+        }
+
+        try
+        {
+            // Resolve (but do NOT install) the template package so the generated projects
+            // reference a version that matches the requested channel. Only the resolved
+            // version and channel influence the output now; the template content itself is
+            // embedded in the CLI rather than coming from the NuGet package.
+            var query = new TemplatePackageQuery(
+                RequestedChannel: inputs.Channel,
+                VersionOverride: inputs.Version,
+                SourceOverride: inputs.Source,
+                IncludePrHives: true);
+
+            var selection = await templateNuGetConfigService.ResolveTemplatePackageAsync(query, cancellationToken);
+
+            // Reuse the existing localized prompts (and their displayed confirmations) by
+            // capturing whether each flag ends up in the extra-args list the prompts populate.
+            var promptedArgs = new List<string>();
+            await PromptForDevLocalhostTldOptionAsync(parseResult, promptedArgs, cancellationToken);
+            await PromptForRedisCacheOptionAsync(parseResult, promptedArgs, cancellationToken);
+            var useLocalhostTld = promptedArgs.Contains("--localhost-tld");
+            var useRedisCache = promptedArgs.Contains("--use-redis-cache");
+
+            await interactionService.ShowStatusAsync(
+                TemplatingStrings.CreatingNewProject,
+                async () =>
+                {
+                    await EmbeddedTsCsStarterTemplate.RenderAsync(
+                        outputPath: outputPath,
+                        projectName: name,
+                        useRedisCache: useRedisCache,
+                        useLocalhostTld: useLocalhostTld,
+                        templateVersion: selection.Package.Version,
+                        logger: NullLogger.Instance,
+                        cancellationToken: cancellationToken);
+                    return 0;
+                }, emoji: KnownEmojis.Rocket);
+
+            // Trust certificates (result not used since we're not launching an AppHost).
+            _ = await certificateService.EnsureCertificatesTrustedAsync(cancellationToken);
+
+            // Persist an Explicit channel (pr-<N>, daily, staging, local) into the new project's
+            // aspire.config.json so `aspire update`/`aspire add` stay on the same channel. Implicit
+            // (stable/nuget.org) selections are left unwritten — matching the previous flow and the
+            // other CLI-rendered templates.
             if (selection.Channel.Type is PackageChannelType.Explicit)
             {
                 var config = AspireConfigFile.LoadOrCreate(outputPath);

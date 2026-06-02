@@ -365,6 +365,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.NewCommandPrompterFactory = (sp) =>
             {
                 var interactionService = sp.GetRequiredService<IInteractionService>();
@@ -422,7 +426,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<NewCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --channel stable --use-redis-cache");
+        var result = command.Parse("new aspire --channel stable");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         
@@ -443,6 +447,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // this test exercises DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.NewCommandPrompterFactory = (sp) =>
             {
                 var interactionService = sp.GetRequiredService<IInteractionService>();
@@ -499,7 +507,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<NewCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --channel pr-12345 --use-redis-cache");
+        var result = command.Parse("new aspire --channel pr-12345");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -652,6 +660,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.NewCommandPrompterFactory = (sp) =>
             {
                 var interactionService = sp.GetRequiredService<IInteractionService>();
@@ -678,7 +690,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         Assert.Equal(CliExitCodes.FailedToCreateNewProject, exitCode);
@@ -2110,6 +2122,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliHostEnvironmentFactory = (sp) =>
             {
                 var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
@@ -2134,15 +2150,15 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var command = provider.GetRequiredService<NewCommand>();
         // Neither --name nor --output is provided, so both use their defaults
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
         Assert.Equal(CliExitCodes.Success, exitCode);
         // The default project name is derived from the template name
-        Assert.Equal("aspire-ts-cs-starter", capturedProjectName);
+        Assert.Equal("aspire", capturedProjectName);
         // The default output path is derived from the template name
-        Assert.Equal(Path.Combine(workspace.WorkspaceRoot.FullName, "aspire-ts-cs-starter"), capturedOutputPath);
+        Assert.Equal(Path.Combine(workspace.WorkspaceRoot.FullName, "aspire"), capturedOutputPath);
     }
 
     [Fact]
@@ -2154,6 +2170,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliHostEnvironmentFactory = (sp) =>
             {
                 var configuration = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
@@ -2177,7 +2197,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<NewCommand>();
-        var result = command.Parse($"new aspire-ts-cs-starter --name MyProject --output {Path.Combine(workspace.WorkspaceRoot.FullName, "my-project")} --use-redis-cache");
+        var result = command.Parse($"new aspire --name MyProject --output {Path.Combine(workspace.WorkspaceRoot.FullName, "my-project")}");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -2301,6 +2321,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.InteractionServiceFactory = (sp) =>
             {
                 testInteractionService = new TestInteractionService();
@@ -2329,7 +2353,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<NewCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -2384,6 +2408,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliHostEnvironmentFactory = _ => TestHelpers.CreateInteractiveHostEnvironment();
             options.InteractionServiceFactory = sp => new TestExtensionInteractionService(sp);
             options.ExtensionBackchannelFactory = _ => new TestExtensionBackchannel
@@ -2423,7 +2451,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -2443,6 +2471,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliHostEnvironmentFactory = _ => TestHelpers.CreateInteractiveHostEnvironment();
             options.InteractionServiceFactory = sp => new TestExtensionInteractionService(sp);
             options.ExtensionBackchannelFactory = _ => new TestExtensionBackchannel
@@ -2482,7 +2514,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -2502,6 +2534,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliHostEnvironmentFactory = _ => TestHelpers.CreateInteractiveHostEnvironment();
             // Use TestInteractionService (not ExtensionInteractionService) to stay in console/non-extension mode
             options.InteractionServiceFactory = _ => new TestInteractionService();
@@ -2539,7 +2575,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+        var result = command.Parse("new aspire");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -2563,6 +2599,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
             var services = CreateServiceCollection(workspace, options =>
             {
+                // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+                // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+                // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+                options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
                 options.CliHostEnvironmentFactory = _ => TestHelpers.CreateInteractiveHostEnvironment();
                 options.InteractionServiceFactory = sp => new TestExtensionInteractionService(sp);
                 options.ExtensionBackchannelFactory = _ => new TestExtensionBackchannel
@@ -2601,7 +2641,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
             using var provider = services.BuildServiceProvider();
 
             var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("new aspire-ts-cs-starter --use-redis-cache");
+            var result = command.Parse("new aspire");
 
             var exitCode = await result.InvokeAsync().DefaultTimeout();
 
@@ -3140,6 +3180,10 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
 
         var services = CreateServiceCollection(workspace, options =>
         {
+            // Repointed to the NuGet/dotnet-new path template "aspire" (DotNetEmptyAppHost, gated behind ShowAllTemplates):
+            // these tests exercise DotNetTemplateFactory.ApplyTemplateAsync / IDotNetCliRunner.NewProjectAsync,
+            // which the embedded-render C# templates (aspire-starter, aspire-ts-cs-starter) no longer invoke.
+            options.FeatureFlagsFactory = _ => new TestFeatures().SetFeature(KnownFeatures.ShowAllTemplates, true);
             options.CliExecutionContextFactory = _ =>
             {
                 // Use projectDir as the working directory but root the .aspire/*
@@ -3162,7 +3206,7 @@ public class NewCommandTests(ITestOutputHelper outputHelper)
         using var provider = services.BuildServiceProvider();
 
         var command = provider.GetRequiredService<NewCommand>();
-        var result = command.Parse("new aspire-ts-cs-starter --name TestApp --output . --use-redis-cache");
+        var result = command.Parse("new aspire --name TestApp --output .");
 
         var exitCode = await result.InvokeAsync().DefaultTimeout();
         Assert.Equal(CliExitCodes.Success, exitCode);
