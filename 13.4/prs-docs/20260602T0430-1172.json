@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Improves TypeScript Twoslash code samples in the Helm charts deployment guide",
+  "mergedAt": "2026-06-02T04:30:48Z",
+  "number": 1172,
+  "runDate": "2026-06-02T05:38:00Z",
+  "status": "included",
+  "title": "Use Twoslash for Helm chart AppHost samples"
+}
