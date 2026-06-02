@@ -2,8 +2,7 @@
 
 ## v1.12.1
 
-<!-- aspire-ext-changelog from=d071d4954cab6f4b135bb4c0f25333665fe01b2d to=31bcdae8ce430613da625bf227109876e6820cec base=1.12.0 -->
-_Release notes are being generated automatically and will replace this placeholder shortly. If this line is still here after the `extension-changelog` workflow runs, copy the deterministic commit list from the pull request description into this entry before merging._
+- No user-facing changes in this release.
 
 ## v1.12.0
 
