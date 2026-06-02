@@ -297,7 +297,7 @@ The same pattern applies to any provider that parses the connection string while
 
 ## Additional documentation
 
-<!-- TODO: Update this to the EntityFrameworkCore-specific page once published, https://github.com/microsoft/aspire.dev/issues/536 -->
+https://aspire.dev/integrations/databases/efcore/migrations/#automated-ef-migrations-with-addefmigrations
 https://learn.microsoft.com/dotnet/aspire/
 https://learn.microsoft.com/ef/core/managing-schemas/migrations/
 
