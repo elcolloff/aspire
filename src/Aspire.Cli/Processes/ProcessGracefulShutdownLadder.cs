@@ -15,9 +15,9 @@ namespace Aspire.Cli.Processes;
 /// uniform across spawn sites.
 /// </summary>
 /// <remarks>
-/// Whoever triggers shutdown (<see cref="ConsoleCancellationManager.Cancel"/> /
-/// <see cref="ConsoleCancellationManager.RequestShutdown"/>) is responsible for starting the
-/// central clock. This helper only consumes the resulting token — it never owns timing.
+/// Whoever triggers shutdown (<see cref="ConsoleCancellationManager.Cancel"/>) is responsible
+/// for starting the central clock. This helper only consumes the resulting token — it never
+/// owns timing.
 /// </remarks>
 internal static class ProcessGracefulShutdownLadder
 {
@@ -65,7 +65,7 @@ internal static class ProcessGracefulShutdownLadder
         }
 
         // Phase 2: wait for exit bounded by the same central token. Whoever initiated shutdown
-        // (CCM via RequestShutdown/Cancel) already started the clock; we only consume the token.
+        // (user Ctrl+C via CCM.Cancel) already started the clock; we only consume the token.
         try
         {
             await process.WaitForExitAsync(gracefulToken).ConfigureAwait(false);

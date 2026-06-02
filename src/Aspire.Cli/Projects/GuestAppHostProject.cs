@@ -48,7 +48,6 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
     private readonly TimeProvider _timeProvider;
     private readonly RunningInstanceManager _runningInstanceManager;
     private readonly ProfilingTelemetry _profilingTelemetry;
-    private readonly ConsoleCancellationManager _cancellationManager;
     private readonly IProcessTreeGracefulShutdownSignaler _gracefulShutdownSignaler;
     private readonly GracefulShutdownService _shutdownService;
     private readonly WindowsConsoleProcessJob? _consoleProcessJob;
@@ -72,7 +71,6 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
         ILogger<GuestAppHostProject> logger,
         FileLoggerProvider fileLoggerProvider,
         ProfilingTelemetry profilingTelemetry,
-        ConsoleCancellationManager cancellationManager,
         IProcessTreeGracefulShutdownSignaler gracefulShutdownSignaler,
         GracefulShutdownService shutdownService,
         TimeProvider? timeProvider = null,
@@ -94,7 +92,6 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
         _profilingTelemetry = profilingTelemetry;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _runningInstanceManager = new RunningInstanceManager(_logger, _interactionService, _timeProvider);
-        _cancellationManager = cancellationManager;
         _gracefulShutdownSignaler = gracefulShutdownSignaler;
         _shutdownService = shutdownService;
         _consoleProcessJob = consoleProcessJob;
@@ -364,6 +361,13 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
         // regardless of where we exit.
         var runEnded = 0;
 
+        // Captures an exit code surfaced by an internal teardown trigger (currently only the
+        // backchannel-fault continuation). Read by the outer OCE catch when the in-flight await
+        // throws OCE because we cancelled appHostSystemCts ourselves. -1 = "no internal failure
+        // recorded; fall back to Cancelled (130)". Declared at method scope so the catch can read
+        // it.
+        var internalFaultCode = -1;
+
         try
         {
             // Step 1: Ensure certificates are trusted
@@ -443,11 +447,10 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             var enableHotReload = _features.IsFeatureEnabled(KnownFeatures.DefaultWatchEnabled, defaultValue: false);
 
             // Step 4: Start the AppHost server process. The linked stop CTS is the only termination
-            // trigger we hand to the session; cancelling it (here, via outer cancellationToken, or
-            // via CCM.RequestShutdown/Cancel) is how we ask the session to kill its child process.
-            // Linking to both the outer CT and CCM token ensures internal RequestShutdown
-            // propagates to the locally-scoped session token even when tests pass a separate token.
-            using var serverStopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationManager.Token);
+            // trigger we hand to the session; cancelling it (here or via the outer cancellationToken)
+            // is how we ask the session to kill its child process. The outer cancellationToken IS
+            // CCM.Token (see Program.Main), so a user Ctrl+C lands here automatically.
+            using var serverStopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             await using var serverSession = new AppHostServerSession(
                 appHostServerProject,
                 launchSettingsEnvVars,
@@ -507,23 +510,23 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             // 60s timeout, the server exits unexpectedly) so the remaining process gets torn down
             // promptly. Without this, a hung guest can keep pendingRun alive forever after the CLI
             // has already given up on the backchannel, causing aspire run/start to hang instead of
-            // surfacing the failure. Linked to the outer cancellationToken AND CCM token so user
-            // Ctrl+C and internal RequestShutdown both propagate.
-            using var appHostSystemCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationManager.Token);
+            // surfacing the failure. Linked to the outer cancellationToken (which IS CCM.Token in
+            // production wiring), so user Ctrl+C propagates here automatically.
+            using var appHostSystemCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var appHostSystemToken = appHostSystemCts.Token;
 
             // Guard the backchannel continuation from firing after RunAsync has already returned.
-            // The continuation can fault late and would otherwise mutate the process-wide CCM
-            // outside the run scope, e.g. cancelling the next command's CT in a long-lived host.
-            // The continuation uses an atomic CAS on runEnded (rather than a plain read) so it races
-            // safely with the finally below — exactly one of (continuation, finally) flips the gate
-            // 0→1, and the loser observes the flag already set and no-ops.
+            // The continuation can fault late and would otherwise touch the disposed
+            // appHostSystemCts. The continuation uses an atomic CAS on runEnded (rather than a
+            // plain read) so it races safely with the finally below — exactly one of (continuation,
+            // finally) flips the gate 0→1, and the loser observes the flag already set and no-ops.
 
             // When the backchannel polling task gives up (timeout, server process exit, or other
-            // fatal connection error), escalate to tearing down the whole AppHost system via CCM
-            // so every shutdown trigger drives the same graceful ladder. The
-            // BackchannelCompletionSource only signals readiness/connectivity - it never causes the
-            // server or guest to be killed on its own, so we wire that here.
+            // fatal connection error), escalate to tearing down the whole AppHost system by
+            // cancelling the local CTS. The disposable cleanup ladder (`await using serverSession`
+            // / launcher) runs as the in-flight await unwinds, force-killing children if needed.
+            // The BackchannelCompletionSource only signals readiness/connectivity — it never
+            // causes the server or guest to be killed on its own, so we wire that here.
             _ = backchannelCompletionSource.Task.ContinueWith(
                 t =>
                 {
@@ -532,7 +535,19 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                     // shutdown driver for the backchannel-fault path.
                     if (t.IsFaulted && Interlocked.CompareExchange(ref runEnded, 1, 0) == 0)
                     {
-                        _cancellationManager.RequestShutdown(CliExitCodes.FailedToDotnetRunAppHost);
+                        // First-writer-wins on the surfaced exit code. The outer OCE catch reads
+                        // this when the in-flight await throws because we cancelled below.
+                        Interlocked.CompareExchange(ref internalFaultCode, CliExitCodes.FailedToDotnetRunAppHost, -1);
+                        try
+                        {
+                            appHostSystemCts.Cancel();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Continuation lost the race against `using var appHostSystemCts`
+                            // disposal in the enclosing scope. The run already exited via another
+                            // path, so nothing more to do here.
+                        }
                     }
                 },
                 CancellationToken.None,
@@ -552,9 +567,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                     context.BackchannelCompletionSource?.TrySetException(
                         new InvalidOperationException($"Failed to install {DisplayName} dependencies."));
 
-                    // Drive shared graceful ladder so server teardown matches user-initiated Ctrl+C.
-                    _cancellationManager.RequestShutdown(installResult);
-
+                    // `await using serverSession` runs the per-process shutdown ladder as we unwind.
                     return installResult;
                 }
 
@@ -676,10 +689,8 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                 var error = new InvalidOperationException($"The {DisplayName} apphost failed.");
                 context.BackchannelCompletionSource?.TrySetException(error);
 
-                // Drive shared graceful ladder; surfaces guestExitCode via CCM.RequestedExitCode
-                // even if an OCE wins the race in a higher layer.
-                _cancellationManager.RequestShutdown(guestExitCode);
-
+                // The backchannel exception above causes RunCommand's startup wait to throw,
+                // tearing down the run via `await using serverSession`/launcher disposal.
                 return guestExitCode;
             }
 
@@ -690,11 +701,12 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
                 return await serverCompletion.WaitAsync(cancellationToken);
             }
 
-            // In watch mode, wait for server to exit (Ctrl+C or orphan detection)
-            // In non-watch mode, ask the session to terminate now that the apphost has exited
+            // In watch mode, wait for server to exit (Ctrl+C or orphan detection).
+            // In non-watch mode the guest already finished cleanly; return success and let the
+            // `await using serverSession` / launcher disposable cleanup tear down the server.
             if (!enableHotReload)
             {
-                _cancellationManager.RequestShutdown(0);
+                return 0;
             }
 
             return await serverCompletion.WaitAsync(cancellationToken);
@@ -703,10 +715,10 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
         {
             // Signal that build/preparation failed so RunCommand doesn't hang waiting
             context.BuildCompletionSource?.TrySetResult(false);
-            // If an internal RequestShutdown captured an exit code (or a signal handler set one),
-            // surface it rather than the generic Cancelled. Falls back to Cancelled (130) for
-            // ambient cancellation paths that never touched CCM.
-            return _cancellationManager.RequestedExitCode ?? CliExitCodes.Cancelled;
+            // If an internal teardown trigger captured an exit code (currently only the
+            // backchannel-fault continuation), surface it rather than the generic Cancelled.
+            // Falls back to Cancelled (130) for ambient cancellation paths.
+            return internalFaultCode != -1 ? internalFaultCode : CliExitCodes.Cancelled;
         }
         catch (AppHostCodeGenerationException ex)
         {
@@ -728,7 +740,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
         {
             // Mark the run as ended so the backchannel ContinueWith no-ops if it fires late.
             // Uses CompareExchange to race safely with the continuation: whichever side flips the
-            // gate first wins; the loser observes the gate already set and skips RequestShutdown.
+            // gate first wins; the loser observes the gate already set and skips the cancel call.
             Interlocked.CompareExchange(ref runEnded, 1, 0);
         }
     }

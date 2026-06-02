@@ -306,7 +306,7 @@ internal sealed class ProcessGuestLauncher : IGuestProcessLauncher
         }
 
         // Run-path graceful ladder shared with AppHostServerSession and ProcessExecution.
-        // Whoever initiated shutdown (CCM via RequestShutdown/Cancel) already started the
+        // Whoever initiated shutdown (user Ctrl+C via CCM.Cancel) already started the
         // central graceful clock; the helper just consumes the token.
         await ProcessGracefulShutdownLadder.ExecuteAsync(
             process,

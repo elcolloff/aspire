@@ -954,11 +954,10 @@ public class Program
             }
             catch (OperationCanceledException)
             {
-                // When the command observed cancellation and propagated OCE rather than returning
-                // a normal exit code, surface the code declared by whichever caller initiated
-                // shutdown — Ctrl+C (SIGINT/SIGTERM code) or an internal RequestShutdown(failureCode).
-                // Fall back to the generic Cancelled code only when nothing was declared.
-                exitCode = cancellationManager.RequestedExitCode ?? CliExitCodes.Cancelled;
+                // The command observed cancellation and propagated OCE rather than returning a
+                // normal exit code. Internal failures `return X` directly from the command, so
+                // anything reaching here is user-initiated cancellation (Ctrl+C / SIGTERM).
+                exitCode = CliExitCodes.Cancelled;
                 logger.LogInformation("Command cancelled. Exit code: {ExitCode}", exitCode);
             }
             catch (Exception ex)

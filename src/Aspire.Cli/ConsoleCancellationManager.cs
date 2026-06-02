@@ -27,6 +27,11 @@ namespace Aspire.Cli;
 ///   <item>Third (or later) signal — <see cref="ProcessTerminationCompletionSource"/> fires; Main exits NOW.</item>
 /// </list>
 /// <para>
+/// Internal teardown paths (guest failures, normal completion) do NOT drive this counter. They rely on
+/// disposable-driven cleanup — <c>await using</c> of the server session and guest launcher — to run each
+/// child process's own per-process shutdown ladder when the run scope unwinds.
+/// </para>
+/// <para>
 /// The completion source completing is treated as a strict superset of graceful expiration:
 /// when the source completes for any reason (drain timeout, third signal, future external triggers),
 /// <see cref="GracefulShutdownService.Expire"/> is invoked synchronously so ladders observing only
@@ -46,11 +51,6 @@ internal sealed class ConsoleCancellationManager : IDisposable
     private const int SigIntExitCode = 130;
     private const int SigTermExitCode = 143;
 
-    // Sentinel for "no exit code captured yet". int.MinValue is unreachable for any real
-    // process exit code we surface and lets us use a single Interlocked.CompareExchange
-    // for first-writer-wins semantics without a separate "is set" flag.
-    private const int NoExitCodeSentinel = int.MinValue;
-
     private readonly CancellationTokenSource _cts = new();
     private readonly GracefulShutdownService _gracefulService;
     private readonly TimeSpan _finalDrainBudget;
@@ -60,18 +60,12 @@ internal sealed class ConsoleCancellationManager : IDisposable
     private readonly CancellationToken _token;
     private ILogger _logger;
     private Task<int>? _startedHandler;
-    // Gate that ensures the shutdown ladder (CTS cancel + graceful watcher) is started exactly once.
-    // CAS-flipped 0→1 by whichever of RequestShutdown or first-time Cancel arrives first; subsequent
-    // callers on either path observe the gate already taken and avoid double-starting the watcher.
-    // Kept separate from _userSignalCount so internal RequestShutdown does NOT consume a user signal —
-    // otherwise the user's first real Ctrl+C after an internal request would be observed as the second
-    // signal and collapse the graceful window immediately.
-    private int _ladderStarted;
-    // Number of real user-initiated termination signals received (Ctrl+C, SIGINT, SIGTERM, SIGQUIT,
-    // ProcessExit). Drives the second-signal (Expire) and third-signal (force exit) escalations.
-    // Only Cancel touches this — RequestShutdown does not.
-    private int _userSignalCount;
-    private int _requestedExitCode = NoExitCodeSentinel;
+    // Number of termination signals (Ctrl+C, SIGINT, SIGTERM, SIGQUIT, ProcessExit) received.
+    // Drives the three-stage ladder: 1 = start graceful watcher; 2 = collapse graceful;
+    // 3+ = force-exit. Internal teardown paths (guest failures, normal completion) do NOT
+    // drive this counter — they rely on disposable-based cleanup (`await using` of the
+    // server session + guest launcher) to run the per-process shutdown ladders.
+    private int _signalCount;
     private TimeSpan _gracefulBudget = TimeSpan.Zero;
 
     private readonly TaskCompletionSource<int> _processTerminationCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -162,22 +156,6 @@ internal sealed class ConsoleCancellationManager : IDisposable
     public bool IsCancellationRequested => _cts.IsCancellationRequested;
 
     /// <summary>
-    /// Exit code captured at the moment cancellation was first requested. First writer wins; set by
-    /// either an external termination signal (with the OS-conventional signal exit code) or an internal
-    /// caller via <see cref="RequestShutdown(int)"/>. Reads return <see langword="null"/> until the first
-    /// caller writes.
-    /// </summary>
-    public int? RequestedExitCode
-    {
-        get
-        {
-            var value = Volatile.Read(ref _requestedExitCode);
-
-            return value == NoExitCodeSentinel ? null : value;
-        }
-    }
-
-    /// <summary>
     /// Sets the graceful-shutdown budget for the currently-executing command. Default is zero, meaning
     /// ladders that consume <see cref="GracefulShutdownToken"/> fall through to escalation immediately
     /// (preserving today's behavior for every command that doesn't opt in). The <c>aspire run</c> handler
@@ -192,50 +170,6 @@ internal sealed class ConsoleCancellationManager : IDisposable
         }
 
         _gracefulBudget = gracefulBudget;
-    }
-
-    /// <summary>
-    /// Requests cooperative cancellation with the given exit code. Used by internal teardown callers
-    /// (guest exited non-zero, backchannel never completed, normal completion) that need to drive the
-    /// same shutdown ladder a user signal would, without tampering with private token sources.
-    /// </summary>
-    /// <remarks>
-    /// Unlike <see cref="Cancel"/>, this does NOT contribute to the user-signal escalation counter.
-    /// Multiple concurrent internal callers (e.g. backchannel fault racing with guest non-zero exit)
-    /// would otherwise be treated as "second Ctrl+C" and collapse the graceful window immediately —
-    /// defeating the budget. Instead, the first call captures the exit code and fires the primary CT
-    /// exactly once; subsequent calls are no-ops (first-writer-wins on the exit code via
-    /// <see cref="TrySetRequestedExitCode"/>). A real Ctrl+C from the user still escalates correctly
-    /// because <see cref="Cancel"/> drives <c>_userSignalCount</c> independently of <c>_ladderStarted</c>.
-    /// </remarks>
-    public void RequestShutdown(int exitCode)
-    {
-        // First-writer-wins on the exit code, regardless of whether we end up firing the ladder.
-        // (A late internal request after Ctrl+C already started the ladder still tries to register,
-        // but the SIGINT code stays in place.)
-        TrySetRequestedExitCode(exitCode);
-
-        // CAS the ladder-started gate 0→1. If a signal handler or prior internal call already started
-        // the ladder, no-op. Critically: we DO NOT touch _userSignalCount here, so a subsequent user
-        // Ctrl+C is still seen as the first user signal — not the second.
-        if (Interlocked.CompareExchange(ref _ladderStarted, 1, 0) != 0)
-        {
-            return;
-        }
-
-        _logger.LogInformation("Internal shutdown requested with exit code {ExitCode}.", exitCode);
-
-        try
-        {
-            _cts.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Process is already tearing down; nothing more to do.
-            return;
-        }
-
-        _ = ExpireGracefulThenFinalDrainAsync(exitCode);
     }
 
     private void OnPosixSignal(PosixSignalContext context)
@@ -260,21 +194,13 @@ internal sealed class ConsoleCancellationManager : IDisposable
 
     internal void Cancel(int exitCode)
     {
-        // _userSignalCount tracks real user signals only; _ladderStarted is the one-shot gate that
-        // tells us whether THIS Cancel is also the call that needs to start the ladder. Keeping the
-        // two counters separate is what prevents internal RequestShutdown from consuming a user
-        // signal — without that separation, "internal RequestShutdown + first user Ctrl+C" would
-        // collapse the graceful window immediately.
-        var userSignalCount = Interlocked.Increment(ref _userSignalCount);
-        var ladderJustStarted = Interlocked.CompareExchange(ref _ladderStarted, 1, 0) == 0;
+        var n = Interlocked.Increment(ref _signalCount);
 
-        if (ladderJustStarted)
+        if (n == 1)
         {
-            // First signal AND ladder not already started by an internal RequestShutdown: capture the
-            // exit code, request cooperative cancellation, and schedule the graceful-then-drain watcher.
-            // The signal handler returns immediately so Program.Main's Task.WhenAny observes handler
-            // completion without being blocked by the handler thread.
-            TrySetRequestedExitCode(exitCode);
+            // First signal: request cooperative cancellation and schedule the graceful-then-drain
+            // watcher. The signal handler returns immediately so Program.Main's Task.WhenAny observes
+            // handler completion without being blocked by the handler thread.
             _logger.LogInformation("Termination signal received, requesting cancellation.");
 
             try
@@ -288,22 +214,10 @@ internal sealed class ConsoleCancellationManager : IDisposable
             }
 
             _ = ExpireGracefulThenFinalDrainAsync(exitCode);
-            return;
         }
-
-        if (userSignalCount == 1)
+        else if (n == 2)
         {
-            // First user signal but the ladder was already started by an internal RequestShutdown
-            // (e.g. normal guest exit, backchannel fault). The user has only pressed Ctrl+C once,
-            // so we do NOT escalate — the graceful watcher continues running. Capture the exit
-            // code for first-writer-wins (the internal value normally still wins). A second user
-            // Ctrl+C below will escalate as expected.
-            TrySetRequestedExitCode(exitCode);
-            _logger.LogInformation("Termination signal received while shutdown ladder already running.");
-        }
-        else if (userSignalCount == 2)
-        {
-            // Second user signal: collapse Phase 1 immediately. Ladders observing the graceful token
+            // Second signal: collapse Phase 1 immediately. Ladders observing the graceful token
             // unblock and escalate to forceful termination; the watcher's Task.Delay(graceful) gets
             // cancelled and moves on to Phase 2 (final drain).
             _logger.LogWarning("Second termination signal received, expiring graceful shutdown window.");
@@ -311,22 +225,10 @@ internal sealed class ConsoleCancellationManager : IDisposable
         }
         else
         {
-            // Third (or later) user signal: caller wants out NOW. Skip both graceful and drain budgets.
+            // Third (or later) signal: caller wants out NOW. Skip both graceful and drain budgets.
             _logger.LogWarning("Third termination signal received, forcing immediate exit.");
             _processTerminationCompletionSource.TrySetResult(exitCode);
         }
-    }
-
-    private void TrySetRequestedExitCode(int exitCode)
-    {
-        // Normalize the pathological caller that happens to pass the sentinel value so we never
-        // confuse "no exit code captured" with "exit code is int.MinValue".
-        if (exitCode == NoExitCodeSentinel)
-        {
-            exitCode = -1;
-        }
-
-        Interlocked.CompareExchange(ref _requestedExitCode, exitCode, NoExitCodeSentinel);
     }
 
     private async Task ExpireGracefulThenFinalDrainAsync(int forcedTerminationExitCode)

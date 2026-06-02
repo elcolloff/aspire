@@ -29,12 +29,10 @@ public class ConsoleCancellationManagerTests
         using var manager = new ConsoleCancellationManager(graceful, TimeSpan.FromSeconds(5));
 
         Assert.False(manager.IsCancellationRequested);
-        Assert.Null(manager.RequestedExitCode);
 
         manager.Cancel(130);
 
         Assert.True(manager.IsCancellationRequested);
-        Assert.Equal(130, manager.RequestedExitCode);
     }
 
     [Fact]
@@ -212,90 +210,6 @@ public class ConsoleCancellationManagerTests
 
         Assert.True(sw.ElapsedMilliseconds < 1000, $"Cancel took {sw.ElapsedMilliseconds}ms, expected < 1000ms");
         Assert.True(manager.IsCancellationRequested);
-    }
-
-    [Fact]
-    public void RequestShutdown_RequestsCancellation_AndCapturesExitCode()
-    {
-        using var graceful = new GracefulShutdownService();
-        using var manager = new ConsoleCancellationManager(graceful, TimeSpan.FromSeconds(30));
-
-        manager.RequestShutdown(42);
-
-        Assert.True(manager.IsCancellationRequested);
-        Assert.Equal(42, manager.RequestedExitCode);
-    }
-
-    [Fact]
-    public async Task RequestShutdown_RepeatedInternalCalls_DoNotCollapseGracefulWindow()
-    {
-        using var graceful = new GracefulShutdownService();
-        using var manager = new ConsoleCancellationManager(graceful, TimeSpan.FromSeconds(30));
-        manager.ConfigureForCommand(TimeSpan.FromSeconds(30));
-        manager.SetStartedHandler(new TaskCompletionSource<int>().Task);
-
-        // Two concurrent internal teardown callers (e.g. backchannel-fail + guest-non-zero) must
-        // NOT be treated as "second Ctrl+C" — that would collapse the graceful window and defeat
-        // the budget. Only a real user signal via Cancel() should escalate.
-        manager.RequestShutdown(42);
-        manager.RequestShutdown(99);
-
-        Assert.True(manager.IsCancellationRequested);
-        Assert.Equal(42, manager.RequestedExitCode);
-
-        // Graceful token should NOT be expired by repeated internal requests — the watcher's
-        // Task.Delay(graceful budget) is still arming. Give the scheduler a tick to prove it.
-        await Task.Delay(50);
-        Assert.False(graceful.Token.IsCancellationRequested);
-    }
-
-    [Fact]
-    public async Task RequestShutdown_ThenSingleUserCancel_DoesNotCollapseGracefulWindow()
-    {
-        // Regression: previously RequestShutdown and Cancel shared a single counter, so the user's
-        // first Ctrl+C after any internal RequestShutdown was observed as signalCount == 2 and
-        // immediately expired the graceful window — defeating the entire ladder during the normal
-        // "guest exited cleanly, drive teardown" flow in GuestAppHostProject.RunAsync.
-        using var graceful = new GracefulShutdownService();
-        using var manager = new ConsoleCancellationManager(graceful, TimeSpan.FromSeconds(30));
-        manager.ConfigureForCommand(TimeSpan.FromSeconds(30));
-        manager.SetStartedHandler(new TaskCompletionSource<int>().Task);
-
-        // Internal request starts the ladder.
-        manager.RequestShutdown(0);
-        Assert.True(manager.IsCancellationRequested);
-
-        // The user then hits Ctrl+C ONCE. This is the user's first signal; they must press a second
-        // time to expire the graceful window.
-        manager.Cancel(130);
-
-        await Task.Delay(50);
-        Assert.False(
-            graceful.Token.IsCancellationRequested,
-            "First user signal after an internal RequestShutdown must not expire the graceful window.");
-
-        // A second user signal SHOULD escalate.
-        manager.Cancel(130);
-        await Task.Delay(50);
-        Assert.True(
-            graceful.Token.IsCancellationRequested,
-            "Second user signal must expire the graceful window even if an internal RequestShutdown ran first.");
-    }
-
-    [Fact]
-    public void RequestedExitCode_FirstCallerWins()
-    {
-        using var graceful = new GracefulShutdownService();
-        using var manager = new ConsoleCancellationManager(graceful, TimeSpan.FromSeconds(30));
-        manager.ConfigureForCommand(TimeSpan.FromSeconds(30));
-
-        manager.SetStartedHandler(new TaskCompletionSource<int>().Task);
-
-        manager.Cancel(42);
-        manager.RequestShutdown(99);
-        manager.Cancel(7);
-
-        Assert.Equal(42, manager.RequestedExitCode);
     }
 
     [Fact]

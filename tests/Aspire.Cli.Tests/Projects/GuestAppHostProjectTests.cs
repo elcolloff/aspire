@@ -928,7 +928,6 @@ public class GuestAppHostProjectTests : IDisposable
         // for DetachedAppHostShutdownService because none of the tests in this fixture drive the
         // launcher or AppHostServerSession code paths that would actually invoke it.
         var gracefulShutdownService = new GracefulShutdownService();
-        var cancellationManager = new ConsoleCancellationManager(gracefulShutdownService, finalDrainBudget: TimeSpan.FromSeconds(5));
 
         return new GuestAppHostProject(
             language: language,
@@ -945,7 +944,6 @@ public class GuestAppHostProjectTests : IDisposable
             logger: NullLogger<GuestAppHostProject>.Instance,
             fileLoggerProvider: new FileLoggerProvider(logFilePath, new TestStartupErrorWriter()),
             profilingTelemetry: _profilingTelemetry,
-            cancellationManager: cancellationManager,
             gracefulShutdownSignaler: new NoOpGracefulSignaler(),
             shutdownService: gracefulShutdownService);
     }

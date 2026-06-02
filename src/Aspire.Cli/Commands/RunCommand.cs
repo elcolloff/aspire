@@ -148,8 +148,8 @@ internal sealed class RunCommand : BaseCommand
     {
         // Give DCP a cooperative window to drain resources before the central drain budget
         // arms and shutdown ladders escalate to forceful kill. Without this, GracefulShutdownToken
-        // fires immediately on the first signal/RequestShutdown and isolation/AttachConsole buys
-        // nothing because every ladder sees the graceful window already expired.
+        // fires immediately on the first user signal and isolation/AttachConsole buys nothing
+        // because every ladder sees the graceful window already expired.
         _cancellationManager.ConfigureForCommand(s_gracefulShutdownBudget);
 
         var passedAppHostProjectFile = parseResult.GetValue(AppHostLauncher.s_appHostOption);
@@ -524,10 +524,11 @@ internal sealed class RunCommand : BaseCommand
             {
                 runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "canceled");
 
-                // The user cancelled (e.g. Ctrl+C) OR an internal RequestShutdown fired the central
-                // token — distinguishing them by RequestedExitCode so internal-failure exit codes
-                // (e.g. guest exited non-zero) surface instead of being masked as success.
-                return MapCancellationToResult();
+                // User Ctrl+C is the normal exit path for `aspire run`; surface as success.
+                // Internal failures `return X` directly from GuestAppHostProject.RunAsync rather
+                // than flowing through this catch, so we don't need to distinguish failure codes
+                // here.
+                return CommandResult.Cancelled(CliExitCodes.Success);
             }
             finally
             {
@@ -549,10 +550,10 @@ internal sealed class RunCommand : BaseCommand
         {
             runActivity?.SetTag(TelemetryConstants.Tags.ErrorType, "canceled");
 
-            // Command is designed to be cancellable by the user (e.g. Ctrl+C) at any time, but also
-            // by internal RequestShutdown(failureCode). Distinguish via CCM.RequestedExitCode so
-            // internal-failure exit codes are surfaced rather than swallowed as success.
-            return MapCancellationToResult();
+            // User Ctrl+C is the normal exit path for `aspire run`; surface as success.
+            // Internal failures `return X` directly from GuestAppHostProject.RunAsync rather
+            // than flowing through this catch.
+            return CommandResult.Cancelled(CliExitCodes.Success);
         }
         catch (ProjectLocatorException ex)
         {
@@ -630,25 +631,6 @@ internal sealed class RunCommand : BaseCommand
         return errorMessage is null
             ? CommandResult.FromExitCode(exitCode)
             : CommandResult.Failure(exitCode, errorMessage);
-    }
-
-    /// <summary>
-    /// Maps a cancellation captured by an OCE catch to a CommandResult, consulting
-    /// <see cref="ConsoleCancellationManager.RequestedExitCode"/> so internal
-    /// <c>RequestShutdown(failureCode)</c> calls surface as failures rather than being masked as
-    /// success by the user-cancel translation. Returns success when no exit code was captured or
-    /// when the captured code matches the conventional Cancelled (130) signal exit.
-    /// </summary>
-    private CommandResult MapCancellationToResult()
-    {
-        var requested = _cancellationManager.RequestedExitCode;
-        if (requested is null or CliExitCodes.Cancelled)
-        {
-            // Ambient cancellation or user Ctrl+C — preserve today's "stopping intentionally is OK" UX.
-            return CommandResult.Cancelled(CliExitCodes.Success);
-        }
-
-        return CommandResult.FromExitCode(requested.Value);
     }
 
     private static async Task<int?> ObserveEarlyDetachedStartupExitAsync(Task<int> pendingRun, CancellationToken cancellationToken)
