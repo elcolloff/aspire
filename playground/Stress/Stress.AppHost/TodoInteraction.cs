@@ -23,8 +23,9 @@ internal sealed class TodoInteraction
     };
 
     private readonly object _todosLock = new();
-    private readonly SemaphoreSlim _todoChanged = new(0);
+    private TaskCompletionSource _todoChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _nextTodoId = 6;
+    private int _todoVersion;
 
     public TodoInteraction(IResourceBuilder<ProjectResource> parentResource)
     {
@@ -60,11 +61,10 @@ internal sealed class TodoInteraction
             {
                 while (!visitContext.CancellationToken.IsCancellationRequested)
                 {
-                    var markdown = BuildTodoMarkdown();
+                    var (markdown, version) = BuildTodoMarkdown();
                     await visitContext.SendMarkdownAsync(markdown, visitContext.CancellationToken);
 
-                    // Wait for a change notification or timeout to poll periodically.
-                    await _todoChanged.WaitAsync(visitContext.CancellationToken);
+                    await WaitForTodoChangeAsync(version, visitContext.CancellationToken);
                 }
             }
         });
@@ -131,7 +131,7 @@ internal sealed class TodoInteraction
         return Task.CompletedTask;
     }
 
-    private string BuildTodoMarkdown()
+    private (string Markdown, int Version) BuildTodoMarkdown()
     {
         var sb = new StringBuilder();
         sb.AppendLine("# Todo List");
@@ -141,9 +141,11 @@ internal sealed class TodoInteraction
         sb.AppendLine();
 
         List<TodoItem> snapshot;
+        int version;
         lock (_todosLock)
         {
             snapshot = new List<TodoItem>(_todos);
+            version = _todoVersion;
         }
 
         if (snapshot.Count == 0)
@@ -160,7 +162,7 @@ internal sealed class TodoInteraction
             }
         }
 
-        return sb.ToString();
+        return (sb.ToString(), version);
     }
 
     private static string EscapeMarkdownTableCell(string value)
@@ -178,11 +180,28 @@ internal sealed class TodoInteraction
             .Replace("~", "\\~", StringComparison.Ordinal);
     }
 
+    private Task WaitForTodoChangeAsync(int observedVersion, CancellationToken cancellationToken)
+    {
+        lock (_todosLock)
+        {
+            return _todoVersion != observedVersion
+                ? Task.CompletedTask
+                : _todoChanged.Task.WaitAsync(cancellationToken);
+        }
+    }
+
     private void NotifyTodoChanged()
     {
-        // Release all waiting visitors so they re-render.
-        // CurrentCount can go negative with Release, but we just want to unblock waiters.
-        _todoChanged.Release();
+        TaskCompletionSource changed;
+
+        lock (_todosLock)
+        {
+            _todoVersion++;
+            changed = _todoChanged;
+            _todoChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        changed.TrySetResult();
     }
 
     private static string LoadEmbeddedTextResource(string fileName)

@@ -37,7 +37,9 @@ public static class DashboardEndpointsBuilder
                 cancellationToken).ConfigureAwait(false);
 
             return found ? Results.Empty : Results.NotFound();
-        }).SkipStatusCodePages();
+        })
+        .RequireAuthorization(FrontendAuthorizationDefaults.PolicyName)
+        .SkipStatusCodePages();
 
         IEndpointConventionBuilder builder;
         if (dashboardOptions.Frontend.AuthMode == FrontendAuthMode.BrowserToken)

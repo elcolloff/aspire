@@ -1303,6 +1303,7 @@ public class InteractionServiceTests
     {
         // Arrange
         var interactionService = CreateInteractionService();
+        var visitCallbackReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var visitTokenCancelled = new TaskCompletionSource<bool>();
 
         interactionService.RegisterPage("test-page", new PageContext
@@ -1311,6 +1312,7 @@ public class InteractionServiceTests
             OnVisit = async ctx =>
             {
                 ctx.CancellationToken.Register(() => visitTokenCancelled.TrySetResult(true));
+                visitCallbackReady.SetResult();
                 try
                 {
                     await Task.Delay(Timeout.Infinite, ctx.CancellationToken);
@@ -1325,8 +1327,7 @@ public class InteractionServiceTests
         var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
         Assert.NotNull(startedPage);
 
-        // Give the visit callback time to register its cancellation handler.
-        await Task.Delay(50);
+        await visitCallbackReady.Task.DefaultTimeout();
 
         // Act
         await interactionService.ProcessInteractionFromClientAsync(
@@ -1709,6 +1710,8 @@ public class InteractionServiceTests
         var interactionService = CreateInteractionService();
         var session1Ready = new TaskCompletionSource();
         var session2Ready = new TaskCompletionSource();
+        var session1MarkdownSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session2MarkdownSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var continueSignal = new TaskCompletionSource();
 
         interactionService.RegisterPage("test-page", new PageContext
@@ -1727,6 +1730,14 @@ public class InteractionServiceTests
 
                 await continueSignal.Task;
                 await ctx.SendMarkdownAsync($"# Content from {ctx.SessionId}", ctx.CancellationToken);
+                if (ctx.SessionId == "session-1")
+                {
+                    session1MarkdownSent.SetResult();
+                }
+                else
+                {
+                    session2MarkdownSent.SetResult();
+                }
             }
         });
 
@@ -1743,8 +1754,8 @@ public class InteractionServiceTests
         // Let both sessions send markdown concurrently.
         continueSignal.SetResult();
 
-        // Give the callbacks time to complete.
-        await Task.Delay(100);
+        await session1MarkdownSent.Task.DefaultTimeout();
+        await session2MarkdownSent.Task.DefaultTimeout();
 
         // Assert — both sessions should have their content stored.
         var interactions = interactionService.GetCurrentInteractions();
