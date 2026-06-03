@@ -93,6 +93,12 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             return;
         }
 
+        // Recreate the markdown processor when the page's EnableHtml setting requires it.
+        _markdownProcessor = InteractionMarkdownHelper.CreateProcessor(
+            ControlsStringsLoc,
+            [new ButtonExtension(IconResolver)],
+            enableHtml: _pageRegistration.EnableHtml);
+
         _pageNotFound = false;
         _pageTitle = _pageRegistration.Title;
 

@@ -178,7 +178,8 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                             change.Page = new InteractionPage
                             {
                                 Route = pageInfo.Route,
-                                Title = pageInfo.PageContext.Title ?? pageInfo.Route
+                                Title = pageInfo.PageContext.Title ?? pageInfo.Route,
+                                EnableHtml = pageInfo.PageContext.EnableHtml
                             };
 
                             if (pageInfo.PageContext.StyleIncludes is { } styleIncludes)

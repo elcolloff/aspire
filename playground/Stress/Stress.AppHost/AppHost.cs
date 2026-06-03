@@ -86,6 +86,7 @@ var telemetryBuilder = builder.AddProject<Projects.Stress_TelemetryService>("str
 
 builder.AddCommandResources(serviceBuilder, telemetryBuilder);
 new TodoInteraction(serviceBuilder).Register(builder);
+new RoguelikeInteraction(serviceBuilder).Register(builder);
 
 #if !SKIP_DASHBOARD_REFERENCE
 // This project is only added in playground projects to support development/debugging

@@ -434,6 +434,8 @@ message InteractionPage {
     repeated string css_routes = 5;
     // JavaScript module asset routes to include when the page is displayed.
     repeated string script_routes = 6;
+    // When true, markdown_content is treated as raw HTML and rendered without markdown processing.
+    bool enable_html = 7;
 }
 // Represents a visitor navigating to a dynamic page.
 message InteractionPageVisit {

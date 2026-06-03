@@ -885,6 +885,13 @@ public sealed class PageContext
     /// Routes are relative to the assets endpoint (e.g. <c>my-script.js</c> resolves to <c>/assets/my-script.js</c>).
     /// </summary>
     public IReadOnlyList<string>? ScriptIncludes { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether HTML rendering is enabled for this page.
+    /// When <see langword="true"/>, the content sent via <see cref="PageVisitContext.SendMarkdownAsync"/> is treated
+    /// as raw HTML and rendered directly without markdown processing.
+    /// </summary>
+    public bool EnableHtml { get; set; }
 }
 
 /// <summary>

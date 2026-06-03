@@ -526,7 +526,8 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                             page.Route,
                             page.Title,
                             page.CssRoutes.ToList(),
-                            page.ScriptRoutes.ToList());
+                            page.ScriptRoutes.ToList(),
+                            page.EnableHtml);
                         if (!string.IsNullOrEmpty(page.SessionId))
                         {
                             // This is a content update for an active visitor session.

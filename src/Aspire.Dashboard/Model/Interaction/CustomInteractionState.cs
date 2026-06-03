@@ -63,7 +63,7 @@ public sealed class CustomInteractionState
         OnMenuButtonsChanged?.Invoke();
     }
 
-    public void AddPage(int interactionId, string route, string title, IReadOnlyList<string> styleIncludes, IReadOnlyList<string> scriptIncludes)
+    public void AddPage(int interactionId, string route, string title, IReadOnlyList<string> styleIncludes, IReadOnlyList<string> scriptIncludes, bool enableHtml = false)
     {
         lock (_lock)
         {
@@ -72,7 +72,7 @@ public sealed class CustomInteractionState
             {
                 return;
             }
-            _pages = _pages.Add(new PageRegistrationState(interactionId, route, title, styleIncludes, scriptIncludes));
+            _pages = _pages.Add(new PageRegistrationState(interactionId, route, title, styleIncludes, scriptIncludes, enableHtml));
         }
     }
 
@@ -100,6 +100,6 @@ public sealed class CustomInteractionState
 
 public sealed record MenuButtonState(int InteractionId, string IconName, string Text, string Tooltip, string Url);
 
-public sealed record PageRegistrationState(int InteractionId, string Route, string Title, IReadOnlyList<string> StyleIncludes, IReadOnlyList<string> ScriptIncludes);
+public sealed record PageRegistrationState(int InteractionId, string Route, string Title, IReadOnlyList<string> StyleIncludes, IReadOnlyList<string> ScriptIncludes, bool EnableHtml);
 
 public sealed record PageContentUpdate(int InteractionId, string SessionId, string MarkdownContent);

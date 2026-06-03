@@ -24,7 +24,7 @@ export function attachButtonClickEvent(containerId, interop) {
     }
 
     container.addEventListener('click', function (event) {
-        const button = event.target.closest('fluent-button[data-text]');
+        const button = event.target.closest('fluent-button[data-text]') || event.target.closest('a[data-command]');
         if (button) {
             event.preventDefault();
             event.stopPropagation();
