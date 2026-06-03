@@ -181,6 +181,16 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                                 Title = pageInfo.PageContext.Title ?? pageInfo.Route
                             };
 
+                            if (pageInfo.PageContext.CssRoutes is { } cssRoutes)
+                            {
+                                change.Page.CssRoutes.AddRange(cssRoutes);
+                            }
+
+                            if (pageInfo.PageContext.ScriptRoutes is { } scriptRoutes)
+                            {
+                                change.Page.ScriptRoutes.AddRange(scriptRoutes);
+                            }
+
                             // If there are active sessions with content, send the latest markdown
                             // for each session. The dashboard uses session_id to route content
                             // to the correct visitor.

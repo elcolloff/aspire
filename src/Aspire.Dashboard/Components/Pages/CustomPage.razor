@@ -17,7 +17,7 @@
 }
 else if (_markdownContent is not null)
 {
-    <div class="custom-page-content">
+    <div id="@CustomPageContainerId" class="custom-page-content">
         <MarkdownRenderer Markdown="@_markdownContent" MarkdownProcessor="@_markdownProcessor" SuppressParagraphOnNewLines="false" />
     </div>
 }

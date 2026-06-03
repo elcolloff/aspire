@@ -92,7 +92,7 @@ ___
 | **Bold**       | ✅        | Works inside tables too        |
 | *Italics*      | ✅        | Styling works fine             |
 | Links          | ✅        | [Example](https://openai.com)  |
-| Images         | ✅        | ![Img](/img/TokenExample.png) |
+| Images         | ✅        | ![Img](/img/TokenExample.png)  |
 | Task List      | ❌        | Not supported in table cells   |
 
 ---

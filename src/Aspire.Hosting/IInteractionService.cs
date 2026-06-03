@@ -873,6 +873,18 @@ public sealed class PageContext
     /// invokes this callback independently, allowing per-visitor content streaming.
     /// </summary>
     public Func<PageVisitContext, Task>? OnVisit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the CSS stylesheet routes to include when the page is displayed.
+    /// Routes are relative to the assets endpoint (e.g. <c>my-styles.css</c> resolves to <c>/pages/assets/my-styles.css</c>).
+    /// </summary>
+    public IReadOnlyList<string>? CssRoutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the JavaScript module routes to include when the page is displayed.
+    /// Routes are relative to the assets endpoint (e.g. <c>my-script.js</c> resolves to <c>/pages/assets/my-script.js</c>).
+    /// </summary>
+    public IReadOnlyList<string>? ScriptRoutes { get; set; }
 }
 
 /// <summary>

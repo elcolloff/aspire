@@ -3,16 +3,21 @@
 
 using Aspire.Dashboard.Model.Interaction;
 using Aspire.Dashboard.Model.Markdown;
+using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Resources;
+using Aspire.Dashboard.Utils;
 using Aspire.DashboardService.Proto.V1;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Localization;
+using Microsoft.JSInterop;
 
 namespace Aspire.Dashboard.Components.Pages;
 
 public partial class CustomPage : ComponentBase, IAsyncDisposable
 {
+    private const string CustomPageContainerId = "custom-page-container";
+
     private readonly string _sessionId = Guid.NewGuid().ToString("N");
     private MarkdownProcessor _markdownProcessor = default!;
     private string? _markdownContent;
@@ -21,6 +26,9 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     private bool _visitSent;
     private string? _currentRoute;
     private PageRegistrationState? _pageRegistration;
+    private IJSObjectReference? _jsModule;
+    private List<IJSObjectReference>? _pageScriptModules;
+    private DotNetObjectReference<CustomPageInterop>? _interopReference;
 
     [Parameter]
     public string? Route { get; set; }
@@ -35,11 +43,24 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     public required NavigationManager NavigationManager { get; init; }
 
     [Inject]
+    public required IconResolver IconResolver { get; init; }
+
+    [Inject]
     public required IStringLocalizer<ControlsStrings> ControlsStringsLoc { get; init; }
+
+    [Inject]
+    public required IJSRuntime JS { get; init; }
+
+    [Inject]
+    public required ILogger<CustomPage> Logger { get; init; }
+
+    [Inject]
+    public required DashboardCommandExecutor DashboardCommandExecutor { get; init; }
 
     protected override void OnInitialized()
     {
-        _markdownProcessor = InteractionMarkdownHelper.CreateProcessor(ControlsStringsLoc);
+        _markdownProcessor = InteractionMarkdownHelper.CreateProcessor(ControlsStringsLoc, [new ButtonExtension(IconResolver)]);
+        _interopReference = DotNetObjectReference.Create(new CustomPageInterop(this));
         CustomInteractionState.OnPageContentUpdated += OnPageContentUpdated;
     }
 
@@ -117,6 +138,33 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         CustomInteractionState.OnPageContentUpdated -= OnPageContentUpdated;
+        _interopReference?.Dispose();
+
+        if (_pageScriptModules is not null)
+        {
+            foreach (var module in _pageScriptModules)
+            {
+                await JSInteropHelpers.SafeDisposeAsync(module);
+            }
+        }
+
+        // Remove page-specific CSS links before disposing the JS module.
+        if (_jsModule is not null && _pageRegistration?.CssRoutes is { Count: > 0 } cssRoutes)
+        {
+            foreach (var cssRoute in cssRoutes)
+            {
+                try
+                {
+                    await _jsModule.InvokeVoidAsync("removeStylesheetLink", $"/pages/assets/{cssRoute}");
+                }
+                catch (Exception)
+                {
+                    // Best effort — JS runtime may be disconnected.
+                }
+            }
+        }
+
+        await JSInteropHelpers.SafeDisposeAsync(_jsModule);
 
         if (_pageRegistration is not null && _visitSent)
         {
@@ -147,6 +195,96 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         catch (Exception)
         {
             // Best effort — the host may already be gone.
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/CustomPage.razor.js");
+            await _jsModule.InvokeVoidAsync("attachButtonClickEvent", CustomPageContainerId, _interopReference);
+
+            // Inject page-specific CSS links via JS so they remain stable across re-renders
+            // (HeadContent participates in Blazor diffing and can flicker on content updates).
+            if (_pageRegistration?.CssRoutes is { Count: > 0 } cssRoutes)
+            {
+                foreach (var cssRoute in cssRoutes)
+                {
+                    await _jsModule.InvokeVoidAsync("addStylesheetLink", $"/pages/assets/{cssRoute}");
+                }
+            }
+
+            // Load page-specific script modules.
+            if (_pageRegistration?.ScriptRoutes is { Count: > 0 } scriptRoutes)
+            {
+                _pageScriptModules = new List<IJSObjectReference>(scriptRoutes.Count);
+                foreach (var scriptRoute in scriptRoutes)
+                {
+                    var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/pages/assets/{scriptRoute}");
+                    _pageScriptModules.Add(module);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handles button clicks from markdown-rendered buttons in the custom page.
+    /// </summary>
+    private sealed class CustomPageInterop
+    {
+        private readonly CustomPage _page;
+
+        public CustomPageInterop(CustomPage page)
+        {
+            _page = page;
+        }
+
+        [JSInvokable]
+        public async Task OnButtonClick(IDictionary<string, string> values)
+        {
+            values.TryGetValue("command", out var commandName);
+            values.TryGetValue("resource", out var resourceName);
+            values.TryGetValue("arguments", out var argumentsValue);
+
+            if (string.IsNullOrEmpty(commandName) || string.IsNullOrEmpty(resourceName))
+            {
+                _page.Logger.LogDebug("Button click missing required values. Command: {Command}, Resource: {Resource}", commandName, resourceName);
+                return;
+            }
+
+            Dictionary<string, Google.Protobuf.WellKnownTypes.Value>? arguments = null;
+            if (!string.IsNullOrEmpty(argumentsValue))
+            {
+                try
+                {
+                    var parsed = QueryHelpers.ParseQuery(argumentsValue);
+                    arguments = parsed.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => Google.Protobuf.WellKnownTypes.Value.ForString(kvp.Value.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    _page.Logger.LogDebug(ex, "Failed to parse button arguments as query string: {Arguments}", argumentsValue);
+                    return;
+                }
+            }
+
+            var resource = _page.DashboardClient.GetResource(resourceName);
+            if (resource is null)
+            {
+                _page.Logger.LogDebug("Resource not found: {Resource}", resourceName);
+                return;
+            }
+
+            var command = resource.Commands.FirstOrDefault(c => string.Equals(c.Name, commandName, StringComparison.Ordinal));
+            if (command is null)
+            {
+                _page.Logger.LogDebug("Command {Command} not found on resource {Resource}", commandName, resourceName);
+                return;
+            }
+
+            await _page.DashboardCommandExecutor.ExecuteAsync(resource, command, r => r.Name, arguments);
         }
     }
 }

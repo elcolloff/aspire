@@ -14,7 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="MarkdownShowcase.txt" />
+    <EmbeddedResource Include="Resources\MarkdownShowcase.txt" />
+    <EmbeddedResource Include="Resources\AspireLogo.svg" />
+    <EmbeddedResource Include="Resources\TodoStyles.css" />
   </ItemGroup>
 
   <ItemGroup>

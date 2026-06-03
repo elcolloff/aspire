@@ -521,7 +521,12 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                         // Always ensure the page is registered (idempotent). This handles both
                         // initial registration and reconnection scenarios where only the latest
                         // message is replayed.
-                        CustomInteractionState.AddPage(item.InteractionId, page.Route, page.Title);
+                        CustomInteractionState.AddPage(
+                            item.InteractionId,
+                            page.Route,
+                            page.Title,
+                            page.CssRoutes.ToList(),
+                            page.ScriptRoutes.ToList());
                         if (!string.IsNullOrEmpty(page.SessionId))
                         {
                             // This is a content update for an active visitor session.

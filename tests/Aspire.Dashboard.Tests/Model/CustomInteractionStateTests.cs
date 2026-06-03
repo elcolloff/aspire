@@ -76,7 +76,7 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddPage(1, "my-page", "My Page");
+        state.AddPage(1, "my-page", "My Page", [], []);
 
         var page = Assert.Single(state.Pages);
         Assert.Equal(1, page.InteractionId);
@@ -89,8 +89,8 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddPage(1, "my-page", "My Page");
-        state.AddPage(1, "my-page", "My Page");
+        state.AddPage(1, "my-page", "My Page", [], []);
+        state.AddPage(1, "my-page", "My Page", [], []);
 
         Assert.Single(state.Pages);
     }
@@ -99,7 +99,7 @@ public class CustomInteractionStateTests
     public void RemovePage_RemovesFromCollection()
     {
         var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page");
+        state.AddPage(1, "my-page", "My Page", [], []);
 
         state.RemovePage(1);
 
@@ -110,7 +110,7 @@ public class CustomInteractionStateTests
     public void FindPageByRoute_ExistingRoute_ReturnsPage()
     {
         var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page");
+        state.AddPage(1, "my-page", "My Page", [], []);
 
         var result = state.FindPageByRoute("my-page");
 
@@ -124,7 +124,7 @@ public class CustomInteractionStateTests
     public void FindPageByRoute_CaseInsensitive()
     {
         var state = new CustomInteractionState();
-        state.AddPage(1, "My-Page", "My Page");
+        state.AddPage(1, "My-Page", "My Page", [], []);
 
         var result = state.FindPageByRoute("my-page");
 
@@ -136,7 +136,7 @@ public class CustomInteractionStateTests
     public void FindPageByRoute_NonExistentRoute_ReturnsNull()
     {
         var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page");
+        state.AddPage(1, "my-page", "My Page", [], []);
 
         var result = state.FindPageByRoute("other-page");
 
@@ -179,8 +179,8 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddPage(1, "page-1", "Page 1");
-        state.AddPage(2, "page-2", "Page 2");
+        state.AddPage(1, "page-1", "Page 1", [], []);
+        state.AddPage(2, "page-2", "Page 2", [], []);
 
         Assert.Equal(2, state.Pages.Length);
 
