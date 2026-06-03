@@ -24,10 +24,14 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     private string? _markdownContent;
     private string _pageTitle = "Page";
     private bool _pageNotFound;
-    private bool _visitSent;
+    private bool _interactionStarted;
     private bool _pageAssetsChanged;
     private string? _currentRoute;
-    private PageRegistrationState? _pageRegistration;
+    private StartPageInteractionResult? _pageInteraction;
+    private PageContentUpdate? _pendingPageContentUpdate;
+    private IReadOnlyList<string> _styleIncludes = [];
+    private IReadOnlyList<string> _scriptIncludes = [];
+    private bool _enableHtml;
     private IJSObjectReference? _jsModule;
     private List<string>? _activeCssHrefs;
     private List<IJSObjectReference>? _pageScriptModules;
@@ -78,74 +82,109 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             return;
         }
 
-        // When the route changes (navigating between custom pages), send a leave for the old page
-        // and reset state so the new page gets a fresh visit notification.
-        if (_visitSent && !string.Equals(_currentRoute, Route, StringComparison.OrdinalIgnoreCase))
+        // When the route changes (navigating between custom pages), complete the old page interaction
+        // and reset state so the new page gets a fresh interaction.
+        if (_interactionStarted && !string.Equals(_currentRoute, Route, StringComparison.OrdinalIgnoreCase))
         {
-            await SendPageLeaveAsync().ConfigureAwait(false);
-            _visitSent = false;
+            await CompletePageInteractionAsync().ConfigureAwait(false);
+            _interactionStarted = false;
             _markdownContent = null;
+            _pageInteraction = null;
+            _pendingPageContentUpdate = null;
+            _styleIncludes = [];
+            _scriptIncludes = [];
+            _enableHtml = false;
+            _pageTitle = "Page";
             _pageAssetsChanged = true;
         }
 
         _currentRoute = Route;
 
-        _pageRegistration = CustomInteractionState.FindPageByRoute(Route);
-        if (_pageRegistration is null)
+        if (!_interactionStarted)
         {
-            _pageNotFound = true;
-            return;
-        }
-
-        // Recreate the markdown processor when the page's EnableHtml setting requires it.
-        _markdownProcessor = InteractionMarkdownHelper.CreateProcessor(
-            ControlsStringsLoc,
-            [new ButtonExtension(IconResolver)],
-            enableHtml: _pageRegistration.EnableHtml);
-
-        _pageNotFound = false;
-        _pageTitle = _pageRegistration.Title;
-
-        if (!_visitSent)
-        {
-            _visitSent = true;
-
-            // Notify the host that a visitor has arrived at this page.
-            var request = new WatchInteractionsRequestUpdate
-            {
-                InteractionId = _pageRegistration.InteractionId,
-                PageVisit = new InteractionPageVisit
-                {
-                    SessionId = _sessionId
-                }
-            };
-
-            // Extract query string parameters from the current URL.
+            var queryParameters = new Dictionary<string, string>(StringComparer.Ordinal);
             var uri = new Uri(NavigationManager.Uri);
-            var queryParams = QueryHelpers.ParseQuery(uri.Query);
-            foreach (var (key, values) in queryParams)
+            foreach (var (key, values) in QueryHelpers.ParseQuery(uri.Query))
             {
-                request.PageVisit.QueryParameters[key] = values.ToString();
+                queryParameters[key] = values.ToString();
             }
 
-            await DashboardClient.SendInteractionRequestAsync(request, CancellationToken.None).ConfigureAwait(false);
+            var pageInteraction = await DashboardClient.StartPageInteractionAsync(Route, _sessionId, queryParameters, CancellationToken.None).ConfigureAwait(false);
+            if (pageInteraction is null)
+            {
+                _pageNotFound = true;
+                _markdownContent = null;
+                _pageInteraction = null;
+                _pendingPageContentUpdate = null;
+                _styleIncludes = [];
+                _scriptIncludes = [];
+                _enableHtml = false;
+                _pageAssetsChanged = true;
+                return;
+            }
+
+            _pageInteraction = pageInteraction;
+            _interactionStarted = true;
+            _pageNotFound = false;
+
+            if (_pendingPageContentUpdate is { } pendingUpdate && TryApplyPageContentUpdate(pendingUpdate))
+            {
+                _pendingPageContentUpdate = null;
+            }
+            else
+            {
+                _pendingPageContentUpdate = null;
+            }
         }
     }
 
     private void OnPageContentUpdated(PageContentUpdate update)
     {
-        if (_pageRegistration is null)
+        if (_pageInteraction is null)
         {
+            if (string.Equals(update.SessionId, _sessionId, StringComparison.Ordinal))
+            {
+                _pendingPageContentUpdate = update;
+            }
+
             return;
         }
 
-        // Only process updates for our interaction and session.
-        if (update.InteractionId == _pageRegistration.InteractionId &&
-            string.Equals(update.SessionId, _sessionId, StringComparison.Ordinal))
+        if (TryApplyPageContentUpdate(update))
         {
-            _markdownContent = update.MarkdownContent;
             InvokeAsync(StateHasChanged);
         }
+    }
+
+    private bool TryApplyPageContentUpdate(PageContentUpdate update)
+    {
+        // Only process updates for our interaction and session.
+        if (_pageInteraction is not null &&
+            update.InteractionId == _pageInteraction.InteractionId &&
+            string.Equals(update.SessionId, _sessionId, StringComparison.Ordinal))
+        {
+            var assetsChanged = !_styleIncludes.SequenceEqual(update.StyleIncludes) ||
+                !_scriptIncludes.SequenceEqual(update.ScriptIncludes);
+
+            _pageTitle = update.Title;
+            _styleIncludes = update.StyleIncludes;
+            _scriptIncludes = update.ScriptIncludes;
+
+            if (_enableHtml != update.EnableHtml)
+            {
+                _enableHtml = update.EnableHtml;
+                _markdownProcessor = InteractionMarkdownHelper.CreateProcessor(
+                    ControlsStringsLoc,
+                    [new ButtonExtension(IconResolver)],
+                    enableHtml: _enableHtml);
+            }
+
+            _pageAssetsChanged |= assetsChanged;
+            _markdownContent = update.MarkdownContent;
+            return true;
+        }
+
+        return false;
     }
 
     public async ValueTask DisposeAsync()
@@ -156,26 +195,23 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         await RemovePageAssetsAsync();
         await JSInteropHelpers.SafeDisposeAsync(_jsModule);
 
-        if (_pageRegistration is not null && _visitSent)
+        if (_interactionStarted)
         {
-            await SendPageLeaveAsync().ConfigureAwait(false);
+            await CompletePageInteractionAsync().ConfigureAwait(false);
         }
     }
 
-    private async Task SendPageLeaveAsync()
+    private async Task CompletePageInteractionAsync()
     {
-        if (_pageRegistration is null)
+        if (_pageInteraction is null)
         {
             return;
         }
 
         var request = new WatchInteractionsRequestUpdate
         {
-            InteractionId = _pageRegistration.InteractionId,
-            PageLeave = new InteractionPageLeave
-            {
-                SessionId = _sessionId
-            }
+            InteractionId = _pageInteraction.InteractionId,
+            Complete = new InteractionComplete()
         };
 
         try
@@ -205,16 +241,16 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     }
 
     /// <summary>
-    /// Adds page-specific CSS links and loads script modules for the current page registration.
+    /// Adds page-specific CSS links and loads script modules for the current page interaction.
     /// </summary>
     private async Task AddPageAssetsAsync()
     {
-        if (_jsModule is null || _pageRegistration is null)
+        if (_jsModule is null || _pageInteraction is null)
         {
             return;
         }
 
-        if (_pageRegistration.StyleIncludes is { Count: > 0 } styleIncludes)
+        if (_styleIncludes is { Count: > 0 } styleIncludes)
         {
             _activeCssHrefs = new List<string>(styleIncludes.Count);
             foreach (var styleInclude in styleIncludes)
@@ -225,13 +261,14 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             }
         }
 
-        if (_pageRegistration.ScriptIncludes is { Count: > 0 } scriptIncludes)
+        if (_scriptIncludes is { Count: > 0 } scriptIncludes)
         {
             _pageScriptModules = new List<IJSObjectReference>(scriptIncludes.Count);
             foreach (var scriptInclude in scriptIncludes)
             {
                 var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/assets/{scriptInclude}");
                 _pageScriptModules.Add(module);
+                await _jsModule.InvokeVoidAsync("invokeOptionalExport", module, "initialize");
             }
         }
     }
@@ -243,8 +280,21 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     {
         if (_pageScriptModules is not null)
         {
+            var jsModule = _jsModule;
             foreach (var module in _pageScriptModules)
             {
+                if (jsModule is not null)
+                {
+                    try
+                    {
+                        await jsModule.InvokeVoidAsync("invokeOptionalExport", module, "dispose");
+                    }
+                    catch (Exception)
+                    {
+                        // Best effort — page scripts don't have to export a dispose function.
+                    }
+                }
+
                 await JSInteropHelpers.SafeDisposeAsync(module);
             }
             _pageScriptModules = null;

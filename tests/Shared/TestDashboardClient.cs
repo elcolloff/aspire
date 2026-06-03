@@ -149,6 +149,11 @@ public class TestDashboardClient : IDashboardClient
         await _sendInteractionUpdateChannel.Writer.WriteAsync(request, cancellationToken);
     }
 
+    public Task<StartPageInteractionResult?> StartPageInteractionAsync(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    {
+        return Task.FromResult<StartPageInteractionResult?>(null);
+    }
+
     public Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();

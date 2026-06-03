@@ -901,11 +901,11 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var startedPage1 = interactionService.StartPageInteraction("multi-session", "s1", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage2 = interactionService.StartPageInteraction("multi-session", "s2", new Dictionary<string, string>(), CancellationToken.None);
 
-        // Start two visits — fire-and-forget like the real SendInteractionRequestAsync does.
-        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "s1", new Dictionary<string, string>(), CancellationToken.None);
-        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "s2", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage1);
+        Assert.NotNull(startedPage2);
 
         await session1Ready.Task.DefaultTimeout();
         await session2Ready.Task.DefaultTimeout();
@@ -918,15 +918,9 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         var writer = new TestServerStreamWriter<WatchInteractionsResponseUpdate>(context);
         var reader = new TestAsyncStreamReader<WatchInteractionsRequestUpdate>(context);
 
-        // Act — start watching interactions. The page should be streamed with session content.
+        // Act — start watching interactions. Each active page interaction should be streamed with its session content.
         var task = dashboardService.WatchInteractions(reader, writer, context);
 
-        // The first message is the page registration (no session content — that gets separate messages).
-        var registration = await writer.ReadNextAsync().DefaultTimeout();
-        Assert.Equal(WatchInteractionsResponseUpdate.KindOneofCase.Page, registration.KindCase);
-        Assert.Equal("multi-session", registration.Page.Route);
-
-        // Then one message per active session.
         var sessionMessages = new List<WatchInteractionsResponseUpdate>();
         sessionMessages.Add(await writer.ReadNextAsync().DefaultTimeout());
         sessionMessages.Add(await writer.ReadNextAsync().DefaultTimeout());

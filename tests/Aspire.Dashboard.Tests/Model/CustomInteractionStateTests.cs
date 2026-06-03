@@ -72,90 +72,23 @@ public class CustomInteractionStateTests
     }
 
     [Fact]
-    public void AddPage_AddsToCollection()
-    {
-        var state = new CustomInteractionState();
-
-        state.AddPage(1, "my-page", "My Page", [], []);
-
-        var page = Assert.Single(state.Pages);
-        Assert.Equal(1, page.InteractionId);
-        Assert.Equal("my-page", page.Route);
-        Assert.Equal("My Page", page.Title);
-    }
-
-    [Fact]
-    public void AddPage_Duplicate_IsIdempotent()
-    {
-        var state = new CustomInteractionState();
-
-        state.AddPage(1, "my-page", "My Page", [], []);
-        state.AddPage(1, "my-page", "My Page", [], []);
-
-        Assert.Single(state.Pages);
-    }
-
-    [Fact]
-    public void RemovePage_RemovesFromCollection()
-    {
-        var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page", [], []);
-
-        state.RemovePage(1);
-
-        Assert.Empty(state.Pages);
-    }
-
-    [Fact]
-    public void FindPageByRoute_ExistingRoute_ReturnsPage()
-    {
-        var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page", [], []);
-
-        var result = state.FindPageByRoute("my-page");
-
-        Assert.NotNull(result);
-        Assert.Equal(1, result.InteractionId);
-        Assert.Equal("my-page", result.Route);
-        Assert.Equal("My Page", result.Title);
-    }
-
-    [Fact]
-    public void FindPageByRoute_CaseInsensitive()
-    {
-        var state = new CustomInteractionState();
-        state.AddPage(1, "My-Page", "My Page", [], []);
-
-        var result = state.FindPageByRoute("my-page");
-
-        Assert.NotNull(result);
-        Assert.Equal(1, result.InteractionId);
-    }
-
-    [Fact]
-    public void FindPageByRoute_NonExistentRoute_ReturnsNull()
-    {
-        var state = new CustomInteractionState();
-        state.AddPage(1, "my-page", "My Page", [], []);
-
-        var result = state.FindPageByRoute("other-page");
-
-        Assert.Null(result);
-    }
-
-    [Fact]
     public void UpdatePageContent_RaisesOnPageContentUpdated()
     {
         var state = new CustomInteractionState();
         PageContentUpdate? receivedUpdate = null;
         state.OnPageContentUpdated += update => receivedUpdate = update;
 
-        state.UpdatePageContent(1, "session-1", "# Hello");
+        state.UpdatePageContent(1, "my-page", "session-1", "# Hello", "My Page", ["site.css"], ["site.js"], enableHtml: true);
 
         Assert.NotNull(receivedUpdate);
         Assert.Equal(1, receivedUpdate.InteractionId);
+        Assert.Equal("my-page", receivedUpdate.Route);
         Assert.Equal("session-1", receivedUpdate.SessionId);
         Assert.Equal("# Hello", receivedUpdate.MarkdownContent);
+        Assert.Equal("My Page", receivedUpdate.Title);
+        Assert.Equal(["site.css"], receivedUpdate.StyleIncludes);
+        Assert.Equal(["site.js"], receivedUpdate.ScriptIncludes);
+        Assert.True(receivedUpdate.EnableHtml);
     }
 
     [Fact]
@@ -174,19 +107,4 @@ public class CustomInteractionStateTests
         Assert.Equal(2, remaining.InteractionId);
     }
 
-    [Fact]
-    public void MultiplePages_TrackedIndependently()
-    {
-        var state = new CustomInteractionState();
-
-        state.AddPage(1, "page-1", "Page 1", [], []);
-        state.AddPage(2, "page-2", "Page 2", [], []);
-
-        Assert.Equal(2, state.Pages.Length);
-
-        state.RemovePage(1);
-
-        var remaining = Assert.Single(state.Pages);
-        Assert.Equal(2, remaining.InteractionId);
-    }
 }

@@ -26,6 +26,7 @@ internal class InteractionService : IInteractionService
     private readonly object _onInteractionUpdatedLock = new();
     private readonly InteractionCollection _interactionCollection = new();
     private readonly Dictionary<string, RegisteredAsset> _assetRegistrations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RegisteredPage> _pageRegistrations = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<InteractionService> _logger;
     private readonly DistributedApplicationOptions _distributedApplicationOptions;
     private readonly IServiceProvider _serviceProvider;
@@ -285,25 +286,45 @@ internal class InteractionService : IInteractionService
 
         lock (_onInteractionUpdatedLock)
         {
-            // Check for duplicate route registration.
-            foreach (var existing in _interactionCollection)
+            if (_pageRegistrations.ContainsKey(route))
             {
-                if (existing.InteractionInfo is Interaction.PageInteractionInfo existingPage &&
-                    string.Equals(existingPage.Route, route, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException($"A page with route '{route}' is already registered.");
-                }
+                throw new InvalidOperationException($"A page with route '{route}' is already registered.");
             }
 
-            var interactionCts = new CancellationTokenSource();
-            var pageInfo = new Interaction.PageInteractionInfo(route, context);
-            var newState = new Interaction(context.Title ?? route, null, InteractionOptions.Default, pageInfo, interactionCts.Token);
+            var registeredPage = new RegisteredPage(route, context, new CancellationTokenSource());
+            _pageRegistrations.Add(route, registeredPage);
 
-            _interactionCollection.Add(newState);
-            OnInteractionUpdated?.Invoke(newState);
-
-            return new InteractionRegistration(this, newState, interactionCts);
+            return new PageRegistration(this, registeredPage);
         }
+    }
+
+    internal StartedPageInteraction? StartPageInteraction(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(sessionId);
+        ArgumentNullException.ThrowIfNull(queryParameters);
+
+        RegisteredPage registeredPage;
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (!_pageRegistrations.TryGetValue(route, out registeredPage!))
+            {
+                _logger.LogDebug("No page registered for route '{Route}'.", route);
+                return null;
+            }
+        }
+
+        var visitorCts = CancellationTokenSource.CreateLinkedTokenSource(registeredPage.Cts.Token, cancellationToken);
+        var sessionContext = new Interaction.SessionContext(visitorCts);
+        var pageInfo = new Interaction.PageInteractionInfo(registeredPage.Route, registeredPage.Context, sessionId, new Dictionary<string, string>(queryParameters, StringComparer.Ordinal), sessionContext);
+        var newState = new Interaction(registeredPage.Context.Title ?? registeredPage.Route, null, InteractionOptions.Default, pageInfo, visitorCts.Token);
+
+        AddInteraction(newState);
+
+        _ = ProcessPageInteractionAsync(newState, pageInfo);
+
+        return new StartedPageInteraction(newState.InteractionId);
     }
 
     public IDisposable RegisterMenuButton(MenuButtonOptions options)
@@ -401,6 +422,53 @@ internal class InteractionService : IInteractionService
         interactionState.State = Interaction.InteractionState.Complete;
         interactionState.CompletionTcs.TrySetResult(new InteractionCompletionState { Complete = true });
         AddInteractionUpdate(interactionState);
+
+        if (interactionState.InteractionInfo is Interaction.PageInteractionInfo pageInfo)
+        {
+            CancelPageInteraction(pageInfo);
+        }
+    }
+
+    private void RemovePageRegistration(RegisteredPage registeredPage)
+    {
+        List<Interaction> activePageInteractions;
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (!_pageRegistrations.TryGetValue(registeredPage.Route, out var currentRegistration) ||
+                !ReferenceEquals(currentRegistration, registeredPage))
+            {
+                return;
+            }
+
+            _pageRegistrations.Remove(registeredPage.Route);
+
+            activePageInteractions = _interactionCollection
+                .Where(i => i.InteractionInfo is Interaction.PageInteractionInfo pageInfo &&
+                    string.Equals(pageInfo.Route, registeredPage.Route, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        foreach (var interaction in activePageInteractions)
+        {
+            OnInteractionCancellation(interaction);
+        }
+
+        registeredPage.Cts.Cancel();
+        registeredPage.Cts.Dispose();
+    }
+
+    private static void CancelPageInteraction(Interaction.PageInteractionInfo pageInfo)
+    {
+        try
+        {
+            pageInfo.Session.Cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        pageInfo.Session.Cts.Dispose();
     }
 
     private sealed class InteractionRegistration(InteractionService service, Interaction interaction, CancellationTokenSource cts) : IDisposable
@@ -410,6 +478,14 @@ internal class InteractionService : IInteractionService
             service.OnInteractionCancellation(interaction);
             cts.Cancel();
             cts.Dispose();
+        }
+    }
+
+    private sealed class PageRegistration(InteractionService service, RegisteredPage registeredPage) : IDisposable
+    {
+        public void Dispose()
+        {
+            service.RemovePageRegistration(registeredPage);
         }
     }
 
@@ -458,6 +534,19 @@ internal class InteractionService : IInteractionService
         }
     }
 
+    private void AddInteraction(Interaction interaction)
+    {
+        lock (_onInteractionUpdatedLock)
+        {
+            if (_interactionCollection.Contains(interaction.InteractionId))
+            {
+                throw new InvalidOperationException($"An interaction with ID {interaction.InteractionId} already exists. Interaction IDs must be unique.");
+            }
+
+            _interactionCollection.Add(interaction);
+        }
+    }
+
     internal void UpdateInteraction(Interaction interaction)
     {
         lock (_onInteractionUpdatedLock)
@@ -495,6 +584,8 @@ internal class InteractionService : IInteractionService
             result = new InteractionCompletionState { Complete = false, State = result.State };
         }
 
+        Interaction.PageInteractionInfo? pageInfoToCancel = null;
+
         lock (_onInteractionUpdatedLock)
         {
             // Double check interaction is still in collection after awaiting the result creation.
@@ -508,113 +599,62 @@ internal class InteractionService : IInteractionService
                 interactionState.CompletionTcs.TrySetResult(result);
                 interactionState.State = Interaction.InteractionState.Complete;
                 _interactionCollection.Remove(interactionId);
+
+                if (interactionState.InteractionInfo is Interaction.PageInteractionInfo pageInfo)
+                {
+                    pageInfoToCancel = pageInfo;
+                }
             }
 
             // Either broadcast out the interaction is complete, or its updated state.
             OnInteractionUpdated?.Invoke(interactionState);
         }
+
+        if (pageInfoToCancel is not null)
+        {
+            CancelPageInteraction(pageInfoToCancel);
+        }
     }
 
-    /// <summary>
-    /// Handles a page visit from the dashboard. Creates a visitor session and invokes the page's OnVisit callback.
-    /// The callback receives a SendMarkdownAsync function that pushes content updates back to the dashboard
-    /// by broadcasting interaction updates with the session's markdown content.
-    /// </summary>
-    internal async Task ProcessPageVisitAsync(int interactionId, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    private async Task ProcessPageInteractionAsync(Interaction interactionState, Interaction.PageInteractionInfo pageInfo)
     {
-        Interaction? interactionState;
-
-        lock (_onInteractionUpdatedLock)
+        if (pageInfo.PageContext.OnVisit is not { } onVisit)
         {
-            if (!_interactionCollection.TryGetValue(interactionId, out interactionState))
-            {
-                _logger.LogDebug("No page interaction found with ID {InteractionId} for visit.", interactionId);
-                return;
-            }
-        }
-
-        if (interactionState.InteractionInfo is not Interaction.PageInteractionInfo pageInfo)
-        {
-            _logger.LogDebug("Interaction {InteractionId} is not a page interaction.", interactionId);
             return;
         }
 
-        var visitorCts = CancellationTokenSource.CreateLinkedTokenSource(interactionState.CancellationToken, cancellationToken);
-        var sessionContext = new Interaction.SessionContext(visitorCts);
-
-        lock (pageInfo.Sessions)
+        var visitContext = new PageVisitContext
         {
-            pageInfo.Sessions[sessionId] = sessionContext;
-        }
-
-        if (pageInfo.PageContext.OnVisit is { } onVisit)
-        {
-            var visitContext = new PageVisitContext
+            SessionId = pageInfo.SessionId,
+            Services = _serviceProvider,
+            QueryParameters = pageInfo.QueryParameters,
+            CancellationToken = pageInfo.Session.Cts.Token,
+            SendMarkdownAsync = (markdown, ct) =>
             {
-                SessionId = sessionId,
-                Services = _serviceProvider,
-                QueryParameters = queryParameters,
-                CancellationToken = visitorCts.Token,
-                SendMarkdownAsync = (markdown, ct) =>
+                ct.ThrowIfCancellationRequested();
+
+                lock (pageInfo.Session.Lock)
                 {
-                    // Store the markdown in the session context so the dashboard can retrieve it.
-                    // Lock on Sessions to synchronize with readers in the gRPC send loop
-                    // and ProcessPageLeaveAsync which removes entries under this lock.
-                    lock (pageInfo.Sessions)
-                    {
-                        sessionContext.Markdown = markdown;
-                    }
-                    UpdateInteraction(interactionState);
-                    return Task.CompletedTask;
+                    pageInfo.Session.Markdown = markdown;
                 }
-            };
 
-            try
-            {
-                await onVisit(visitContext).ConfigureAwait(false);
+                UpdateInteraction(interactionState);
+                return Task.CompletedTask;
             }
-            catch (OperationCanceledException)
-            {
-                // Expected when visitor leaves or page is removed.
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in page OnVisit callback for session '{SessionId}'.", sessionId);
-            }
-        }
-    }
+        };
 
-    internal async Task ProcessPageLeaveAsync(int interactionId, string sessionId, CancellationToken _)
-    {
-        Interaction? interactionState;
-
-        lock (_onInteractionUpdatedLock)
+        try
         {
-            if (!_interactionCollection.TryGetValue(interactionId, out interactionState))
-            {
-                _logger.LogDebug("No page interaction found with ID {InteractionId} for leave.", interactionId);
-                return;
-            }
+            await onVisit(visitContext).ConfigureAwait(false);
         }
-
-        if (interactionState.InteractionInfo is not Interaction.PageInteractionInfo pageInfo)
+        catch (OperationCanceledException)
         {
-            return;
+            // Expected when visitor leaves or page is removed.
         }
-
-        Interaction.SessionContext? sessionContext;
-
-        lock (pageInfo.Sessions)
+        catch (Exception ex)
         {
-            if (!pageInfo.Sessions.Remove(sessionId, out sessionContext))
-            {
-                return;
-            }
+            _logger.LogError(ex, "Error in page OnVisit callback for session '{SessionId}'.", pageInfo.SessionId);
         }
-
-        // Cancel the visitor's token to signal the OnVisit callback to stop.
-        await sessionContext.Cts.CancelAsync().ConfigureAwait(false);
-        sessionContext.Cts.Dispose();
     }
 
     /// <summary>
@@ -778,6 +818,10 @@ internal class InteractionService : IInteractionService
 
 internal sealed record RegisteredAsset(string ContentType, AssetContext Context);
 
+internal sealed record RegisteredPage(string Route, PageContext Context, CancellationTokenSource Cts);
+
+internal sealed record StartedPageInteraction(int InteractionId);
+
 internal class InteractionCollection : KeyedCollection<int, Interaction>
 {
     protected override int GetKeyForItem(Interaction item) => item.InteractionId;
@@ -861,25 +905,25 @@ internal class Interaction
 
     internal sealed class PageInteractionInfo : InteractionInfoBase
     {
-        public PageInteractionInfo(string route, PageContext pageContext)
+        public PageInteractionInfo(string route, PageContext pageContext, string sessionId, IReadOnlyDictionary<string, string> queryParameters, SessionContext session)
         {
             Route = route;
             PageContext = pageContext;
+            SessionId = sessionId;
+            QueryParameters = queryParameters;
+            Session = session;
         }
 
         public string Route { get; }
         public PageContext PageContext { get; }
-
-        /// <summary>
-        /// Tracks active visitor sessions. Key is the session ID, value contains the
-        /// cancellation token source and the latest markdown content for that visitor.
-        /// All access must be synchronized via <c>lock (Sessions)</c>.
-        /// </summary>
-        public Dictionary<string, SessionContext> Sessions { get; } = new(StringComparer.Ordinal);
+        public string SessionId { get; }
+        public IReadOnlyDictionary<string, string> QueryParameters { get; }
+        public SessionContext Session { get; }
     }
 
     internal sealed class SessionContext(CancellationTokenSource cts)
     {
+        public object Lock { get; } = new();
         public CancellationTokenSource Cts { get; } = cts;
         public string? Markdown { get; set; }
     }

@@ -68,6 +68,11 @@ public sealed class MockDashboardClient : IDashboardClient
         throw new NotImplementedException();
     }
 
+    public Task<StartPageInteractionResult?> StartPageInteractionAsync(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    {
+        return Task.FromResult<StartPageInteractionResult?>(null);
+    }
+
     public Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();

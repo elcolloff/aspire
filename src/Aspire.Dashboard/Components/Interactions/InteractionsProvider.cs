@@ -480,9 +480,8 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                         // Complete interaction.
                         _pendingInteractions.Remove(item.InteractionId);
 
-                        // Remove menu button or page registration if applicable.
+                        // Remove menu button if applicable.
                         CustomInteractionState.RemoveMenuButton(item.InteractionId);
-                        CustomInteractionState.RemovePage(item.InteractionId);
 
                         // Close the interaction's dialog if it is open.
                         if (_interactionDialogReference?.InteractionId == item.InteractionId)
@@ -518,20 +517,18 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                         break;
                     case WatchInteractionsResponseUpdate.KindOneofCase.Page:
                         var page = item.Page;
-                        // Always ensure the page is registered (idempotent). This handles both
-                        // initial registration and reconnection scenarios where only the latest
-                        // message is replayed.
-                        CustomInteractionState.AddPage(
-                            item.InteractionId,
-                            page.Route,
-                            page.Title,
-                            page.CssRoutes.ToList(),
-                            page.ScriptRoutes.ToList(),
-                            page.EnableHtml);
                         if (!string.IsNullOrEmpty(page.SessionId))
                         {
                             // This is a content update for an active visitor session.
-                            CustomInteractionState.UpdatePageContent(item.InteractionId, page.SessionId, page.MarkdownContent);
+                            CustomInteractionState.UpdatePageContent(
+                                item.InteractionId,
+                                page.Route,
+                                page.SessionId,
+                                page.MarkdownContent,
+                                page.Title,
+                                page.CssRoutes.ToList(),
+                                page.ScriptRoutes.ToList(),
+                                page.EnableHtml);
                         }
                         break;
                     default:

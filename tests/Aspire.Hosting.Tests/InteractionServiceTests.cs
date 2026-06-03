@@ -1147,7 +1147,7 @@ public class InteractionServiceTests
     }
 
     [Fact]
-    public void RegisterPage_AddsInteraction()
+    public void RegisterPage_StartPageInteraction_AddsInteraction()
     {
         // Arrange
         var interactionService = CreateInteractionService();
@@ -1159,7 +1159,10 @@ public class InteractionServiceTests
             OnVisit = _ => Task.CompletedTask
         });
 
+        var startedPage = interactionService.StartPageInteraction("my-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+
         // Assert
+        Assert.NotNull(startedPage);
         var interaction = Assert.Single(interactionService.GetCurrentInteractions());
         Assert.Equal("My Page", interaction.Title);
         var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
@@ -1170,7 +1173,7 @@ public class InteractionServiceTests
     }
 
     [Fact]
-    public void RegisterPage_Dispose_RemovesInteraction()
+    public void RegisterPage_Dispose_RemovesRegistrationAndActiveInteraction()
     {
         // Arrange
         var interactionService = CreateInteractionService();
@@ -1178,6 +1181,8 @@ public class InteractionServiceTests
         {
             Title = "My Page"
         });
+        var startedPage = interactionService.StartPageInteraction("my-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
         Assert.Single(interactionService.GetCurrentInteractions());
 
         // Act
@@ -1185,6 +1190,7 @@ public class InteractionServiceTests
 
         // Assert
         Assert.Empty(interactionService.GetCurrentInteractions());
+        Assert.Null(interactionService.StartPageInteraction("my-page", "session-2", new Dictionary<string, string>(), CancellationToken.None));
     }
 
     [Fact]
@@ -1211,16 +1217,18 @@ public class InteractionServiceTests
 
         // Act
         var registration = interactionService.RegisterPage("my-route", new PageContext());
+        var startedPage = interactionService.StartPageInteraction("my-route", "session-1", new Dictionary<string, string>(), CancellationToken.None);
 
         // Assert
         var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.NotNull(startedPage);
         Assert.Equal("my-route", interaction.Title);
 
         registration.Dispose();
     }
 
     [Fact]
-    public async Task RegisterPage_ProcessVisit_InvokesOnVisitCallback()
+    public async Task StartPageInteraction_InvokesOnVisitCallback()
     {
         // Arrange
         var interactionService = CreateInteractionService();
@@ -1236,24 +1244,36 @@ public class InteractionServiceTests
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
         var queryParams = new Dictionary<string, string> { ["key"] = "value" };
 
         // Act
-        await interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", queryParams, CancellationToken.None);
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", queryParams, CancellationToken.None);
 
         // Assert
+        Assert.NotNull(startedPage);
         var context = await visitCalled.Task.DefaultTimeout();
         Assert.Equal("session-1", context.SessionId);
         Assert.Equal("value", context.QueryParameters["key"]);
     }
 
     [Fact]
-    public async Task RegisterPage_SendMarkdown_StoresContent()
+    public void StartPageInteraction_UnknownRoute_ReturnsNull()
+    {
+        var interactionService = CreateInteractionService();
+
+        var result = interactionService.StartPageInteraction("missing-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public async Task StartPageInteraction_SendMarkdown_StoresContent()
     {
         // Arrange
         var interactionService = CreateInteractionService();
         Func<string, CancellationToken, Task>? capturedSendMarkdown = null;
+        var markdownSent = new TaskCompletionSource();
 
         interactionService.RegisterPage("test-page", new PageContext
         {
@@ -1262,22 +1282,24 @@ public class InteractionServiceTests
             {
                 capturedSendMarkdown = ctx.SendMarkdownAsync;
                 await ctx.SendMarkdownAsync("# Hello", ctx.CancellationToken);
+                markdownSent.SetResult();
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
-
         // Act
-        await interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
 
         // Assert
+        Assert.NotNull(startedPage);
+        await markdownSent.Task.DefaultTimeout();
         Assert.NotNull(capturedSendMarkdown);
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
         var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
-        Assert.Equal("# Hello", pageInfo.Sessions["session-1"].Markdown);
+        Assert.Equal("# Hello", pageInfo.Session.Markdown);
     }
 
     [Fact]
-    public async Task RegisterPage_ProcessLeave_CancelsVisitorToken()
+    public async Task ProcessInteractionFromClientAsync_CompletesPageInteraction_CancelsVisitorToken()
     {
         // Arrange
         var interactionService = CreateInteractionService();
@@ -1300,19 +1322,21 @@ public class InteractionServiceTests
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
-
-        // Start the visit in the background so the OnVisit callback is running.
-        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
 
         // Give the visit callback time to register its cancellation handler.
         await Task.Delay(50);
 
         // Act
-        await interactionService.ProcessPageLeaveAsync(interaction.InteractionId, "session-1", CancellationToken.None);
+        await interactionService.ProcessInteractionFromClientAsync(
+            startedPage.InteractionId,
+            (_, _, _) => new InteractionCompletionState { Complete = true },
+            CancellationToken.None);
 
         // Assert
         Assert.True(await visitTokenCancelled.Task.DefaultTimeout());
+        Assert.Empty(interactionService.GetCurrentInteractions());
     }
 
     [Fact]
@@ -1404,6 +1428,13 @@ public class InteractionServiceTests
         var reg2 = interactionService.RegisterPage("page-2", new PageContext { Title = "Page 2" });
 
         // Assert
+        Assert.Empty(interactionService.GetCurrentInteractions());
+
+        var page1 = interactionService.StartPageInteraction("page-1", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        var page2 = interactionService.StartPageInteraction("page-2", "session-2", new Dictionary<string, string>(), CancellationToken.None);
+
+        Assert.NotNull(page1);
+        Assert.NotNull(page2);
         Assert.Equal(2, interactionService.GetCurrentInteractions().Count);
 
         reg1.Dispose();
@@ -1448,9 +1479,11 @@ public class InteractionServiceTests
 
         // Act — should not throw since the first registration was disposed.
         var reg2 = interactionService.RegisterPage("my-page", new PageContext { Title = "Second" });
+        var startedPage = interactionService.StartPageInteraction("my-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
 
         // Assert
         var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        Assert.NotNull(startedPage);
         Assert.Equal("Second", interaction.Title);
         reg2.Dispose();
     }
@@ -1526,7 +1559,7 @@ public class InteractionServiceTests
     }
 
     [Fact]
-    public async Task RegisterPage_MultipleSessionsSendMarkdown_AllSessionsStored()
+    public async Task StartPageInteraction_MultipleSessionsSendMarkdown_AllSessionsStored()
     {
         // Arrange
         var interactionService = CreateInteractionService();
@@ -1553,13 +1586,13 @@ public class InteractionServiceTests
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
-
         // Act — start two visits concurrently (fire-and-forget, like the real code does).
-        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
-        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-2", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage1 = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage2 = interactionService.StartPageInteraction("test-page", "session-2", new Dictionary<string, string>(), CancellationToken.None);
 
         // Wait for both callbacks to start.
+        Assert.NotNull(startedPage1);
+        Assert.NotNull(startedPage2);
         await session1Ready.Task.DefaultTimeout();
         await session2Ready.Task.DefaultTimeout();
 
@@ -1570,35 +1603,27 @@ public class InteractionServiceTests
         await Task.Delay(100);
 
         // Assert — both sessions should have their content stored.
-        var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
-        Assert.Equal("# Content from session-1", pageInfo.Sessions["session-1"].Markdown);
-        Assert.Equal("# Content from session-2", pageInfo.Sessions["session-2"].Markdown);
+        var interactions = interactionService.GetCurrentInteractions();
+        var pageInfo1 = Assert.IsType<Interaction.PageInteractionInfo>(interactions.Single(i => i.InteractionId == startedPage1.InteractionId).InteractionInfo);
+        var pageInfo2 = Assert.IsType<Interaction.PageInteractionInfo>(interactions.Single(i => i.InteractionId == startedPage2.InteractionId).InteractionInfo);
+        Assert.Equal("# Content from session-1", pageInfo1.Session.Markdown);
+        Assert.Equal("# Content from session-2", pageInfo2.Session.Markdown);
     }
 
     [Fact]
-    public async Task RegisterPage_ConcurrentSendMarkdown_DoesNotCorruptDictionary()
+    public async Task StartPageInteraction_ConcurrentSendMarkdown_DoesNotCorruptState()
     {
-        // Arrange — stress test to verify the lock prevents dictionary corruption
-        // under concurrent writes from multiple sessions.
+        // Arrange — stress test to verify the lock protects state under concurrent writes.
         var interactionService = CreateInteractionService();
-        const int sessionCount = 10;
         const int writesPerSession = 50;
-        var allReady = new TaskCompletionSource();
-        var readyCount = 0;
-        var visitContexts = new PageVisitContext[sessionCount];
+        var visitReady = new TaskCompletionSource<PageVisitContext>();
 
         interactionService.RegisterPage("stress-page", new PageContext
         {
             Title = "Stress",
             OnVisit = async ctx =>
             {
-                var index = int.Parse(ctx.SessionId.Replace("session-", ""));
-                visitContexts[index] = ctx;
-
-                if (Interlocked.Increment(ref readyCount) == sessionCount)
-                {
-                    allReady.SetResult();
-                }
+                visitReady.SetResult(ctx);
 
                 // Keep the visit alive until cancelled.
                 try
@@ -1611,35 +1636,27 @@ public class InteractionServiceTests
             }
         });
 
-        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var startedPage = interactionService.StartPageInteraction("stress-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+        var ctx = await visitReady.Task.DefaultTimeout();
 
-        // Start all sessions.
-        for (var i = 0; i < sessionCount; i++)
-        {
-            _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, $"session-{i}", new Dictionary<string, string>(), CancellationToken.None);
-        }
-
-        await allReady.Task.DefaultTimeout();
-
-        // Act — all sessions send markdown concurrently.
+        // Act — concurrent updates for the same active session should not corrupt state.
         var tasks = new List<Task>();
-        for (var i = 0; i < sessionCount; i++)
+        for (var i = 0; i < writesPerSession; i++)
         {
-            var ctx = visitContexts[i];
+            var update = i;
             tasks.Add(Task.Run(async () =>
             {
-                for (var w = 0; w < writesPerSession; w++)
-                {
-                    await ctx.SendMarkdownAsync($"Update {w}", ctx.CancellationToken);
-                }
+                await ctx.SendMarkdownAsync($"Update {update}", ctx.CancellationToken);
             }));
         }
 
         await Task.WhenAll(tasks).DefaultTimeout();
 
-        // Assert — no exception was thrown and all sessions have entries.
-        var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
-        Assert.Equal(sessionCount, pageInfo.Sessions.Count);
+        // Assert — no exception was thrown and the session has one of the updates.
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.StartsWith("Update ", pageInfo.Session.Markdown);
     }
 
     private static InteractionService CreateInteractionService(DistributedApplicationOptions? options = null)

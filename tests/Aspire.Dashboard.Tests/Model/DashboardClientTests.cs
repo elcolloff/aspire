@@ -285,10 +285,60 @@ public sealed class DashboardClientTests
         Assert.False(found);
     }
 
-    private sealed class MockDashboardServiceClient(IEnumerable<GetInteractionAssetResponse>? assetResponses = null, bool assetNotFound = false) : Aspire.DashboardService.Proto.V1.DashboardService.DashboardServiceClient
+    [Fact]
+    public async Task StartPageInteractionAsync_Found_ReturnsResult()
+    {
+        await using var instance = CreateResourceServiceClient();
+        StartPageInteractionRequest? capturedRequest = null;
+        instance.SetDashboardServiceClient(new MockDashboardServiceClient(
+            startPageResponse: new StartPageInteractionResponse
+            {
+                InteractionId = 42
+            },
+            onStartPageInteraction: request => capturedRequest = request));
+
+        var result = await instance.StartPageInteractionAsync(
+            "pages/test",
+            "session-1",
+            new Dictionary<string, string> { ["name"] = "value" },
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(42, result.InteractionId);
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("pages/test", capturedRequest.Route);
+        Assert.Equal("session-1", capturedRequest.SessionId);
+        Assert.Equal("value", capturedRequest.QueryParameters["name"]);
+    }
+
+    [Fact]
+    public async Task StartPageInteractionAsync_NotFound_ReturnsNull()
+    {
+        await using var instance = CreateResourceServiceClient();
+        instance.SetDashboardServiceClient(new MockDashboardServiceClient(startPageNotFound: true));
+
+        var result = await instance.StartPageInteractionAsync(
+            "pages/missing",
+            "session-1",
+            new Dictionary<string, string>(),
+            CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    private sealed class MockDashboardServiceClient(
+        IEnumerable<GetInteractionAssetResponse>? assetResponses = null,
+        bool assetNotFound = false,
+        StartPageInteractionResponse? startPageResponse = null,
+        bool startPageNotFound = false,
+        Action<StartPageInteractionRequest>? onStartPageInteraction = null) : Aspire.DashboardService.Proto.V1.DashboardService.DashboardServiceClient
     {
         private readonly IReadOnlyList<GetInteractionAssetResponse> _assetResponses = assetResponses?.ToList() ?? [];
         private readonly bool _assetNotFound = assetNotFound;
+        private readonly StartPageInteractionResponse? _startPageResponse = startPageResponse;
+        private readonly bool _startPageNotFound = startPageNotFound;
+        private readonly Action<StartPageInteractionRequest>? _onStartPageInteraction = onStartPageInteraction;
 
         public override AsyncDuplexStreamingCall<WatchInteractionsRequestUpdate, WatchInteractionsResponseUpdate> WatchInteractions(CallOptions options)
         {
@@ -301,25 +351,41 @@ public sealed class DashboardClientTests
                 () => { });
         }
 
-            public override AsyncServerStreamingCall<GetInteractionAssetResponse> GetInteractionAsset(GetInteractionAssetRequest request, CallOptions options)
+        public override AsyncServerStreamingCall<GetInteractionAssetResponse> GetInteractionAsset(GetInteractionAssetRequest request, CallOptions options)
+        {
+            if (_assetNotFound)
             {
-                if (_assetNotFound)
-                {
                 return new AsyncServerStreamingCall<GetInteractionAssetResponse>(
                     new AsyncStreamReader<GetInteractionAssetResponse>([]),
                     Task.FromResult(new Metadata()),
                     () => new Status(StatusCode.NotFound, "Not found"),
                     () => new Metadata(),
                     () => { });
-                }
+            }
 
-                return new AsyncServerStreamingCall<GetInteractionAssetResponse>(
+            return new AsyncServerStreamingCall<GetInteractionAssetResponse>(
                 new AsyncStreamReader<GetInteractionAssetResponse>(_assetResponses),
                 Task.FromResult(new Metadata()),
                 () => Status.DefaultSuccess,
                 () => new Metadata(),
                 () => { });
-            }
+        }
+
+        public override AsyncUnaryCall<StartPageInteractionResponse> StartPageInteractionAsync(StartPageInteractionRequest request, CallOptions options)
+        {
+            _onStartPageInteraction?.Invoke(request);
+
+            var responseTask = _startPageNotFound
+                ? Task.FromException<StartPageInteractionResponse>(new RpcException(new Status(StatusCode.NotFound, "Not found")))
+                : Task.FromResult(_startPageResponse ?? new StartPageInteractionResponse());
+
+            return new AsyncUnaryCall<StartPageInteractionResponse>(
+                responseTask,
+                Task.FromResult(new Metadata()),
+                () => _startPageNotFound ? new Status(StatusCode.NotFound, "Not found") : Status.DefaultSuccess,
+                () => new Metadata(),
+                () => { });
+        }
 
         public override AsyncUnaryCall<ApplicationInformationResponse> GetApplicationInformationAsync(ApplicationInformationRequest request, CallOptions options)
         {

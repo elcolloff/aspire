@@ -101,6 +101,30 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
         }
     }
 
+    public override async Task<StartPageInteractionResponse> StartPageInteraction(StartPageInteractionRequest request, ServerCallContext context)
+    {
+        StartPageInteractionResponse? response = null;
+
+        await ExecuteAsync(
+            StartPageInteractionInternal,
+            context).ConfigureAwait(false);
+
+        return response!;
+
+        Task StartPageInteractionInternal(CancellationToken cancellationToken)
+        {
+            var startedInteraction = serviceData.StartPageInteraction(request.Route, request.SessionId, request.QueryParameters, cancellationToken)
+                ?? throw new RpcException(new Status(StatusCode.NotFound, $"Page route '{request.Route}' was not found."));
+
+            response = new StartPageInteractionResponse
+            {
+                InteractionId = startedInteraction.InteractionId
+            };
+
+            return Task.CompletedTask;
+        }
+    }
+
     public override async Task WatchInteractions(IAsyncStreamReader<WatchInteractionsRequestUpdate> requestStream, IServerStreamWriter<WatchInteractionsResponseUpdate> responseStream, ServerCallContext context)
     {
         await ExecuteAsync(
@@ -175,9 +199,22 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                         }
                         else if (interaction.InteractionInfo is PageInteractionInfo pageInfo)
                         {
+                            string? markdown;
+                            lock (pageInfo.Session.Lock)
+                            {
+                                markdown = pageInfo.Session.Markdown;
+                            }
+
+                            if (markdown is null)
+                            {
+                                continue;
+                            }
+
                             change.Page = new InteractionPage
                             {
                                 Route = pageInfo.Route,
+                                SessionId = pageInfo.SessionId,
+                                MarkdownContent = markdown,
                                 Title = pageInfo.PageContext.Title ?? pageInfo.Route,
                                 EnableHtml = pageInfo.PageContext.EnableHtml
                             };
@@ -190,49 +227,6 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                             if (pageInfo.PageContext.ScriptIncludes is { } scriptIncludes)
                             {
                                 change.Page.ScriptRoutes.AddRange(scriptIncludes);
-                            }
-
-                            // If there are active sessions with content, send a separate message
-                            // per session so the dashboard can route content to the correct visitor.
-                            // On reconnect all sessions are replayed so the dashboard can reconcile.
-                            List<(string SessionId, string Markdown)>? sessionSnapshots = null;
-                            lock (pageInfo.Sessions)
-                            {
-                                foreach (var (sid, ctx) in pageInfo.Sessions)
-                                {
-                                    if (ctx.Markdown is not null)
-                                    {
-                                        sessionSnapshots ??= new();
-                                        sessionSnapshots.Add((sid, ctx.Markdown));
-                                    }
-                                }
-                            }
-
-                            if (sessionSnapshots is not null)
-                            {
-                                // Send the initial page registration without session content.
-                                await responseStream.WriteAsync(change, cts.Token).ConfigureAwait(false);
-
-                                // Then send one message per active session.
-                                foreach (var (sessionId, markdown) in sessionSnapshots)
-                                {
-                                    var sessionChange = new WatchInteractionsResponseUpdate
-                                    {
-                                        InteractionId = interaction.InteractionId,
-                                        Page = new InteractionPage
-                                        {
-                                            Route = pageInfo.Route,
-                                            Title = pageInfo.PageContext.Title ?? pageInfo.Route,
-                                            EnableHtml = pageInfo.PageContext.EnableHtml,
-                                            SessionId = sessionId,
-                                            MarkdownContent = markdown
-                                        }
-                                    };
-                                    await responseStream.WriteAsync(sessionChange, cts.Token).ConfigureAwait(false);
-                                }
-
-                                // Skip the default write below since we already sent messages.
-                                continue;
                             }
                         }
                         else if (interaction.InteractionInfo is MenuButtonInteractionInfo menuButtonInfo)

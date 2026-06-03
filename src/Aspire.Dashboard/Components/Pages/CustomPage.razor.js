@@ -16,6 +16,13 @@ export function removeStylesheetLink(href) {
     }
 }
 
+export async function invokeOptionalExport(module, functionName) {
+    const exportedFunction = module?.[functionName];
+    if (typeof exportedFunction === 'function') {
+        await exportedFunction();
+    }
+}
+
 export function attachButtonClickEvent(containerId, interop) {
     const container = document.getElementById(containerId);
     if (!container) {

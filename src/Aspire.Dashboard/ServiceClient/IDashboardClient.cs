@@ -55,6 +55,16 @@ public interface IDashboardClient : IAsyncDisposable
 
     IAsyncEnumerable<WatchInteractionsResponseUpdate> SubscribeInteractionsAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Starts a custom page interaction for the specified route and dashboard session.
+    /// </summary>
+    /// <param name="route">The custom page route to start.</param>
+    /// <param name="sessionId">The dashboard session identifier for this page visit.</param>
+    /// <param name="queryParameters">The query parameters from the requested page URL.</param>
+    /// <param name="cancellationToken">A token to cancel the request.</param>
+    /// <returns>The started page interaction when the route exists; otherwise, <c>null</c>.</returns>
+    Task<StartPageInteractionResult?> StartPageInteractionAsync(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken);
+
     Task SendInteractionRequestAsync(WatchInteractionsRequestUpdate request, CancellationToken cancellationToken);
 
     /// <summary>
@@ -103,6 +113,12 @@ public sealed class ExecuteResourceCommandOptions
 public sealed record ResourceViewModelSubscription(
     ImmutableArray<ResourceViewModel> InitialState,
     IAsyncEnumerable<IReadOnlyList<ResourceViewModelChange>> Subscription);
+
+/// <summary>
+/// Describes a custom page interaction started by the dashboard.
+/// </summary>
+/// <param name="InteractionId">The interaction identifier used for subsequent page updates and completion.</param>
+public sealed record StartPageInteractionResult(int InteractionId);
 
 public sealed record ResourceViewModelChange(
     ResourceViewModelChangeType ChangeType,

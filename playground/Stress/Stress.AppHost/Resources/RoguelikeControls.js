@@ -14,7 +14,7 @@ const keyMap = {
     'D': 'move-right',
 };
 
-document.addEventListener('keydown', (e) => {
+function onKeyDown(e) {
     const command = keyMap[e.key];
     if (!command) {
         return;
@@ -31,4 +31,26 @@ document.addEventListener('keydown', (e) => {
     if (button) {
         button.click();
     }
-});
+}
+
+let initialized = false;
+
+export function initialize() {
+    if (initialized) {
+        return;
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    initialized = true;
+}
+
+export function dispose() {
+    if (!initialized) {
+        return;
+    }
+
+    document.removeEventListener('keydown', onKeyDown);
+    initialized = false;
+}
+
+initialize();

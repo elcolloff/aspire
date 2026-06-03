@@ -551,6 +551,38 @@ internal sealed class DashboardClient : IDashboardClient
         await _incomingInteractionChannel.Writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<StartPageInteractionResult?> StartPageInteractionAsync(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(sessionId);
+        ArgumentNullException.ThrowIfNull(queryParameters);
+
+        EnsureInitialized();
+
+        var request = new StartPageInteractionRequest
+        {
+            Route = route,
+            SessionId = sessionId
+        };
+        foreach (var (key, value) in queryParameters)
+        {
+            request.QueryParameters.Add(key, value);
+        }
+
+        try
+        {
+            using var combinedTokens = CancellationTokenSource.CreateLinkedTokenSource(_clientCancellationToken, cancellationToken);
+
+            var response = await _client!.StartPageInteractionAsync(request, headers: _headers, cancellationToken: combinedTokens.Token).ConfigureAwait(false);
+
+            return new StartPageInteractionResult(response.InteractionId);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     public async Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(route);
