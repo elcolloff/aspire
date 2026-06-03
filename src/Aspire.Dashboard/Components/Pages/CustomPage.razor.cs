@@ -24,9 +24,11 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
     private string _pageTitle = "Page";
     private bool _pageNotFound;
     private bool _visitSent;
+    private bool _pageAssetsChanged;
     private string? _currentRoute;
     private PageRegistrationState? _pageRegistration;
     private IJSObjectReference? _jsModule;
+    private List<string>? _activeCssHrefs;
     private List<IJSObjectReference>? _pageScriptModules;
     private DotNetObjectReference<CustomPageInterop>? _interopReference;
 
@@ -79,6 +81,7 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             await SendPageLeaveAsync().ConfigureAwait(false);
             _visitSent = false;
             _markdownContent = null;
+            _pageAssetsChanged = true;
         }
 
         _currentRoute = Route;
@@ -140,30 +143,7 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         CustomInteractionState.OnPageContentUpdated -= OnPageContentUpdated;
         _interopReference?.Dispose();
 
-        if (_pageScriptModules is not null)
-        {
-            foreach (var module in _pageScriptModules)
-            {
-                await JSInteropHelpers.SafeDisposeAsync(module);
-            }
-        }
-
-        // Remove page-specific CSS links before disposing the JS module.
-        if (_jsModule is not null && _pageRegistration?.CssRoutes is { Count: > 0 } cssRoutes)
-        {
-            foreach (var cssRoute in cssRoutes)
-            {
-                try
-                {
-                    await _jsModule.InvokeVoidAsync("removeStylesheetLink", $"/pages/assets/{cssRoute}");
-                }
-                catch (Exception)
-                {
-                    // Best effort — JS runtime may be disconnected.
-                }
-            }
-        }
-
+        await RemovePageAssetsAsync();
         await JSInteropHelpers.SafeDisposeAsync(_jsModule);
 
         if (_pageRegistration is not null && _visitSent)
@@ -204,27 +184,76 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         {
             _jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/CustomPage.razor.js");
             await _jsModule.InvokeVoidAsync("attachButtonClickEvent", CustomPageContainerId, _interopReference);
+            await AddPageAssetsAsync();
+        }
+        else if (_pageAssetsChanged)
+        {
+            _pageAssetsChanged = false;
+            await RemovePageAssetsAsync();
+            await AddPageAssetsAsync();
+        }
+    }
 
-            // Inject page-specific CSS links via JS so they remain stable across re-renders
-            // (HeadContent participates in Blazor diffing and can flicker on content updates).
-            if (_pageRegistration?.CssRoutes is { Count: > 0 } cssRoutes)
+    /// <summary>
+    /// Adds page-specific CSS links and loads script modules for the current page registration.
+    /// </summary>
+    private async Task AddPageAssetsAsync()
+    {
+        if (_jsModule is null || _pageRegistration is null)
+        {
+            return;
+        }
+
+        if (_pageRegistration.CssRoutes is { Count: > 0 } cssRoutes)
+        {
+            _activeCssHrefs = new List<string>(cssRoutes.Count);
+            foreach (var cssRoute in cssRoutes)
             {
-                foreach (var cssRoute in cssRoutes)
+                var href = $"/pages/assets/{cssRoute}";
+                await _jsModule.InvokeVoidAsync("addStylesheetLink", href);
+                _activeCssHrefs.Add(href);
+            }
+        }
+
+        if (_pageRegistration.ScriptRoutes is { Count: > 0 } scriptRoutes)
+        {
+            _pageScriptModules = new List<IJSObjectReference>(scriptRoutes.Count);
+            foreach (var scriptRoute in scriptRoutes)
+            {
+                var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/pages/assets/{scriptRoute}");
+                _pageScriptModules.Add(module);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Removes previously added CSS links and disposes script modules.
+    /// </summary>
+    private async Task RemovePageAssetsAsync()
+    {
+        if (_pageScriptModules is not null)
+        {
+            foreach (var module in _pageScriptModules)
+            {
+                await JSInteropHelpers.SafeDisposeAsync(module);
+            }
+            _pageScriptModules = null;
+        }
+
+        if (_jsModule is not null && _activeCssHrefs is not null)
+        {
+            foreach (var href in _activeCssHrefs)
+            {
+                try
                 {
-                    await _jsModule.InvokeVoidAsync("addStylesheetLink", $"/pages/assets/{cssRoute}");
+                    await _jsModule.InvokeVoidAsync("removeStylesheetLink", href);
+                }
+                catch (Exception)
+                {
+                    // Best effort — JS runtime may be disconnected.
                 }
             }
-
-            // Load page-specific script modules.
-            if (_pageRegistration?.ScriptRoutes is { Count: > 0 } scriptRoutes)
-            {
-                _pageScriptModules = new List<IJSObjectReference>(scriptRoutes.Count);
-                foreach (var scriptRoute in scriptRoutes)
-                {
-                    var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/pages/assets/{scriptRoute}");
-                    _pageScriptModules.Add(module);
-                }
-            }
+            _activeCssHrefs = null;
         }
     }
 
