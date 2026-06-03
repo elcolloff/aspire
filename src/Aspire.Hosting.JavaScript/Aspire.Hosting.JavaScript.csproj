@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Aspire.Hosting.Azure.Sandboxes" />
     <InternalsVisibleTo Include="Aspire.Hosting.JavaScript.Tests" />
   </ItemGroup>
 
