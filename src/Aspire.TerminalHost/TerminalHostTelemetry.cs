@@ -1,0 +1,64 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+
+namespace Aspire.TerminalHost;
+
+/// <summary>
+/// Shared <see cref="System.Diagnostics.ActivitySource"/> and <see cref="System.Diagnostics.Metrics.Meter"/>
+/// for the Aspire terminal host. Telemetry is exported via OTLP to the Aspire dashboard so failures
+/// like "DCP never dialed in" or "control socket bound but no clients" are diagnosable without
+/// resorting to attaching a debugger.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The OTLP exporter wiring in <see cref="TerminalHostApp.RunAsync(string[], System.Threading.CancellationToken)"/>
+/// only attaches when <c>OTEL_EXPORTER_OTLP_ENDPOINT</c> is set in the environment. The Aspire
+/// AppHost injects that via <c>OtlpConfigurationExtensions.AddOtlpEnvironment</c> on each
+/// <c>TerminalHostResource</c>, so production runs always have it. Standalone debug runs of the
+/// host (<c>dotnet run --project src/Aspire.TerminalHost</c>) drop telemetry silently.
+/// </para>
+/// <para>
+/// Source / meter names follow the assembly name convention
+/// (<see href="https://learn.microsoft.com/dotnet/core/diagnostics/observability-with-otel#naming-conventions"/>)
+/// so dashboard categorisation matches every other Aspire component.
+/// </para>
+/// </remarks>
+internal static class TerminalHostTelemetry
+{
+    public const string SourceName = "Aspire.TerminalHost";
+
+    /// <summary>
+    /// Activity source for terminal host lifecycle spans (process boot, replica build, DCP-dial wait,
+    /// consumer client accept, control-listener accept, shutdown).
+    /// </summary>
+    public static readonly ActivitySource ActivitySource = new(SourceName);
+
+    /// <summary>
+    /// Meter for terminal host counters and gauges. Disposed when the host shuts down so the OTLP
+    /// metric exporter can flush a final reading.
+    /// </summary>
+    public static readonly Meter Meter = new(SourceName);
+
+    /// <summary>
+    /// Incremented every time a <c>TerminalReplica</c> finishes building its three listeners and is
+    /// ready to accept connections. Useful for catching repeated-recycle loops (the host process is
+    /// per-replica today, so this should fire exactly once per process — anything else means the
+    /// AppHost is restarting us, which is itself a signal).
+    /// </summary>
+    public static readonly Counter<long> ReplicasStarted = Meter.CreateCounter<long>(
+        name: "aspire.terminalhost.replicas.started",
+        unit: "{replica}",
+        description: "Number of terminal replicas that completed startup in this host process.");
+
+    /// <summary>
+    /// Incremented when the upstream producer connection drops and the replica recycles its
+    /// <c>DcpUpstreamAdapter</c>. Diagnoses DCP restart / crash loops.
+    /// </summary>
+    public static readonly Counter<long> UpstreamRecycles = Meter.CreateCounter<long>(
+        name: "aspire.terminalhost.upstream.recycles",
+        unit: "{recycle}",
+        description: "Number of times the upstream (DCP) connection dropped and was re-listened for.");
+}

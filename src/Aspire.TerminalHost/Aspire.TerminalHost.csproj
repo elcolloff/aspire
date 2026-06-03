@@ -25,6 +25,7 @@
     <PackageReference Include="Hex1b" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="StreamJsonRpc" />
     <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>

@@ -3,6 +3,12 @@
 
 using Aspire.Shared.TerminalHost;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 namespace Aspire.TerminalHost;
 
@@ -240,13 +246,73 @@ public sealed class TerminalHostApp : IAsyncDisposable
             return 64; // EX_USAGE
         }
 
-        using var loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddProvider(new StderrLoggerProvider());
-            builder.SetMinimumLevel(LogLevel.Information);
-        });
+        // The Aspire AppHost wires OTEL_EXPORTER_OTLP_ENDPOINT (and protocol/headers) into the
+        // host environment via OtlpConfigurationExtensions.AddOtlpEnvironment on each
+        // TerminalHostResource. When that variable isn't set — e.g. a standalone
+        // `dotnet run --project src/Aspire.TerminalHost` invocation for local debugging — we
+        // intentionally fall back to NullLoggerFactory rather than scribbling on stderr, since
+        // DCP captures stderr into the resource log stream and any accidental log line would
+        // surface as noisy resource output. The dashboard is the only intended sink.
+        var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+        var otelEnabled = !string.IsNullOrEmpty(otlpEndpoint);
 
-        await using var app = new TerminalHostApp(parsed, loggerFactory);
-        return await app.RunAsync(cancellationToken).ConfigureAwait(false);
+        ILoggerFactory loggerFactory;
+        TracerProvider? tracerProvider = null;
+        MeterProvider? meterProvider = null;
+        if (otelEnabled)
+        {
+            // OTEL_SERVICE_NAME and the service.instance.id resource attribute are set by DCP via
+            // CustomResource.OtelServiceNameAnnotation / OtelServiceInstanceIdAnnotation on each
+            // executable, so we don't override them programmatically — the default resource
+            // detector will pick them up from the environment.
+            var resourceBuilder = ResourceBuilder.CreateDefault()
+                .AddService(serviceName: TerminalHostTelemetry.SourceName);
+
+            loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder.AddOpenTelemetry(logging =>
+                {
+                    logging.IncludeFormattedMessage = true;
+                    logging.IncludeScopes = true;
+                    logging.SetResourceBuilder(resourceBuilder);
+                    logging.AddOtlpExporter();
+                });
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
+
+            tracerProvider = Sdk.CreateTracerProviderBuilder()
+                .SetResourceBuilder(resourceBuilder)
+                .AddSource(TerminalHostTelemetry.SourceName)
+                .AddOtlpExporter()
+                .Build();
+
+            meterProvider = Sdk.CreateMeterProviderBuilder()
+                .SetResourceBuilder(resourceBuilder)
+                .AddMeter(TerminalHostTelemetry.SourceName)
+                .AddOtlpExporter()
+                .Build();
+        }
+        else
+        {
+            loggerFactory = NullLoggerFactory.Instance;
+        }
+
+        try
+        {
+            await using var app = new TerminalHostApp(parsed, loggerFactory);
+            return await app.RunAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Order matters: dispose providers BEFORE the LoggerFactory so any final emit from
+            // logger/meter disposal still has a live exporter pipeline. The providers' Dispose
+            // forces a flush of pending OTLP batches.
+            meterProvider?.Dispose();
+            tracerProvider?.Dispose();
+            if (loggerFactory is not NullLoggerFactory)
+            {
+                loggerFactory.Dispose();
+            }
+        }
     }
 }
