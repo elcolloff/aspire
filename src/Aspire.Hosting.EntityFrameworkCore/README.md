@@ -264,30 +264,32 @@ initialization string does not conform to specification starting at index 0.' wa
 thrown while attempting to create an instance.
 ```
 
-Guard the connection-string-dependent configuration with `EF.IsDesignTime` so EF
-Core can build the model without a connection string. The bundle still receives the
-real connection string at run time via the `--connection` argument Aspire injects:
+Guard the connection-string-dependent configuration by checking whether the
+connection string is available. The bundle still receives the real connection string
+at run time via the `--connection` argument Aspire injects:
 
 ```csharp
+var connectionString = builder.Configuration.GetConnectionString("postgresdb");
+
 builder.Services.AddPooledDbContextFactory<AppDbContext>((sp, options) =>
 {
-    if (EF.IsDesignTime)
+    if (connectionString is null)
     {
-        // At design time (e.g. when generating a migration bundle) no real
-        // connection string is available. Use the overload that doesn't take a
-        // connection string so EF Core can build the model without parsing one.
+        // No connection string is available (e.g. when generating a migration
+        // bundle). Use the overload that doesn't take a connection string so EF
+        // Core can build the model without parsing one.
         options.UseNpgsql(o => { });
     }
     else
     {
-        options.UseNpgsql(builder.Configuration.GetConnectionString("postgresdb"));
+        options.UseNpgsql(connectionString);
     }
 });
 
-if (!EF.IsDesignTime)
+if (connectionString is not null)
 {
     // EnrichAzureNpgsqlDbContext configures an Entra ID data source that parses
-    // the connection string, which is not available at design time.
+    // the connection string; skip it when no connection string is available.
     builder.EnrichAzureNpgsqlDbContext<AppDbContext>();
 }
 ```
