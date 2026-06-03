@@ -148,8 +148,13 @@ public class WithTerminalTests
 
         foreach (var host in model.Resources.OfType<TerminalHostResource>())
         {
+            // Merely having a ManifestPublishingCallbackAnnotation is not what excludes a
+            // resource from the manifest — being the singleton `Ignore` instance is. The
+            // previous assertion would pass for any custom publishing callback, including
+            // one that *does* emit the resource into the manifest.
             var manifestAnnotation = host.Annotations.OfType<ManifestPublishingCallbackAnnotation>().SingleOrDefault();
             Assert.NotNull(manifestAnnotation);
+            Assert.Same(ManifestPublishingCallbackAnnotation.Ignore, manifestAnnotation);
         }
     }
 
