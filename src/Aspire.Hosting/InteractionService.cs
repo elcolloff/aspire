@@ -616,6 +616,88 @@ internal class InteractionService : IInteractionService
         }
     }
 
+    internal async Task ProcessPageActionFromClientAsync(int interactionId, string actionName, IReadOnlyDictionary<string, string> arguments, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(actionName);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        Func<ActionContext, Task>? action = null;
+        string sessionId = null!;
+        CancellationToken sessionToken = default;
+
+        lock (_onInteractionUpdatedLock)
+        {
+            if (!_interactionCollection.TryGetValue(interactionId, out var interactionState))
+            {
+                _logger.LogDebug("No interaction found with ID {InteractionId} for page action '{ActionName}'.", interactionId, actionName);
+                return;
+            }
+
+            if (interactionState.InteractionInfo is not Interaction.PageInteractionInfo pageInfo)
+            {
+                _logger.LogDebug("Interaction {InteractionId} is not a page interaction for page action '{ActionName}'.", interactionId, actionName);
+                return;
+            }
+
+            if (pageInfo.PageContext.Actions is null)
+            {
+                _logger.LogDebug("Page interaction {InteractionId} does not define actions for page action '{ActionName}'.", interactionId, actionName);
+                return;
+            }
+
+            foreach (var (name, callback) in pageInfo.PageContext.Actions)
+            {
+                if (string.Equals(name, actionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    action = callback;
+                    break;
+                }
+            }
+
+            if (action is null)
+            {
+                _logger.LogDebug("Page action '{ActionName}' was not found for interaction {InteractionId}.", actionName, interactionId);
+                return;
+            }
+
+            sessionId = pageInfo.SessionId;
+            sessionToken = pageInfo.Session.Cts.Token;
+        }
+
+        var actionArguments = new Dictionary<string, string>(arguments, StringComparer.Ordinal);
+
+        CancellationTokenSource linkedCts;
+        try
+        {
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken, cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The page session may complete between selecting the action callback and linking tokens.
+            return;
+        }
+
+        using (linkedCts)
+        {
+            try
+            {
+                await action(new ActionContext
+                {
+                    SessionId = sessionId,
+                    Arguments = actionArguments,
+                    CancellationToken = linkedCts.Token
+                }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (sessionToken.IsCancellationRequested || cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in page action '{ActionName}' callback for session '{SessionId}'.", actionName, sessionId);
+            }
+        }
+    }
+
     private async Task ProcessPageInteractionAsync(Interaction interactionState, Interaction.PageInteractionInfo pageInfo)
     {
         if (pageInfo.PageContext.OnVisit is not { } onVisit)

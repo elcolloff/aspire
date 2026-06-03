@@ -1,4 +1,4 @@
-// Roguelike keyboard controls — binds WASD and arrow keys to movement commands.
+// Roguelike keyboard controls — binds WASD and arrow keys to movement actions.
 const keyMap = {
     'ArrowUp': 'move-up',
     'ArrowDown': 'move-down',
@@ -15,8 +15,8 @@ const keyMap = {
 };
 
 function onKeyDown(e) {
-    const command = keyMap[e.key];
-    if (!command) {
+    const action = keyMap[e.key];
+    if (!action) {
         return;
     }
 
@@ -27,7 +27,7 @@ function onKeyDown(e) {
 
     e.preventDefault();
 
-    const button = document.querySelector(`a[data-command="${command}"][data-resource="roguelike-commands"]`);
+    const button = document.querySelector(`a[data-action="${action}"]`);
     if (button) {
         button.click();
     }

@@ -41,6 +41,7 @@ internal static class InteractionPages
                         count = 1;
                         resets++;
                     }
+
                     await visitContext.SendMarkdownAsync(
                         $"""
                         # Counter
@@ -50,8 +51,6 @@ internal static class InteractionPages
                         Resets: **{resets}**
 
                         Updates every second.
-
-                        [Echo Message](type=button command=echo-arguments resource=argument-commands arguments=message=Hello+from+button&repeat={count}&shout=true&flavor=vanilla icon=Send)
                         """, visitContext.CancellationToken);
                     await Task.Delay(1000, visitContext.CancellationToken);
                 }

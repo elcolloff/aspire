@@ -875,6 +875,12 @@ public sealed class PageContext
     public Func<PageVisitContext, Task>? OnVisit { get; set; }
 
     /// <summary>
+    /// Gets or sets the named actions that can be invoked from this page.
+    /// Page actions are typically triggered by dashboard buttons rendered by the page content.
+    /// </summary>
+    public IReadOnlyDictionary<string, Func<ActionContext, Task>>? Actions { get; set; }
+
+    /// <summary>
     /// Gets or sets the stylesheet asset routes to include when the page is displayed.
     /// Routes are relative to the assets endpoint (e.g. <c>my-styles.css</c> resolves to <c>/assets/my-styles.css</c>).
     /// </summary>
@@ -930,6 +936,28 @@ public sealed class PageVisitContext
     /// </summary>
     /// <returns>A task that completes when the content has been sent to the dashboard.</returns>
     public required Func<string, CancellationToken, Task> SendMarkdownAsync { get; init; }
+}
+
+/// <summary>
+/// Provides context for an action invoked from a dynamic page registered via <see cref="IInteractionService.RegisterPage"/>.
+/// </summary>
+[Experimental(InteractionService.DiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
+public sealed class ActionContext
+{
+    /// <summary>
+    /// Gets the unique session identifier for the visitor that invoked the action.
+    /// </summary>
+    public required string SessionId { get; init; }
+
+    /// <summary>
+    /// Gets the arguments supplied by the page action button.
+    /// </summary>
+    public required IReadOnlyDictionary<string, string> Arguments { get; init; }
+
+    /// <summary>
+    /// Gets a cancellation token that is triggered when the visitor leaves the page or the action request is canceled.
+    /// </summary>
+    public required CancellationToken CancellationToken { get; init; }
 }
 
 /// <summary>

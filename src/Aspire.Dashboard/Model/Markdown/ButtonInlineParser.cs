@@ -8,7 +8,7 @@ using Markdig.Syntax.Inlines;
 namespace Aspire.Dashboard.Model.Markdown;
 
 /// <summary>
-/// Inline parser for button syntax: [Text](type=button command=value resource=value arguments=value icon=value)
+/// Inline parser for button syntax: [Text](type=button action=value arguments=value icon=value)
 ///
 /// Triggered when the link URL starts with "type=button". Uses space-delimited key=value pairs
 /// inside parentheses. The first '=' in each pair separates key from value, so argument values

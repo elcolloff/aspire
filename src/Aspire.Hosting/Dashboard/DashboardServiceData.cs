@@ -184,6 +184,18 @@ internal sealed class DashboardServiceData : IDisposable
 
     internal async Task SendInteractionRequestAsync(WatchInteractionsRequestUpdate request, CancellationToken cancellationToken)
     {
+        if (request.KindCase == WatchInteractionsRequestUpdate.KindOneofCase.PageAction)
+        {
+            // Don't block the caller while processing the page action. Fire and forget.
+            _ = _interactionService.ProcessPageActionFromClientAsync(
+                request.InteractionId,
+                request.PageAction.ActionName,
+                request.PageAction.Arguments,
+                cancellationToken).ConfigureAwait(false);
+
+            return;
+        }
+
         await _interactionService.ProcessInteractionFromClientAsync(
             request.InteractionId,
             (interaction, serviceProvider, logger) =>

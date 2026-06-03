@@ -937,6 +937,64 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
     }
 
+    [Fact]
+    public async Task WatchInteractions_PageAction_InvokesActionWithoutCompletingInteraction()
+    {
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Trace);
+            builder.AddXunit(testOutputHelper);
+        });
+
+        var interactionService = new InteractionService(
+            loggerFactory.CreateLogger<InteractionService>(),
+            new DistributedApplicationOptions(),
+            new ServiceCollection().BuildServiceProvider(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+
+        var actionCalled = new TaskCompletionSource<ActionContext>();
+        interactionService.RegisterPage("action-page", new PageContext
+        {
+            Actions = new Dictionary<string, Func<ActionContext, Task>>
+            {
+                ["save"] = context =>
+                {
+                    actionCalled.SetResult(context);
+                    return Task.CompletedTask;
+                }
+            }
+        });
+
+        var startedPage = interactionService.StartPageInteraction("action-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        using var dashboardServiceData = CreateDashboardServiceData(loggerFactory: loggerFactory, interactionService: interactionService);
+        var dashboardService = new DashboardServiceImpl(dashboardServiceData, new TestHostEnvironment(), new TestHostApplicationLifetime(), new ConfigurationBuilder().Build(), loggerFactory.CreateLogger<DashboardServiceImpl>());
+
+        var cts = new CancellationTokenSource();
+        var context = TestServerCallContext.Create(cancellationToken: cts.Token);
+        var writer = new TestServerStreamWriter<WatchInteractionsResponseUpdate>(context);
+        var reader = new TestAsyncStreamReader<WatchInteractionsRequestUpdate>(context);
+
+        var task = dashboardService.WatchInteractions(reader, writer, context);
+        reader.AddMessage(new WatchInteractionsRequestUpdate
+        {
+            InteractionId = startedPage.InteractionId,
+            PageAction = new InteractionPageAction
+            {
+                ActionName = "save",
+                Arguments = { { "id", "42" } }
+            }
+        });
+
+        var actionContext = await actionCalled.Task.DefaultTimeout();
+        Assert.Equal("session-1", actionContext.SessionId);
+        Assert.Equal("42", actionContext.Arguments["id"]);
+        Assert.Single(interactionService.GetCurrentInteractions());
+
+        await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
+    }
+
     private static DashboardServiceData CreateDashboardServiceData(
         ResourceLoggerService? resourceLoggerService = null,
         ResourceNotificationService? resourceNotificationService = null,

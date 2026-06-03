@@ -40,7 +40,6 @@ public class ButtonInlineRenderer : HtmlObjectRenderer<ButtonInline>
         attributes.AddProperty("current-value", "");
 
         // Emit known config as data attributes so JS can forward them to Blazor.
-        // data-text is used by JS to identify clickable buttons.
         attributes.AddProperty("data-text", label);
 
         if (!string.IsNullOrEmpty(config.Icon))

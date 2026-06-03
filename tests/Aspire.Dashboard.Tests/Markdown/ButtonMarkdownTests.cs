@@ -12,12 +12,11 @@ public class ButtonMarkdownTests
     [Fact]
     public void ButtonConfig_ParseInline_AllProperties()
     {
-        var content = "type=button command=doSomething resource=my-resource arguments=id=123&name=test icon=Send";
+        var content = "type=button action=doSomething arguments=id=123&name=test icon=Send";
 
         var config = ButtonConfig.ParseInline(content);
 
-        Assert.Equal("doSomething", config.Values["command"]);
-        Assert.Equal("my-resource", config.Values["resource"]);
+        Assert.Equal("doSomething", config.Values["action"]);
         Assert.Equal("id=123&name=test", config.Values["arguments"]);
         Assert.Equal("Send", config.Icon);
         Assert.DoesNotContain(config.Values, kvp => kvp.Key == "type");
@@ -26,61 +25,60 @@ public class ButtonMarkdownTests
     [Fact]
     public void ButtonConfig_ParseInline_ArgumentsWithMultipleEquals()
     {
-        var content = "type=button command=echo arguments=message=Hello+World&count=42&flag=true";
+        var content = "type=button action=echo arguments=message=Hello+World&count=42&flag=true";
 
         var config = ButtonConfig.ParseInline(content);
 
-        Assert.Equal("echo", config.Values["command"]);
+        Assert.Equal("echo", config.Values["action"]);
         Assert.Equal("message=Hello+World&count=42&flag=true", config.Values["arguments"]);
     }
 
     [Fact]
-    public void ButtonConfig_ParseInline_CommandOnly()
+    public void ButtonConfig_ParseInline_ActionOnly()
     {
-        var content = "type=button command=myCommand";
+        var content = "type=button action=myAction";
 
         var config = ButtonConfig.ParseInline(content);
 
-        Assert.Equal("myCommand", config.Values["command"]);
+        Assert.Equal("myAction", config.Values["action"]);
         Assert.Null(config.Icon);
-        Assert.DoesNotContain(config.Values, kvp => kvp.Key.Equals("resource", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(config.Values, kvp => kvp.Key.Equals("arguments", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void ButtonConfig_ParseInline_CaseInsensitiveKeys()
     {
-        var content = "TYPE=button COMMAND=action ICON=Download RESOURCE=res";
+        var content = "TYPE=button ACTION=download ICON=Download ARGUMENTS=id=1";
 
         var config = ButtonConfig.ParseInline(content);
 
-        Assert.Equal("action", config.Values["command"]);
+        Assert.Equal("download", config.Values["action"]);
         Assert.Equal("Download", config.Icon);
-        Assert.Equal("res", config.Values["resource"]);
+        Assert.Equal("id=1", config.Values["arguments"]);
     }
 
     [Fact]
     public void ButtonConfig_ParseInline_TypeKeySkipped()
     {
-        var content = "type=button command=test";
+        var content = "type=button action=test";
 
         var config = ButtonConfig.ParseInline(content);
 
         Assert.DoesNotContain(config.Values, kvp => kvp.Key.Equals("type", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("test", config.Values["command"]);
+        Assert.Equal("test", config.Values["action"]);
     }
 
     [Fact]
     public void ButtonMarkdown_RendersButton()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Click Me](type=button command=doSomething resource=my-resource icon=Send)";
+        var markdown = "[Click Me](type=button action=doSomething icon=Send)";
 
         var html = processor.ToHtml(markdown);
 
         Assert.Contains("<fluent-button", html);
         Assert.Contains("data-text=\"Click Me\"", html);
-        Assert.Contains("data-command=\"doSomething\"", html);
-        Assert.Contains("data-resource=\"my-resource\"", html);
+        Assert.Contains("data-action=\"doSomething\"", html);
         Assert.Contains("Click Me", html);
     }
 
@@ -88,13 +86,12 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_WithArguments()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Delete](type=button command=delete-todo resource=todo-commands arguments=id=42)";
+        var markdown = "[Delete](type=button action=delete-todo arguments=id=42)";
 
         var html = processor.ToHtml(markdown);
 
         Assert.Contains("<fluent-button", html);
-        Assert.Contains("data-command=\"delete-todo\"", html);
-        Assert.Contains("data-resource=\"todo-commands\"", html);
+        Assert.Contains("data-action=\"delete-todo\"", html);
         Assert.Contains("data-arguments=\"id=42\"", html);
         Assert.Contains("Delete", html);
     }
@@ -103,7 +100,7 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_InlineInParagraph()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "Click [here](type=button command=navigate resource=nav) to proceed.";
+        var markdown = "Click [here](type=button action=navigate) to proceed.";
 
         var html = processor.ToHtml(markdown);
 
@@ -128,12 +125,12 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_ComplexArguments()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Echo](type=button command=echo-args resource=cmds arguments=message=Hello+from+button&repeat=3&shout=true)";
+        var markdown = "[Echo](type=button action=echo-args arguments=message=Hello+from+button&repeat=3&shout=true)";
 
         var html = processor.ToHtml(markdown);
 
         Assert.Contains("<fluent-button", html);
-        Assert.Contains("data-command=\"echo-args\"", html);
+        Assert.Contains("data-action=\"echo-args\"", html);
         Assert.Contains("data-arguments=\"message=Hello+from+button&amp;repeat=3&amp;shout=true\"", html);
     }
 
@@ -141,21 +138,21 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_MultipleButtons()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Save](type=button command=save) [Cancel](type=button command=cancel)";
+        var markdown = "[Save](type=button action=save) [Cancel](type=button action=cancel)";
 
         var html = processor.ToHtml(markdown);
 
         var buttonCount = System.Text.RegularExpressions.Regex.Matches(html, "<fluent-button").Count;
         Assert.Equal(2, buttonCount);
-        Assert.Contains("data-command=\"save\"", html);
-        Assert.Contains("data-command=\"cancel\"", html);
+        Assert.Contains("data-action=\"save\"", html);
+        Assert.Contains("data-action=\"cancel\"", html);
     }
 
     [Fact]
     public void ButtonMarkdown_WithoutIcon_NoSvg()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Submit](type=button command=submit_form)";
+        var markdown = "[Submit](type=button action=submit_form)";
 
         var html = processor.ToHtml(markdown);
 
@@ -168,12 +165,12 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_EmptyText_WithIcon_RendersIconOnly()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[](type=button command=delete icon=Delete)";
+        var markdown = "[](type=button action=delete icon=Delete)";
 
         var html = processor.ToHtml(markdown);
 
         Assert.Contains("<fluent-button", html);
-        Assert.Contains("data-command=\"delete\"", html);
+        Assert.Contains("data-action=\"delete\"", html);
         Assert.Contains("aria-label=\"Delete\"", html);
     }
 
@@ -181,7 +178,7 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_EmptyText_NoIcon_NotRendered()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[](type=button command=click)";
+        var markdown = "[](type=button action=click)";
 
         var html = processor.ToHtml(markdown);
 
@@ -192,7 +189,7 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_MissingClosingParen_NotParsed()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Click](type=button command=test";
+        var markdown = "[Click](type=button action=test";
 
         var html = processor.ToHtml(markdown);
 
@@ -203,7 +200,7 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_SpecialCharactersInText()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Download & Share](type=button command=download)";
+        var markdown = "[Download & Share](type=button action=download)";
 
         var html = processor.ToHtml(markdown);
 
@@ -214,7 +211,7 @@ public class ButtonMarkdownTests
     public void ButtonMarkdown_LinkWithoutTypeButton_NotAButton()
     {
         var processor = CreateMarkdownProcessor();
-        var markdown = "[Click](command=test resource=res)";
+        var markdown = "[Click](action=test)";
 
         var html = processor.ToHtml(markdown);
 

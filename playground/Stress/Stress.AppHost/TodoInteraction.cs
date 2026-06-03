@@ -12,9 +12,7 @@ internal sealed class TodoInteraction
 {
     private const string TodoCssRoute = "todo-styles.css";
 
-    private readonly IResource _parentResource;
-
-    // Shared todo state accessible by both the page and commands.
+    // Shared todo state accessible by all page visits.
     private readonly List<TodoItem> _todos = new()
     {
         new(1, "Buy groceries"),
@@ -30,13 +28,11 @@ internal sealed class TodoInteraction
 
     public TodoInteraction(IResourceBuilder<ProjectResource> parentResource)
     {
-        _parentResource = parentResource.Resource;
+        ArgumentNullException.ThrowIfNull(parentResource);
     }
 
     public void Register(IDistributedApplicationBuilder builder)
     {
-        AddCommands(builder);
-
         builder.OnBeforeStart((@event, ct) =>
         {
             var interactionService = @event.Services.GetRequiredService<IInteractionService>();
@@ -55,6 +51,11 @@ internal sealed class TodoInteraction
         {
             Title = "Todo",
             StyleIncludes = [TodoCssRoute],
+            Actions = new Dictionary<string, Func<ActionContext, Task>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["add-todo"] = context => AddTodoAsync(interactionService, context),
+                ["delete-todo"] = DeleteTodoAsync
+            },
             OnVisit = async visitContext =>
             {
                 while (!visitContext.CancellationToken.IsCancellationRequested)
@@ -77,84 +78,57 @@ internal sealed class TodoInteraction
         });
     }
 
-    private void AddCommands(IDistributedApplicationBuilder builder)
+    private async Task AddTodoAsync(IInteractionService interactionService, ActionContext context)
     {
-        var todoCommands = builder.AddCommandGroup("todo-commands", _parentResource);
-        todoCommands.WithCommand(
-            name: "add-todo",
-            displayName: "Add todo",
-            executeCommand: c =>
+        context.CancellationToken.ThrowIfCancellationRequested();
+
+        var result = await interactionService.PromptInputAsync(
+            "Add todo",
+            "Add a new todo item to the list.",
+            new InteractionInput
             {
-                var title = c.Arguments.GetString("title");
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    return Task.FromResult(CommandResults.Failure("The title argument is required."));
-                }
-
-                lock (_todosLock)
-                {
-                    _todos.Add(new TodoItem(_nextTodoId++, title));
-                }
-                NotifyTodoChanged();
-
-                return Task.FromResult(CommandResults.Success("Todo added."));
+                Name = "title",
+                Label = "Title",
+                InputType = InputType.Text,
+                Required = true,
+                Placeholder = "What needs to be done?"
             },
-            commandOptions: new CommandOptions
-            {
-                Description = "Add a new todo item to the list.",
-                IconName = "Add",
-                Arguments =
-                [
-                    new InteractionInput
-                    {
-                        Name = "title",
-                        Label = "Title",
-                        InputType = InputType.Text,
-                        Required = true,
-                        Placeholder = "What needs to be done?"
-                    }
-                ]
-            });
-        todoCommands.WithCommand(
-            name: "delete-todo",
-            displayName: "Delete todo",
-            executeCommand: c =>
-            {
-                var idString = c.Arguments.GetString("id");
-                if (!int.TryParse(idString, out var id))
-                {
-                    return Task.FromResult(CommandResults.Failure("The id argument is required."));
-                }
+            cancellationToken: context.CancellationToken);
 
-                bool removed;
-                lock (_todosLock)
-                {
-                    removed = _todos.RemoveAll(t => t.Id == id) > 0;
-                }
+        if (result.Canceled || string.IsNullOrWhiteSpace(result.Data.Value))
+        {
+            return;
+        }
 
-                if (!removed)
-                {
-                    return Task.FromResult(CommandResults.Failure($"Todo with id {id} not found."));
-                }
+        lock (_todosLock)
+        {
+            _todos.Add(new TodoItem(_nextTodoId++, result.Data.Value.Trim()));
+        }
 
-                NotifyTodoChanged();
-                return Task.FromResult(CommandResults.Success("Todo deleted."));
-            },
-            commandOptions: new CommandOptions
-            {
-                Description = "Delete a todo item by id.",
-                IconName = "Delete",
-                Arguments =
-                [
-                    new InteractionInput
-                    {
-                        Name = "id",
-                        Label = "Id",
-                        InputType = InputType.Number,
-                        Required = true
-                    }
-                ]
-            });
+        NotifyTodoChanged();
+    }
+
+    private Task DeleteTodoAsync(ActionContext context)
+    {
+        context.CancellationToken.ThrowIfCancellationRequested();
+
+        if (!int.TryParse(context.Arguments.GetValueOrDefault("id"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+        {
+            return Task.CompletedTask;
+        }
+
+        bool removed;
+        lock (_todosLock)
+        {
+            removed = _todos.RemoveAll(t => t.Id == id) > 0;
+        }
+
+        if (removed)
+        {
+            NotifyTodoChanged();
+        }
+
+        return Task.CompletedTask;
     }
 
     private string BuildTodoMarkdown()
@@ -163,7 +137,7 @@ internal sealed class TodoInteraction
         sb.AppendLine("# Todo List");
         sb.AppendLine();
 
-        sb.AppendLine("[Add Todo](type=button command=add-todo resource=todo-commands icon=Add)");
+        sb.AppendLine("[Add Todo](type=button action=add-todo icon=Add)");
         sb.AppendLine();
 
         List<TodoItem> snapshot;
@@ -182,7 +156,7 @@ internal sealed class TodoInteraction
             sb.AppendLine("|------|---|");
             foreach (var todo in snapshot)
             {
-                sb.AppendLine(CultureInfo.InvariantCulture, $"| {EscapeMarkdownTableCell(todo.Title)} | [](type=button command=delete-todo resource=todo-commands arguments=id={todo.Id} icon=Delete) |");
+                sb.AppendLine(CultureInfo.InvariantCulture, $"| {EscapeMarkdownTableCell(todo.Title)} | [](type=button action=delete-todo arguments=id={todo.Id} icon=Delete) |");
             }
         }
 

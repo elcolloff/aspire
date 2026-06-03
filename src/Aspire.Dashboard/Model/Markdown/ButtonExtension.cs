@@ -8,7 +8,7 @@ namespace Aspire.Dashboard.Model.Markdown;
 
 /// <summary>
 /// Markdig extension that adds button inline support.
-/// Syntax: [Text](type=button command=value resource=value arguments=key1=val1&amp;key2=val2 icon=value)
+/// Syntax: [Text](type=button action=value arguments=key1=val1&amp;key2=val2 icon=value)
 ///
 /// Uses space-delimited key=value pairs inside parentheses.
 /// The first '=' separates key from value, allowing argument values (query strings)

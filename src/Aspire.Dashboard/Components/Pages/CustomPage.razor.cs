@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Model.Interaction;
 using Aspire.Dashboard.Model.Markdown;
-using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Resources;
 using Aspire.Dashboard.Utils;
 using Aspire.DashboardService.Proto.V1;
@@ -63,9 +63,6 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
 
     [Inject]
     public required ILogger<CustomPage> Logger { get; init; }
-
-    [Inject]
-    public required DashboardCommandExecutor DashboardCommandExecutor { get; init; }
 
     protected override void OnInitialized()
     {
@@ -332,25 +329,31 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         [JSInvokable]
         public async Task OnButtonClick(IDictionary<string, string> values)
         {
-            values.TryGetValue("command", out var commandName);
-            values.TryGetValue("resource", out var resourceName);
+            values.TryGetValue("action", out var actionName);
             values.TryGetValue("arguments", out var argumentsValue);
 
-            if (string.IsNullOrEmpty(commandName) || string.IsNullOrEmpty(resourceName))
+            if (string.IsNullOrEmpty(actionName))
             {
-                _page.Logger.LogDebug("Button click missing required values. Command: {Command}, Resource: {Resource}", commandName, resourceName);
+                _page.Logger.LogDebug("Button click missing required action value.");
                 return;
             }
 
-            Dictionary<string, Google.Protobuf.WellKnownTypes.Value>? arguments = null;
+            if (_page._pageInteraction is not { } pageInteraction)
+            {
+                _page.Logger.LogDebug("Button click for action {ActionName} arrived before the page interaction started.", actionName);
+                return;
+            }
+
+            var arguments = new Dictionary<string, string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(argumentsValue))
             {
                 try
                 {
                     var parsed = QueryHelpers.ParseQuery(argumentsValue);
-                    arguments = parsed.ToDictionary(
-                        kvp => kvp.Key,
-                        kvp => Google.Protobuf.WellKnownTypes.Value.ForString(kvp.Value.ToString()));
+                    foreach (var (key, value) in parsed)
+                    {
+                        arguments[key] = value.ToString();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -359,21 +362,14 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
                 }
             }
 
-            var resource = _page.DashboardClient.GetResource(resourceName);
-            if (resource is null)
+            var request = new WatchInteractionsRequestUpdate
             {
-                _page.Logger.LogDebug("Resource not found: {Resource}", resourceName);
-                return;
-            }
+                InteractionId = pageInteraction.InteractionId,
+                PageAction = new InteractionPageAction { ActionName = actionName }
+            };
 
-            var command = resource.Commands.FirstOrDefault(c => string.Equals(c.Name, commandName, StringComparison.Ordinal));
-            if (command is null)
-            {
-                _page.Logger.LogDebug("Command {Command} not found on resource {Resource}", commandName, resourceName);
-                return;
-            }
-
-            await _page.DashboardCommandExecutor.ExecuteAsync(resource, command, r => r.Name, arguments);
+            request.PageAction.Arguments.Add(arguments);
+            await _page.DashboardClient.SendInteractionRequestAsync(request, CancellationToken.None);
         }
     }
 }

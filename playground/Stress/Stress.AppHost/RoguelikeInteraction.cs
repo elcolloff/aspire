@@ -15,7 +15,6 @@ internal sealed class RoguelikeInteraction
     private const int MaxHealth = 12;
     private const string CssRoute = "roguelike-styles.css";
     private const string JsRoute = "roguelike-controls.js";
-    private const string SessionIdArgumentName = "sessionId";
 
     private readonly IResource _parentResource;
     private readonly IDistributedApplicationBuilder _builder;
@@ -34,8 +33,6 @@ internal sealed class RoguelikeInteraction
 
     public void Register(IDistributedApplicationBuilder builder)
     {
-        AddCommands(builder);
-
         builder.OnBeforeStart((@event, ct) =>
         {
             var interactionService = @event.Services.GetRequiredService<IInteractionService>();
@@ -60,6 +57,23 @@ internal sealed class RoguelikeInteraction
             EnableHtml = true,
             StyleIncludes = [CssRoute],
             ScriptIncludes = [JsRoute],
+            Actions = new Dictionary<string, Func<ActionContext, Task>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["move-up"] = context => Move(context, 0, -1),
+                ["move-down"] = context => Move(context, 0, 1),
+                ["move-left"] = context => Move(context, -1, 0),
+                ["move-right"] = context => Move(context, 1, 0),
+                ["new-run"] = context =>
+                {
+                    context.CancellationToken.ThrowIfCancellationRequested();
+                    if (TryGetSession(context, out var game))
+                    {
+                        StartNewRun(game, notify: true);
+                    }
+
+                    return Task.CompletedTask;
+                }
+            },
             OnVisit = async visitContext =>
             {
                 var game = new GameSession();
@@ -74,7 +88,7 @@ internal sealed class RoguelikeInteraction
                 {
                     while (!visitContext.CancellationToken.IsCancellationRequested)
                     {
-                        var (html, version) = BuildHtml(game, visitContext.SessionId);
+                        var (html, version) = BuildHtml(game);
                         await visitContext.SendMarkdownAsync(html, visitContext.CancellationToken);
                         await game.WaitForChangeAsync(version, visitContext.CancellationToken);
                     }
@@ -98,102 +112,34 @@ internal sealed class RoguelikeInteraction
         });
     }
 
-    private void AddCommands(IDistributedApplicationBuilder builder)
+    private bool TryGetSession(ActionContext context, out GameSession game)
     {
-        var commands = builder.AddCommandGroup("roguelike-commands", _parentResource);
-
-        AddMoveCommand(commands, "move-up", "Move up", 0, -1, "ChevronUp");
-        AddMoveCommand(commands, "move-down", "Move down", 0, 1, "ChevronDown");
-        AddMoveCommand(commands, "move-left", "Move left", -1, 0, "ChevronLeft");
-        AddMoveCommand(commands, "move-right", "Move right", 1, 0, "ChevronRight");
-
-        commands.WithCommand(
-            name: "new-run",
-            displayName: "New run",
-            executeCommand: context =>
-            {
-                if (!TryGetSession(context, out var game, out var failure))
-                {
-                    return Task.FromResult(CommandResults.Failure(failure));
-                }
-
-                StartNewRun(game, notify: true);
-                return Task.FromResult(CommandResults.Success("Started a new run."));
-            },
-            commandOptions: new CommandOptions
-            {
-                Description = "Start a new dungeon run.",
-                IconName = "ArrowReset",
-                Visibility = ResourceCommandVisibility.UI,
-                Arguments = [CreateSessionIdArgument()]
-            });
-    }
-
-    private void AddMoveCommand(IResourceBuilder<CommandGroupResource> commands, string name, string displayName, int dx, int dy, string iconName)
-    {
-        commands.WithCommand(
-            name,
-            displayName,
-            executeCommand: context => Task.FromResult(Move(context, dx, dy)),
-            commandOptions: new CommandOptions
-            {
-                Description = displayName,
-                IconName = iconName,
-                Visibility = ResourceCommandVisibility.UI,
-                Arguments = [CreateSessionIdArgument()]
-            });
-    }
-
-    private static InteractionInput CreateSessionIdArgument()
-    {
-        return new InteractionInput
-        {
-            Name = SessionIdArgumentName,
-            Label = "Session ID",
-            InputType = InputType.Text,
-            Required = true
-        };
-    }
-
-    private bool TryGetSession(ExecuteCommandContext context, out GameSession game, out string failure)
-    {
-        var sessionId = context.Arguments.GetString(SessionIdArgumentName);
-        if (string.IsNullOrWhiteSpace(sessionId))
-        {
-            game = null!;
-            failure = "The roguelike session id argument is required.";
-            return false;
-        }
-
         lock (_sessionsLock)
         {
-            if (_sessions.TryGetValue(sessionId, out game!))
+            if (_sessions.TryGetValue(context.SessionId, out game!))
             {
-                failure = string.Empty;
                 return true;
             }
         }
 
         game = null!;
-        failure = "The roguelike session is no longer active.";
         return false;
     }
 
-    private ExecuteCommandResult Move(ExecuteCommandContext context, int dx, int dy)
+    private Task Move(ActionContext context, int dx, int dy)
     {
-        if (!TryGetSession(context, out var game, out var failure))
-        {
-            return CommandResults.Failure(failure);
-        }
+        context.CancellationToken.ThrowIfCancellationRequested();
 
-        string message;
+        if (!TryGetSession(context, out var game))
+        {
+            return Task.CompletedTask;
+        }
 
         lock (game.Lock)
         {
             if (game.Health <= 0)
             {
                 AddLog(game, "💀 You are dead. Start a new run to try again.");
-                message = "You are dead.";
             }
             else
             {
@@ -203,11 +149,10 @@ internal sealed class RoguelikeInteraction
                 if (!IsInBounds(target) || game.Tiles[target.X, target.Y] == Tile.Wall)
                 {
                     AddLog(game, "🧱 You bump into a wall.");
-                    message = "You bump into a wall.";
                 }
                 else if (FindMonster(game, target) is { } monster)
                 {
-                    message = Attack(game, monster);
+                    Attack(game, monster);
                 }
                 else
                 {
@@ -234,8 +179,6 @@ internal sealed class RoguelikeInteraction
                             AddLog(game, "🔒 The exit is sealed while monsters remain.");
                         }
                     }
-
-                    message = "You move.";
                 }
 
                 // Monsters take their turn after the player (if still alive).
@@ -247,10 +190,10 @@ internal sealed class RoguelikeInteraction
         }
 
         game.NotifyChanged();
-        return CommandResults.Success(message);
+        return Task.CompletedTask;
     }
 
-    private string Attack(GameSession game, Monster monster)
+    private void Attack(GameSession game, Monster monster)
     {
         var damage = game.Random.Next(2, 5);
         monster.Health -= damage;
@@ -271,11 +214,7 @@ internal sealed class RoguelikeInteraction
             {
                 AddLog(game, "✨ The dungeon goes quiet. Find the door to descend.");
             }
-
-            return $"Defeated {monster.Name}.";
         }
-
-        return $"Hit {monster.Name}.";
     }
 
     private async Task StopResourceAsync(string resourceName)
@@ -454,11 +393,10 @@ internal sealed class RoguelikeInteraction
         return game.Player;
     }
 
-    private (string Html, int Version) BuildHtml(GameSession game, string sessionId)
+    private (string Html, int Version) BuildHtml(GameSession game)
     {
         lock (game.Lock)
         {
-            var sessionArguments = HtmlEncode($"{SessionIdArgumentName}={sessionId}");
             var sb = new StringBuilder();
             sb.AppendLine("## 🗡️ Roguelike Dungeon");
             sb.Append("<div class=\"roguelike\">");
@@ -512,16 +450,16 @@ internal sealed class RoguelikeInteraction
             // Controls (bottom-left)
             sb.Append("<div class=\"roguelike-controls\">");
             sb.Append("<span class=\"empty\"></span>");
-            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-up\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬆️</a>");
+            sb.Append("<a data-action=\"move-up\">⬆️</a>");
             sb.Append("<span class=\"empty\"></span>");
-            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-left\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬅️</a>");
-            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-down\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬇️</a>");
-            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-right\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">➡️</a>");
+            sb.Append("<a data-action=\"move-left\">⬅️</a>");
+            sb.Append("<a data-action=\"move-down\">⬇️</a>");
+            sb.Append("<a data-action=\"move-right\">➡️</a>");
             sb.Append("</div>");
 
             // New Game button (bottom-right)
             sb.Append("<div class=\"roguelike-newgame\">");
-            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"new-run\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\" class=\"newgame-btn\">🔄 New Game</a>");
+            sb.Append("<a data-action=\"new-run\" class=\"newgame-btn\">🔄 New Game</a>");
             sb.Append("</div>");
 
             sb.Append("</div>"); // layout

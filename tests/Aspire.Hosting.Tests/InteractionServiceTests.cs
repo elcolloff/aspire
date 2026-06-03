@@ -1340,6 +1340,150 @@ public class InteractionServiceTests
     }
 
     [Fact]
+    public async Task ProcessPageActionFromClientAsync_InvokesRegisteredActionWithContext()
+    {
+        var interactionService = CreateInteractionService();
+        var actionCalled = new TaskCompletionSource<ActionContext>();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Actions = new Dictionary<string, Func<ActionContext, Task>>
+            {
+                ["save"] = context =>
+                {
+                    actionCalled.SetResult(context);
+                    return Task.CompletedTask;
+                }
+            }
+        });
+
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        await interactionService.ProcessPageActionFromClientAsync(
+            startedPage.InteractionId,
+            "save",
+            new Dictionary<string, string> { ["id"] = "42", ["name"] = "test" },
+            CancellationToken.None);
+
+        var context = await actionCalled.Task.DefaultTimeout();
+        Assert.Equal("session-1", context.SessionId);
+        Assert.Equal("42", context.Arguments["id"]);
+        Assert.Equal("test", context.Arguments["name"]);
+        Assert.False(context.CancellationToken.IsCancellationRequested);
+        Assert.Single(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public async Task ProcessPageActionFromClientAsync_MissingAction_DoesNotCompletePageInteraction()
+    {
+        var interactionService = CreateInteractionService();
+        var called = false;
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Actions = new Dictionary<string, Func<ActionContext, Task>>
+            {
+                ["save"] = _ =>
+                {
+                    called = true;
+                    return Task.CompletedTask;
+                }
+            }
+        });
+
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        await interactionService.ProcessPageActionFromClientAsync(
+            startedPage.InteractionId,
+            "missing",
+            new Dictionary<string, string>(),
+            CancellationToken.None);
+
+        Assert.False(called);
+        Assert.Single(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public async Task ProcessPageActionFromClientAsync_PageCompletion_CancelsActionToken()
+    {
+        var interactionService = CreateInteractionService();
+        var actionStarted = new TaskCompletionSource();
+        var actionCancelled = new TaskCompletionSource();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Actions = new Dictionary<string, Func<ActionContext, Task>>
+            {
+                ["wait"] = async context =>
+                {
+                    actionStarted.SetResult();
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, context.CancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        actionCancelled.SetResult();
+                        throw;
+                    }
+                }
+            }
+        });
+
+        var startedPage = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        var actionTask = interactionService.ProcessPageActionFromClientAsync(
+            startedPage.InteractionId,
+            "wait",
+            new Dictionary<string, string>(),
+            CancellationToken.None);
+
+        await actionStarted.Task.DefaultTimeout();
+
+        await interactionService.ProcessInteractionFromClientAsync(
+            startedPage.InteractionId,
+            (_, _, _) => new InteractionCompletionState { Complete = true },
+            CancellationToken.None);
+
+        await actionCancelled.Task.DefaultTimeout();
+        await actionTask.DefaultTimeout();
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    [Fact]
+    public async Task ProcessPageActionFromClientAsync_MultipleSessions_UsesInteractionSession()
+    {
+        var interactionService = CreateInteractionService();
+        var sessions = new List<string>();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Actions = new Dictionary<string, Func<ActionContext, Task>>
+            {
+                ["record"] = context =>
+                {
+                    sessions.Add(context.SessionId);
+                    return Task.CompletedTask;
+                }
+            }
+        });
+
+        var startedPage1 = interactionService.StartPageInteraction("test-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        var startedPage2 = interactionService.StartPageInteraction("test-page", "session-2", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage1);
+        Assert.NotNull(startedPage2);
+
+        await interactionService.ProcessPageActionFromClientAsync(startedPage1.InteractionId, "record", new Dictionary<string, string>(), CancellationToken.None);
+        await interactionService.ProcessPageActionFromClientAsync(startedPage2.InteractionId, "record", new Dictionary<string, string>(), CancellationToken.None);
+
+        Assert.Equal(["session-1", "session-2"], sessions);
+        Assert.Equal(2, interactionService.GetCurrentInteractions().Count);
+    }
+
+    [Fact]
     public void RegisterMenuButton_AddsInteraction()
     {
         // Arrange
