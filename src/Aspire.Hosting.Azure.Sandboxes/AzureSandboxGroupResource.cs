@@ -8,7 +8,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure.Sandboxes.Provisioning;
-using Aspire.Hosting.JavaScript;
 using Aspire.Hosting.Pipelines;
 using Azure.Provisioning.Primitives;
 using Azure.Provisioning.Resources;
@@ -73,7 +72,7 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
             if (IsPrimarySandboxGroup(model, this))
             {
-                steps.Add(AzureSandboxStaticSiteDeployment.CreateStaleCleanupPipelineStep(this, AzureSandboxStaticSiteDeployment.GetActiveStateSectionNames(model)));
+                steps.Add(AzureSandboxContainerDeployment.CreateStaleCleanupPipelineStep(this, AzureSandboxContainerDeployment.GetActiveStateSectionNames(model)));
             }
 
             return steps;
@@ -98,7 +97,7 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
             if (IsPrimarySandboxGroup(context.Model, this))
             {
-                AzureSandboxStaticSiteDeployment.ConfigureStaleCleanupDestroyOrdering(context, this);
+                AzureSandboxContainerDeployment.ConfigureStaleCleanupDestroyOrdering(context, this);
             }
         }));
     }
@@ -117,12 +116,50 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
     internal List<AzureUserAssignedIdentityResource> UserAssignedIdentities { get; } = [];
 
+    internal AzureContainerRegistryResource? DefaultContainerRegistry { get; set; }
+
+    IAzureContainerRegistryResource? IAzureComputeEnvironmentResource.ContainerRegistry => ContainerRegistry;
+
+    /// <summary>
+    /// Gets the Azure Container Registry resource used by this sandbox group.
+    /// </summary>
+    public AzureContainerRegistryResource? ContainerRegistry
+    {
+        get
+        {
+            var registry = GetContainerRegistry();
+            if (registry is null)
+            {
+                return null;
+            }
+
+            if (registry is not AzureContainerRegistryResource azureRegistry)
+            {
+                throw new InvalidOperationException(
+                    $"The container registry configured for the Azure sandbox group '{Name}' is not an Azure Container Registry. " +
+                    $"Only Azure Container Registry resources are supported. Use '.WithAzureContainerRegistry()' to configure an Azure Container Registry.");
+            }
+
+            return azureRegistry;
+        }
+    }
+
     private async Task PrepareDeploymentTargetsAsync(PipelineStepContext context)
     {
         if (!context.ExecutionContext.IsPublishMode)
         {
             return;
         }
+
+        if (this.HasAnnotationOfType<ContainerRegistryReferenceAnnotation>() &&
+            DefaultContainerRegistry is not null)
+        {
+            context.Model.Resources.Remove(DefaultContainerRegistry);
+            DefaultContainerRegistry = null;
+        }
+
+        var containerRegistry = ContainerRegistry ??
+            throw new InvalidOperationException($"No container registry associated with Azure sandbox group '{Name}'. This should have been added automatically.");
 
         foreach (var resource in context.Model.GetComputeResources())
         {
@@ -132,73 +169,33 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
                 continue;
             }
 
-            if (resourceComputeEnvironment is null)
-            {
-                continue;
-            }
-
             if (resource.GetDeploymentTargetAnnotation(this) is not null)
             {
                 continue;
             }
 
-            var staticSite = await TryCreateStaticSiteDeploymentTargetAsync(resource, context.CancellationToken).ConfigureAwait(false);
-            if (staticSite is null)
-            {
-                throw new NotSupportedException($"Resource '{resource.Name}' cannot be deployed to Azure sandbox group '{Name}'. Azure sandbox groups currently support JavaScript resources published with PublishAsStaticWebsite.");
-            }
+            var sandboxContainer = new AzureSandboxContainerResource(
+                $"{resource.Name}-sandbox-container",
+                resource,
+                this,
+                autoSuspend: false);
 
-            resource.Annotations.Add(new DeploymentTargetAnnotation(staticSite)
+            sandboxContainer.Annotations.Add(ManifestPublishingCallbackAnnotation.Ignore);
+            sandboxContainer.Annotations.Add(new PipelineStepAnnotation(_ => AzureSandboxContainerDeployment.CreatePipelineSteps(sandboxContainer)));
+            sandboxContainer.Annotations.Add(new PipelineConfigurationAnnotation(context =>
             {
+                AzureSandboxContainerDeployment.ConfigureDeployOrdering(context, sandboxContainer);
+                AzureSandboxContainerDeployment.ConfigureDestroyOrdering(context, sandboxContainer);
+            }));
+
+            resource.Annotations.Add(new DeploymentTargetAnnotation(sandboxContainer)
+            {
+                ContainerRegistry = containerRegistry,
                 ComputeEnvironment = this
             });
         }
 
         await Task.CompletedTask.ConfigureAwait(false);
-    }
-
-    private async Task<AzureSandboxStaticSiteResource?> TryCreateStaticSiteDeploymentTargetAsync(IResource resource, CancellationToken cancellationToken)
-    {
-        if (!resource.TryGetLastAnnotation<JavaScriptPublishModeAnnotation>(out var publishMode) ||
-            publishMode.Mode != JavaScriptPublishMode.StaticWebsite)
-        {
-            return null;
-        }
-
-        if (await HasStaticWebsiteApiProxyAsync(resource, cancellationToken).ConfigureAwait(false))
-        {
-            throw new NotSupportedException($"Resource '{resource.Name}' uses PublishAsStaticWebsite with an API reverse proxy. Azure sandbox groups currently support static file-only JavaScript static websites.");
-        }
-
-        if (!resource.TryGetLastAnnotation<DockerfileBuildAnnotation>(out var dockerfileBuild))
-        {
-            throw new InvalidOperationException($"Resource '{resource.Name}' is configured as a JavaScript static website but does not have Dockerfile build metadata with the source working directory.");
-        }
-
-        var outputPath = ResolveStaticSiteOutputPath(resource, publishMode.OutputPath);
-
-        var staticSite = new AzureSandboxStaticSiteResource(
-            $"{resource.Name}-sandbox-site",
-            resource,
-            this,
-            dockerfileBuild.ContextPath,
-            outputPath,
-            endpointName: "http",
-            disk: "node-22",
-            build: true,
-            autoSuspend: false);
-
-        staticSite.Annotations.Add(ManifestPublishingCallbackAnnotation.Ignore);
-        staticSite.Annotations.Add(new ContainerFilesDestinationAnnotation
-        {
-            Source = resource,
-            DestinationPath = "/app/wwwroot"
-        });
-        var deploymentTarget = staticSite;
-        staticSite.Annotations.Add(new PipelineStepAnnotation(_ => AzureSandboxStaticSiteDeployment.CreatePipelineSteps(deploymentTarget)));
-        staticSite.Annotations.Add(new PipelineConfigurationAnnotation(context => AzureSandboxStaticSiteDeployment.ConfigureDestroyOrdering(context, deploymentTarget)));
-
-        return staticSite;
     }
 
     /// <inheritdoc/>
@@ -246,47 +243,14 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
         return sandboxGroup;
     }
 
-    private static string ResolveStaticSiteOutputPath(IResource resource, string outputPath)
+    private IContainerRegistry? GetContainerRegistry()
     {
-        if (resource.TryGetLastAnnotation<ContainerFilesSourceAnnotation>(out var sourceAnnotation))
+        if (this.TryGetLastAnnotation<ContainerRegistryReferenceAnnotation>(out var annotation))
         {
-            return ToLocalOutputPath(sourceAnnotation.SourcePath);
+            return annotation.Registry;
         }
 
-        return outputPath;
-    }
-
-    private static string ToLocalOutputPath(string containerFilesSourcePath)
-    {
-        var normalizedPath = containerFilesSourcePath.Replace('\\', '/');
-
-        return normalizedPath switch
-        {
-            "/app" => ".",
-            var path when path.StartsWith("/app/", StringComparison.Ordinal) => path["/app/".Length..],
-            var path when !path.StartsWith("/", StringComparison.Ordinal) => path,
-            _ => throw new InvalidOperationException($"Container files source path '{containerFilesSourcePath}' cannot be mapped to a local JavaScript output directory.")
-        };
-    }
-
-    private static async Task<bool> HasStaticWebsiteApiProxyAsync(IResource resource, CancellationToken cancellationToken)
-    {
-        if (!resource.TryGetEnvironmentVariables(out var environmentAnnotations))
-        {
-            return false;
-        }
-
-        var context = new EnvironmentCallbackContext(new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish), resource, cancellationToken: cancellationToken);
-        foreach (var annotation in environmentAnnotations)
-        {
-            await annotation.Callback(context).ConfigureAwait(false);
-            if (context.EnvironmentVariables.Keys.Any(static key => key.StartsWith("REVERSEPROXY__", StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return DefaultContainerRegistry;
     }
 
     private static bool IsPrimarySandboxGroup(DistributedApplicationModel model, AzureSandboxGroupResource resource) =>

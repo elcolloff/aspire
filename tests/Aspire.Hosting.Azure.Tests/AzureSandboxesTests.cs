@@ -4,7 +4,6 @@
 #pragma warning disable ASPIREPIPELINES001
 #pragma warning disable ASPIREAZURE001
 #pragma warning disable ASPIREAZURE003
-#pragma warning disable ASPIREJAVASCRIPT001
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
@@ -103,62 +102,100 @@ public class AzureSandboxesTests
     }
 
     [Fact]
-    public async Task SandboxGroupAddsDeploymentTargetForStaticWebsite()
+    public void ContainerImageMetadataBuildsSandboxEntrypointFromImageConfig()
+    {
+        var metadata = AzureSandboxContainerDeployment.ParseContainerImageMetadata(
+            """
+            {
+              "Entrypoint": ["dotnet", "/app/yarp.dll"],
+              "Cmd": null,
+              "WorkingDir": "/app",
+              "Env": [
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "ASPNETCORE_URLS=http://+:5000",
+                "EMPTY="
+              ]
+            }
+            """,
+            "example.azurecr.io/site:tag");
+
+        Assert.Equal(["dotnet", "/app/yarp.dll"], metadata.Entrypoint);
+        Assert.Empty(metadata.Command);
+        Assert.Equal("/usr/local/bin:/usr/bin:/bin", metadata.EnvironmentVariables["PATH"]);
+        Assert.Equal("http://+:5000", metadata.EnvironmentVariables["ASPNETCORE_URLS"]);
+        Assert.Equal(string.Empty, metadata.EnvironmentVariables["EMPTY"]);
+    }
+
+    [Fact]
+    public async Task SandboxGroupAddsDeploymentTargetForProject()
     {
         using var tempDir = new TestTempDirectory();
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path);
 
         var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
-        var frontendDirectory = Path.Combine(tempDir.Path, "frontend");
-        Directory.CreateDirectory(frontendDirectory);
-        File.WriteAllText(Path.Combine(frontendDirectory, "package-lock.json"), "empty");
-
-        builder.AddViteApp("frontend", frontendDirectory)
-            .WithNpm(install: true)
-            .PublishAsStaticWebsite(o => o.OutputPath = "dist")
+        builder.AddProject<TestProject>("frontend", launchProfileName: null)
+            .WithHttpEndpoint(targetPort: 5000)
             .WithExternalHttpEndpoints();
 
         using var app = builder.Build();
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
         await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
 
-        Assert.Empty(model.Resources.OfType<AzureSandboxStaticSiteResource>());
+        Assert.Empty(model.Resources.OfType<AzureSandboxContainerResource>());
 
         var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "frontend");
         Assert.Same(sandboxGroup.Resource, computeResource.GetComputeEnvironment());
 
         var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
         Assert.NotNull(deploymentTarget);
-        var staticSite = Assert.IsType<AzureSandboxStaticSiteResource>(deploymentTarget.DeploymentTarget);
-        Assert.Same(computeResource, staticSite.Source);
-        Assert.Same(sandboxGroup.Resource, staticSite.Parent);
-        Assert.Equal(frontendDirectory, staticSite.SourceWorkingDirectory);
-        Assert.Equal("dist", staticSite.OutputPath);
-        Assert.Equal("http", staticSite.EndpointName);
-        Assert.True(staticSite.Build);
-        Assert.False(staticSite.AutoSuspend);
-        var sandboxEndpoint = AzureSandboxStaticSiteDeployment.ResolveSandboxEndpoint(staticSite);
+        Assert.Same(sandboxGroup.Resource.ContainerRegistry, deploymentTarget.ContainerRegistry);
+        Assert.Same(sandboxGroup.Resource, deploymentTarget.ComputeEnvironment);
+
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget.DeploymentTarget);
+        Assert.Same(computeResource, sandboxContainer.TargetResource);
+        Assert.Same(sandboxGroup.Resource, sandboxContainer.Parent);
+        Assert.False(sandboxContainer.AutoSuspend);
+
+        var sandboxEndpoint = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
         Assert.Equal(5000, sandboxEndpoint.TargetPort);
         Assert.True(sandboxEndpoint.IsExternal);
+        Assert.True(sandboxEndpoint.IsHttp);
 
-        var filesDestination = Assert.Single(staticSite.Annotations.OfType<ContainerFilesDestinationAnnotation>());
-        Assert.Same(computeResource, filesDestination.Source);
-        Assert.Equal("/app/wwwroot", filesDestination.DestinationPath);
-
-        var pipelineAnnotation = Assert.Single(staticSite.Annotations.OfType<PipelineStepAnnotation>());
+        var pipelineAnnotation = Assert.Single(sandboxContainer.Annotations.OfType<PipelineStepAnnotation>());
         var steps = (await pipelineAnnotation.CreateStepsAsync(new PipelineStepFactoryContext
         {
             PipelineContext = null!,
-            Resource = staticSite
+            Resource = sandboxContainer
         })).ToList();
 
-        var deployStep = Assert.Single(steps, step => step.Name == "deploy-frontend-sandbox-site");
+        var deployStep = Assert.Single(steps, step => step.Name == "deploy-frontend-sandbox-container");
         Assert.Contains(AzureEnvironmentResource.ProvisionInfrastructureStepName, deployStep.DependsOnSteps);
         Assert.Contains(WellKnownPipelineSteps.DeployPrereq, deployStep.DependsOnSteps);
         Assert.Contains(WellKnownPipelineSteps.Deploy, deployStep.RequiredBySteps);
         Assert.Contains(WellKnownPipelineTags.DeployCompute, deployStep.Tags);
 
-        var destroyStep = Assert.Single(steps, step => step.Name == "destroy-frontend-sandbox-site");
+        var pushStep = new PipelineStep
+        {
+            Name = "push-frontend",
+            Resource = computeResource,
+            Tags = [WellKnownPipelineTags.PushContainerImage],
+            Action = _ => Task.CompletedTask
+        };
+        steps.Add(pushStep);
+
+        foreach (var annotation in sandboxContainer.Annotations.OfType<PipelineConfigurationAnnotation>())
+        {
+            await annotation.Callback(new PipelineConfigurationContext
+            {
+                Services = app.Services,
+                Steps = steps,
+                Model = model
+            });
+        }
+
+        Assert.Contains(pushStep.Name, deployStep.DependsOnSteps);
+
+        var destroyStep = Assert.Single(steps, step => step.Name == "destroy-frontend-sandbox-container");
         Assert.Contains(WellKnownPipelineSteps.DestroyPrereq, destroyStep.DependsOnSteps);
         Assert.Contains(WellKnownPipelineSteps.Destroy, destroyStep.RequiredBySteps);
 
@@ -198,13 +235,9 @@ public class AzureSandboxesTests
 
         var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
         builder.AddAzureSandboxGroup("othersandboxes");
-        var frontendDirectory = Path.Combine(tempDir.Path, "frontend");
-        Directory.CreateDirectory(frontendDirectory);
-        File.WriteAllText(Path.Combine(frontendDirectory, "package-lock.json"), "empty");
 
-        builder.AddViteApp("frontend", frontendDirectory)
-            .WithNpm(install: true)
-            .PublishAsStaticWebsite(o => o.OutputPath = "dist")
+        builder.AddProject<TestProject>("frontend", launchProfileName: null)
+            .WithHttpEndpoint(targetPort: 5000)
             .WithExternalHttpEndpoints()
             .WithComputeEnvironment(sandboxGroup);
 
@@ -217,36 +250,34 @@ public class AzureSandboxesTests
 
         var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
         Assert.NotNull(deploymentTarget);
-        var staticSite = Assert.IsType<AzureSandboxStaticSiteResource>(deploymentTarget.DeploymentTarget);
-        var sandboxEndpoint = AzureSandboxStaticSiteDeployment.ResolveSandboxEndpoint(staticSite);
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget.DeploymentTarget);
+        var sandboxEndpoint = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
         Assert.Equal(5000, sandboxEndpoint.TargetPort);
         Assert.True(sandboxEndpoint.IsExternal);
     }
 
     [Fact]
-    public async Task SandboxGroupRejectsStaticWebsiteWithApiProxy()
+    public async Task SandboxGroupAddsDeploymentTargetForContainerResource()
     {
-        using var tempDir = new TestTempDirectory();
-        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path);
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
 
-        builder.AddAzureSandboxGroup("sandboxes");
-        var frontendDirectory = Path.Combine(tempDir.Path, "frontend");
-        Directory.CreateDirectory(frontendDirectory);
-        File.WriteAllText(Path.Combine(frontendDirectory, "package-lock.json"), "empty");
-
-        var api = builder.AddResource(new TestResource("api"))
-            .WithEndpoint(name: "http", scheme: "http", targetPort: 3001);
-
-        builder.AddViteApp("frontend", frontendDirectory)
-            .WithNpm(install: true)
-            .PublishAsStaticWebsite("/api", api)
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints();
 
         using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default));
-        var inner = Assert.IsType<NotSupportedException>(ex.InnerException);
-        Assert.Contains("API reverse proxy", inner.Message);
+        var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "frontend");
+        var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
+        Assert.NotNull(deploymentTarget);
+
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget.DeploymentTarget);
+        Assert.Same(computeResource, sandboxContainer.TargetResource);
+        var sandboxEndpoint = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
+        Assert.Equal(8080, sandboxEndpoint.TargetPort);
     }
 
     private static async Task<List<PipelineStep>> CreateStepsAsync(DistributedApplication app, AzureSandboxGroupResource resource)
@@ -271,10 +302,8 @@ public class AzureSandboxesTests
         return results;
     }
 
-    private sealed class TestResource(string name) : IResourceWithServiceDiscovery
+    private sealed class TestProject : IProjectMetadata
     {
-        public string Name => name;
-
-        public ResourceAnnotationCollection Annotations { get; } = new();
+        public string ProjectPath => "testproject";
     }
 }

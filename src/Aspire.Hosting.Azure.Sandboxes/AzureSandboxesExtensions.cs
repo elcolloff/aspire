@@ -261,7 +261,11 @@ public static class AzureSandboxesExtensions
             infrastructure.Add(new ProvisioningOutput("name", typeof(string)) { Value = sandboxGroup.Name.ToBicepExpression() });
         }
 
-        var resource = new AzureSandboxGroupResource(name, ConfigureInfrastructure);
+        var resource = new AzureSandboxGroupResource(name, ConfigureInfrastructure)
+        {
+            DefaultContainerRegistry = CreateDefaultAzureContainerRegistry(builder, $"{name}-acr")
+        };
+
         return builder.AddResource(resource);
     }
 
@@ -387,4 +391,15 @@ public static class AzureSandboxesExtensions
         }
     }
 
+    private static AzureContainerRegistryResource CreateDefaultAzureContainerRegistry(IDistributedApplicationBuilder builder, string name)
+    {
+        var resource = new AzureContainerRegistryResource(name, ContainerRegistryInfrastructure.ConfigureContainerRegistry);
+        if (builder.ExecutionContext.IsPublishMode)
+        {
+            builder.AddResource(resource)
+                .WithAnnotation(new DefaultRoleAssignmentsAnnotation(new HashSet<RoleDefinition>()));
+        }
+
+        return resource;
+    }
 }

@@ -4,9 +4,8 @@ const builder = await createBuilder();
 
 await builder.addAzureSandboxGroup('sandboxes');
 
-await builder
-    .addViteApp('site', './site')
-    .publishAsStaticWebsite({ outputPath: 'dist' })
-    .withExternalHttpEndpoints();
+const site = await builder.addDockerfile('site', './site');
+await site.withHttpEndpoint({ name: 'http', targetPort: 80 });
+await site.withExternalHttpEndpoints();
 
 await builder.build().run();

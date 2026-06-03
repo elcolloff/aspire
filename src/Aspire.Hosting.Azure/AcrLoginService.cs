@@ -62,22 +62,35 @@ internal sealed class AcrLoginService : IAcrLoginService
         ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
         ArgumentNullException.ThrowIfNull(credential);
 
-        // Step 1: Acquire AAD access token for ACR audience
+        var refreshToken = await GetRefreshTokenAsync(registryEndpoint, tenantId, credential, cancellationToken).ConfigureAwait(false);
+
+        var containerRuntime = await _containerRuntimeResolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+        await containerRuntime.LoginToRegistryAsync(registryEndpoint, refreshToken.Username, refreshToken.Token, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<AcrRefreshToken> GetRefreshTokenAsync(
+        string registryEndpoint,
+        string tenantId,
+        TokenCredential credential,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(registryEndpoint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        ArgumentNullException.ThrowIfNull(credential);
+
         var tokenRequestContext = new TokenRequestContext([AcrScope]);
         var aadToken = await credential.GetTokenAsync(tokenRequestContext, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("AAD access token acquired for ACR audience, registry: {RegistryEndpoint}, token length: {TokenLength}",
             registryEndpoint, aadToken.Token.Length);
 
-        // Step 2: Exchange AAD token for ACR refresh token
         var refreshToken = await ExchangeAadTokenForAcrRefreshTokenAsync(
             registryEndpoint, tenantId, aadToken.Token, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("ACR refresh token acquired, length: {TokenLength}", refreshToken.Length);
 
-        // Step 3: Login to the registry using container runtime
-        var containerRuntime = await _containerRuntimeResolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-        await containerRuntime.LoginToRegistryAsync(registryEndpoint, AcrUsername, refreshToken, cancellationToken).ConfigureAwait(false);
+        return new AcrRefreshToken(AcrUsername, refreshToken);
     }
 
     private async Task<string> ExchangeAadTokenForAcrRefreshTokenAsync(
