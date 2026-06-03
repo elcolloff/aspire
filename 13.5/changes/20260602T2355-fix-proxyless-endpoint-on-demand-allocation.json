@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a deadlock or failure when a proxyless container endpoint reference was accessed before the container was created. Proxyless endpoints now support on-demand port allocation so endpoint references can be resolved during container configuration.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔗",
+  "firstMergedAt": "2026-06-02T23:55:22Z",
+  "lastMergedAt": "2026-06-02T23:55:22Z",
+  "name": "Fix proxyless endpoint on-demand allocation",
+  "owner": "danegsta",
+  "prs": [
+    17851
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Dashboard bug fix: telemetry streaming now waits for resource to appear",
+  "mergedAt": "2026-06-02T08:28:26Z",
+  "number": 17821,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Fix telemetry streaming to wait for resource to appear"
+}

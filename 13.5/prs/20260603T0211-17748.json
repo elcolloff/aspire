@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "CLI improvement: bundled AppHost dotnet run delegates to aspire run",
+  "mergedAt": "2026-06-03T02:11:50Z",
+  "number": 17748,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Delegate bundled AppHost dotnet run to Aspire CLI"
+}

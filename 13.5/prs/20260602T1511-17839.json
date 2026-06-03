@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Internal telemetry fix: event name double-prefix, not visible to users",
+  "mergedAt": "2026-06-02T15:11:34Z",
+  "number": 17839,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Fix VS Code telemetry event names"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Bug fix for Redis TLS persistent container startup deadlock",
+  "mergedAt": "2026-06-02T21:05:10Z",
+  "number": 17827,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Fix Redis persistent lifetime startup"
+}

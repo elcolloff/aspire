@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Bug fix for proxyless endpoint on-demand allocation deadlock",
+  "mergedAt": "2026-06-02T23:55:22Z",
+  "number": 17851,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Add proxyless endpoint on-demand allocation"
+}

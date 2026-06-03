@@ -1,0 +1,9 @@
+{
+  "author": "shivamgoel008",
+  "comment": "New feature: resource commands shown in VS Code tree view",
+  "mergedAt": "2026-06-03T01:29:49Z",
+  "number": 17698,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Display resource commands in VS Code extension tree view"
+}

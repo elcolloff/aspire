@@ -1,0 +1,19 @@
+{
+  "area": "Integrations",
+  "areaEmoji": "🔌",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a deadlock that could occur during Redis container startup when TLS was enabled and the container used a persistent lifetime. The TLS startup arguments now correctly use target-port bindings instead of allocated ports.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔒",
+  "firstMergedAt": "2026-06-02T21:05:10Z",
+  "lastMergedAt": "2026-06-02T21:05:10Z",
+  "name": "Fix Redis TLS persistent container startup deadlock",
+  "owner": "danegsta",
+  "prs": [
+    17827
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Test infrastructure only: adds VS Code extension E2E test architecture",
+  "mergedAt": "2026-06-02T22:01:30Z",
+  "number": 17772,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Add VS Code extension E2E test architecture"
+}

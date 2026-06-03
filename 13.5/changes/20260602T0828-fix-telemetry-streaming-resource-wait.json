@@ -1,0 +1,19 @@
+{
+  "area": "Dashboard",
+  "areaEmoji": "📊",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Fixed a bug where streaming telemetry (spans/logs) with a resource filter would return empty immediately if the resource had not yet emitted any telemetry. The stream now waits for the resource to appear before returning results.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔄",
+  "firstMergedAt": "2026-06-02T08:28:26Z",
+  "lastMergedAt": "2026-06-02T08:28:26Z",
+  "name": "Fix telemetry streaming with resource filter",
+  "owner": "JamesNK",
+  "prs": [
+    17821
+  ]
+}

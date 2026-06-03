@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Changelog maintenance, not user-facing",
+  "mergedAt": "2026-06-03T14:23:47Z",
+  "number": 17867,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Fix milestone-changelog note to match env block values"
+}

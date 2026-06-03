@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Test-only changes (shorten CLI E2E test names)",
+  "mergedAt": "2026-06-02T14:33:47Z",
+  "number": 17830,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Shorten long CLI E2E test names and improve recording comment table"
+}

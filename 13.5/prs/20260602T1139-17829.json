@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Adds a repo-internal Copilot CLI canvas extension, not a user-facing Aspire product change",
+  "mergedAt": "2026-06-02T11:39:00Z",
+  "number": 17829,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Add LOC breakdown canvas extension"
+}

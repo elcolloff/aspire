@@ -1,0 +1,9 @@
+{
+  "author": "patrickklaeren",
+  "comment": "No matching 13.5 changelog entry for Mailpit env var names",
+  "mergedAt": "2026-06-03T12:26:53Z",
+  "number": 1200,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Fix Mailpit environment variable names"
+}

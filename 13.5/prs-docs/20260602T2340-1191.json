@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Docs scripts maintenance: add SAMPLES_BRANCH env override",
+  "mergedAt": "2026-06-02T23:40:51Z",
+  "number": 1191,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Add SAMPLES_BRANCH env override to update-samples script"
+}

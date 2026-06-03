@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "No matching 13.5 changelog entry for AddConnectionString migration",
+  "mergedAt": "2026-06-02T16:29:30Z",
+  "number": 1076,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "Docs: replace non-Azure AsExisting examples with AddConnectionString"
+}

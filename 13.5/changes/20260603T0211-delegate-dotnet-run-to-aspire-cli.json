@@ -1,0 +1,19 @@
+{
+  "area": "CLI",
+  "areaEmoji": "💻",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "When AspireUseCliBundle is enabled, running dotnet run on an AppHost project now automatically delegates to aspire run, ensuring bundled CLI behavior is used consistently. This means aspire run orchestration is applied even when developers use the familiar dotnet run command.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔀",
+  "firstMergedAt": "2026-06-03T02:11:50Z",
+  "lastMergedAt": "2026-06-03T02:11:50Z",
+  "name": "dotnet run delegates to aspire run for bundled AppHosts",
+  "owner": "davidfowl",
+  "prs": [
+    17748
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "CLI improvement: show Stopping Aspire... immediately on CTRL+C; grouped with #17588",
+  "mergedAt": "2026-06-03T09:33:21Z",
+  "number": 17652,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "included",
+  "title": "Display \"Stopping Aspire...\" immediately on CTRL+C"
+}

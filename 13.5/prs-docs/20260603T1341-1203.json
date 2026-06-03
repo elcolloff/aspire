@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Bot-authored support page update for 13.4, not 13.5",
+  "mergedAt": "2026-06-03T13:41:48Z",
+  "number": 1203,
+  "runDate": "2026-06-03T19:16:29Z",
+  "status": "excluded",
+  "title": "[support] Update support page for Aspire 13.4.0 release"
+}
