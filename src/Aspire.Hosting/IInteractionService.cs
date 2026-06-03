@@ -124,7 +124,7 @@ public interface IInteractionService
     IDisposable RegisterMenuButton(MenuButtonOptions options);
 
     /// <summary>
-    /// Registers a global asset that can be served by the dashboard at <c>/pages/assets/{route}</c>.
+    /// Registers a global asset that can be served by the dashboard at <c>/assets/{route}</c>.
     /// </summary>
     /// <remarks>
     /// Use this overload when asset content should be generated or streamed on demand.
@@ -875,16 +875,16 @@ public sealed class PageContext
     public Func<PageVisitContext, Task>? OnVisit { get; set; }
 
     /// <summary>
-    /// Gets or sets the CSS stylesheet routes to include when the page is displayed.
-    /// Routes are relative to the assets endpoint (e.g. <c>my-styles.css</c> resolves to <c>/pages/assets/my-styles.css</c>).
+    /// Gets or sets the stylesheet asset routes to include when the page is displayed.
+    /// Routes are relative to the assets endpoint (e.g. <c>my-styles.css</c> resolves to <c>/assets/my-styles.css</c>).
     /// </summary>
-    public IReadOnlyList<string>? CssRoutes { get; set; }
+    public IReadOnlyList<string>? StyleIncludes { get; set; }
 
     /// <summary>
-    /// Gets or sets the JavaScript module routes to include when the page is displayed.
-    /// Routes are relative to the assets endpoint (e.g. <c>my-script.js</c> resolves to <c>/pages/assets/my-script.js</c>).
+    /// Gets or sets the JavaScript module asset routes to include when the page is displayed.
+    /// Routes are relative to the assets endpoint (e.g. <c>my-script.js</c> resolves to <c>/assets/my-script.js</c>).
     /// </summary>
-    public IReadOnlyList<string>? ScriptRoutes { get; set; }
+    public IReadOnlyList<string>? ScriptIncludes { get; set; }
 }
 
 /// <summary>

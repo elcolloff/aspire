@@ -23,7 +23,7 @@ public static class DashboardEndpointsBuilder
 
     public static void MapDashboardApi(this IEndpointRouteBuilder endpoints, DashboardOptions dashboardOptions)
     {
-        endpoints.MapGet("/pages/assets/{*route}", async (string route, HttpContext httpContext, IDashboardClient dashboardClient, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/assets/{*route}", async (string route, HttpContext httpContext, IDashboardClient dashboardClient, CancellationToken cancellationToken) =>
         {
             if (!dashboardClient.IsEnabled)
             {

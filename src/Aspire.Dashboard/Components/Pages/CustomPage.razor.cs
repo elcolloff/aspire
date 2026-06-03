@@ -204,23 +204,23 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             return;
         }
 
-        if (_pageRegistration.CssRoutes is { Count: > 0 } cssRoutes)
+        if (_pageRegistration.StyleIncludes is { Count: > 0 } styleIncludes)
         {
-            _activeCssHrefs = new List<string>(cssRoutes.Count);
-            foreach (var cssRoute in cssRoutes)
+            _activeCssHrefs = new List<string>(styleIncludes.Count);
+            foreach (var styleInclude in styleIncludes)
             {
-                var href = $"/pages/assets/{cssRoute}";
+                var href = $"/assets/{styleInclude}";
                 await _jsModule.InvokeVoidAsync("addStylesheetLink", href);
                 _activeCssHrefs.Add(href);
             }
         }
 
-        if (_pageRegistration.ScriptRoutes is { Count: > 0 } scriptRoutes)
+        if (_pageRegistration.ScriptIncludes is { Count: > 0 } scriptIncludes)
         {
-            _pageScriptModules = new List<IJSObjectReference>(scriptRoutes.Count);
-            foreach (var scriptRoute in scriptRoutes)
+            _pageScriptModules = new List<IJSObjectReference>(scriptIncludes.Count);
+            foreach (var scriptInclude in scriptIncludes)
             {
-                var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/pages/assets/{scriptRoute}");
+                var module = await JS.InvokeAsync<IJSObjectReference>("import", $"/assets/{scriptInclude}");
                 _pageScriptModules.Add(module);
             }
         }

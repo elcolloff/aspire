@@ -181,14 +181,14 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                                 Title = pageInfo.PageContext.Title ?? pageInfo.Route
                             };
 
-                            if (pageInfo.PageContext.CssRoutes is { } cssRoutes)
+                            if (pageInfo.PageContext.StyleIncludes is { } styleIncludes)
                             {
-                                change.Page.CssRoutes.AddRange(cssRoutes);
+                                change.Page.CssRoutes.AddRange(styleIncludes);
                             }
 
-                            if (pageInfo.PageContext.ScriptRoutes is { } scriptRoutes)
+                            if (pageInfo.PageContext.ScriptIncludes is { } scriptIncludes)
                             {
-                                change.Page.ScriptRoutes.AddRange(scriptRoutes);
+                                change.Page.ScriptRoutes.AddRange(scriptIncludes);
                             }
 
                             // If there are active sessions with content, send the latest markdown
