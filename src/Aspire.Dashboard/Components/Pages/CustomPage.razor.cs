@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Localization;
 using Microsoft.JSInterop;
+using DashboardResources = Aspire.Dashboard.Resources.Resources;
 
 namespace Aspire.Dashboard.Components.Pages;
 
@@ -49,6 +50,9 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
 
     [Inject]
     public required IStringLocalizer<ControlsStrings> ControlsStringsLoc { get; init; }
+
+    [Inject]
+    public required IStringLocalizer<DashboardResources> ResourcesLoc { get; init; }
 
     [Inject]
     public required IJSRuntime JS { get; init; }

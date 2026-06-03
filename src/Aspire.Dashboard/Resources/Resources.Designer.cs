@@ -203,6 +203,24 @@ namespace Aspire.Dashboard.Resources {
                 return ResourceManager.GetString("ResourceFilterOptionEmpty", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The page at this route has been removed by the application host..
+        /// </summary>
+        public static string CustomPageUnavailableMessage {
+            get {
+                return ResourceManager.GetString("CustomPageUnavailableMessage", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This page is no longer available..
+        /// </summary>
+        public static string CustomPageUnavailableTitle {
+            get {
+                return ResourceManager.GetString("CustomPageUnavailableTitle", resourceCulture);
+            }
+        }
         
         /// <summary>
         ///   Looks up a localized string similar to {0} ({1} ago).

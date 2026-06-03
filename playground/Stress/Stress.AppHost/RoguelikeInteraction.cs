@@ -15,31 +15,21 @@ internal sealed class RoguelikeInteraction
     private const int MaxHealth = 12;
     private const string CssRoute = "roguelike-styles.css";
     private const string JsRoute = "roguelike-controls.js";
+    private const string SessionIdArgumentName = "sessionId";
 
     private readonly IResource _parentResource;
     private readonly IDistributedApplicationBuilder _builder;
-    private readonly object _gameLock = new();
-    private readonly SemaphoreSlim _gameChanged = new(0);
-    private readonly Random _random = new();
+    private readonly object _sessionsLock = new();
+    private readonly Dictionary<string, GameSession> _sessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _resourceColors = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Tile[,] _tiles = new Tile[MapWidth, MapHeight];
-    private readonly List<Monster> _monsters = [];
-    private readonly List<string> _combatLog = [];
-
     private ResourceCommandService? _commandService;
-    private Cell _player;
-    private Cell? _potion;
-    private int _health;
-    private int _level;
-    private int _turn;
 
     public RoguelikeInteraction(IResourceBuilder<ProjectResource> parentResource)
     {
         _parentResource = parentResource.Resource;
         _builder = parentResource.ApplicationBuilder;
         AssignResourceColors();
-        StartNewRun(notify: false);
     }
 
     public void Register(IDistributedApplicationBuilder builder)
@@ -72,10 +62,29 @@ internal sealed class RoguelikeInteraction
             ScriptIncludes = [JsRoute],
             OnVisit = async visitContext =>
             {
-                while (!visitContext.CancellationToken.IsCancellationRequested)
+                var game = new GameSession();
+                StartNewRun(game, notify: false);
+
+                lock (_sessionsLock)
                 {
-                    await visitContext.SendMarkdownAsync(BuildHtml(), visitContext.CancellationToken);
-                    await _gameChanged.WaitAsync(visitContext.CancellationToken);
+                    _sessions[visitContext.SessionId] = game;
+                }
+
+                try
+                {
+                    while (!visitContext.CancellationToken.IsCancellationRequested)
+                    {
+                        var (html, version) = BuildHtml(game, visitContext.SessionId);
+                        await visitContext.SendMarkdownAsync(html, visitContext.CancellationToken);
+                        await game.WaitForChangeAsync(version, visitContext.CancellationToken);
+                    }
+                }
+                finally
+                {
+                    lock (_sessionsLock)
+                    {
+                        _sessions.Remove(visitContext.SessionId);
+                    }
                 }
             }
         });
@@ -101,15 +110,22 @@ internal sealed class RoguelikeInteraction
         commands.WithCommand(
             name: "new-run",
             displayName: "New run",
-            executeCommand: _ =>
+            executeCommand: context =>
             {
-                StartNewRun(notify: true);
+                if (!TryGetSession(context, out var game, out var failure))
+                {
+                    return Task.FromResult(CommandResults.Failure(failure));
+                }
+
+                StartNewRun(game, notify: true);
                 return Task.FromResult(CommandResults.Success("Started a new run."));
             },
             commandOptions: new CommandOptions
             {
                 Description = "Start a new dungeon run.",
-                IconName = "ArrowReset"
+                IconName = "ArrowReset",
+                Visibility = ResourceCommandVisibility.UI,
+                Arguments = [CreateSessionIdArgument()]
             });
     }
 
@@ -118,62 +134,104 @@ internal sealed class RoguelikeInteraction
         commands.WithCommand(
             name,
             displayName,
-            executeCommand: _ => Task.FromResult(Move(dx, dy)),
+            executeCommand: context => Task.FromResult(Move(context, dx, dy)),
             commandOptions: new CommandOptions
             {
                 Description = displayName,
-                IconName = iconName
+                IconName = iconName,
+                Visibility = ResourceCommandVisibility.UI,
+                Arguments = [CreateSessionIdArgument()]
             });
     }
 
-    private ExecuteCommandResult Move(int dx, int dy)
+    private static InteractionInput CreateSessionIdArgument()
     {
+        return new InteractionInput
+        {
+            Name = SessionIdArgumentName,
+            Label = "Session ID",
+            InputType = InputType.Text,
+            Required = true
+        };
+    }
+
+    private bool TryGetSession(ExecuteCommandContext context, out GameSession game, out string failure)
+    {
+        var sessionId = context.Arguments.GetString(SessionIdArgumentName);
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            game = null!;
+            failure = "The roguelike session id argument is required.";
+            return false;
+        }
+
+        lock (_sessionsLock)
+        {
+            if (_sessions.TryGetValue(sessionId, out game!))
+            {
+                failure = string.Empty;
+                return true;
+            }
+        }
+
+        game = null!;
+        failure = "The roguelike session is no longer active.";
+        return false;
+    }
+
+    private ExecuteCommandResult Move(ExecuteCommandContext context, int dx, int dy)
+    {
+        if (!TryGetSession(context, out var game, out var failure))
+        {
+            return CommandResults.Failure(failure);
+        }
+
         string message;
 
-        lock (_gameLock)
+        lock (game.Lock)
         {
-            if (_health <= 0)
+            if (game.Health <= 0)
             {
-                AddLog("💀 You are dead. Start a new run to try again.");
+                AddLog(game, "💀 You are dead. Start a new run to try again.");
                 message = "You are dead.";
             }
             else
             {
-                _turn++;
-                var target = new Cell(_player.X + dx, _player.Y + dy);
+                game.Turn++;
+                var target = new Cell(game.Player.X + dx, game.Player.Y + dy);
 
-                if (!IsInBounds(target) || _tiles[target.X, target.Y] == Tile.Wall)
+                if (!IsInBounds(target) || game.Tiles[target.X, target.Y] == Tile.Wall)
                 {
-                    AddLog("🧱 You bump into a wall.");
+                    AddLog(game, "🧱 You bump into a wall.");
                     message = "You bump into a wall.";
                 }
-                else if (FindMonster(target) is { } monster)
+                else if (FindMonster(game, target) is { } monster)
                 {
-                    message = Attack(monster);
+                    message = Attack(game, monster);
                 }
                 else
                 {
-                    _player = target;
+                    game.Player = target;
 
-                    if (_potion == _player)
+                    if (game.Potion == game.Player)
                     {
-                        _health = Math.Min(MaxHealth, _health + 3);
-                        _potion = null;
-                        AddLog("💖 You drink a glowing potion and recover three hearts.");
+                        game.Health = Math.Min(MaxHealth, game.Health + 3);
+                        game.Potion = null;
+                        AddLog(game, "💖 You drink a glowing potion and recover three hearts.");
                     }
 
-                    if (_tiles[_player.X, _player.Y] == Tile.Stairs)
+                    if (game.Tiles[game.Player.X, game.Player.Y] == Tile.Stairs)
                     {
-                        if (_monsters.Count == 0)
+                        if (game.Monsters.Count == 0)
                         {
-                            _level++;
-                            _health = Math.Min(MaxHealth, _health + 1);
-                            GenerateMap();
-                            AddLog("🚪 You descend to the next dungeon level.");
+                            game.Level++;
+                            game.Health = Math.Min(MaxHealth, game.Health + 1);
+                            GenerateMap(game);
+                            AddLog(game, "🚪 You descend to the next dungeon level.");
                         }
                         else
                         {
-                            AddLog("🔒 The exit is sealed while monsters remain.");
+                            AddLog(game, "🔒 The exit is sealed while monsters remain.");
                         }
                     }
 
@@ -181,27 +239,27 @@ internal sealed class RoguelikeInteraction
                 }
 
                 // Monsters take their turn after the player (if still alive).
-                if (_health > 0)
+                if (game.Health > 0)
                 {
-                    MoveMonsters();
+                    MoveMonsters(game);
                 }
             }
         }
 
-        NotifyChanged();
+        game.NotifyChanged();
         return CommandResults.Success(message);
     }
 
-    private string Attack(Monster monster)
+    private string Attack(GameSession game, Monster monster)
     {
-        var damage = _random.Next(2, 5);
+        var damage = game.Random.Next(2, 5);
         monster.Health -= damage;
-        AddMonsterLog(monster, $"⚔️ You hit the {monster.Name} for {damage}.");
+        AddMonsterLog(game, monster, $"⚔️ You hit the {monster.Name} for {damage}.");
 
         if (monster.Health <= 0)
         {
-            _monsters.Remove(monster);
-            AddMonsterLog(monster, $"☠️ The {monster.Name} falls.");
+            game.Monsters.Remove(monster);
+            AddMonsterLog(game, monster, $"☠️ The {monster.Name} falls.");
 
             // If this monster is bound to a resource, stop that resource.
             if (monster.ResourceName is not null)
@@ -209,9 +267,9 @@ internal sealed class RoguelikeInteraction
                 _ = StopResourceAsync(monster.ResourceName);
             }
 
-            if (_monsters.Count == 0)
+            if (game.Monsters.Count == 0)
             {
-                AddLog("✨ The dungeon goes quiet. Find the door to descend.");
+                AddLog(game, "✨ The dungeon goes quiet. Find the door to descend.");
             }
 
             return $"Defeated {monster.Name}.";
@@ -228,24 +286,24 @@ internal sealed class RoguelikeInteraction
         }
     }
 
-    private void MoveMonsters()
+    private void MoveMonsters(GameSession game)
     {
         // Iterate over a snapshot so removals during iteration are safe.
-        foreach (var monster in _monsters.ToArray())
+        foreach (var monster in game.Monsters.ToArray())
         {
-            var dist = Math.Abs(monster.Position.X - _player.X) + Math.Abs(monster.Position.Y - _player.Y);
+            var dist = Math.Abs(monster.Position.X - game.Player.X) + Math.Abs(monster.Position.Y - game.Player.Y);
 
             Cell target;
             if (dist <= 2)
             {
                 // Adjacent or nearly adjacent — move towards the player.
-                var stepX = Math.Sign(_player.X - monster.Position.X);
-                var stepY = Math.Sign(_player.Y - monster.Position.Y);
+                var stepX = Math.Sign(game.Player.X - monster.Position.X);
+                var stepY = Math.Sign(game.Player.Y - monster.Position.Y);
 
                 // Prefer the axis with the larger gap; if equal, pick one randomly.
-                var dx = Math.Abs(_player.X - monster.Position.X);
-                var dy = Math.Abs(_player.Y - monster.Position.Y);
-                if (dx > dy || (dx == dy && _random.Next(2) == 0))
+                var dx = Math.Abs(game.Player.X - monster.Position.X);
+                var dy = Math.Abs(game.Player.Y - monster.Position.Y);
+                if (dx > dy || (dx == dy && game.Random.Next(2) == 0))
                 {
                     target = new Cell(monster.Position.X + stepX, monster.Position.Y);
                 }
@@ -257,7 +315,7 @@ internal sealed class RoguelikeInteraction
             else
             {
                 // Random movement — pick a cardinal direction.
-                var direction = _random.Next(4);
+                var direction = game.Random.Next(4);
                 target = direction switch
                 {
                     0 => new Cell(monster.Position.X, monster.Position.Y - 1),
@@ -267,70 +325,70 @@ internal sealed class RoguelikeInteraction
                 };
             }
 
-            if (!IsInBounds(target) || _tiles[target.X, target.Y] == Tile.Wall)
+            if (!IsInBounds(target) || game.Tiles[target.X, target.Y] == Tile.Wall)
             {
                 continue;
             }
 
-            if (target == _player)
+            if (target == game.Player)
             {
                 // Monster attacks the player.
-                _health -= monster.Attack;
-                AddMonsterLog(monster, $"🩸 The {monster.Name} attacks you for {monster.Attack}.");
+                game.Health -= monster.Attack;
+                AddMonsterLog(game, monster, $"🩸 The {monster.Name} attacks you for {monster.Attack}.");
 
-                if (_health <= 0)
+                if (game.Health <= 0)
                 {
-                    _health = 0;
-                    AddLog("💀 You were killed.");
+                    game.Health = 0;
+                    AddLog(game, "💀 You were killed.");
                     break;
                 }
             }
-            else if (FindMonster(target) is null)
+            else if (FindMonster(game, target) is null)
             {
                 monster.Position = target;
             }
         }
     }
 
-    private void StartNewRun(bool notify)
+    private void StartNewRun(GameSession game, bool notify)
     {
-        lock (_gameLock)
+        lock (game.Lock)
         {
-            _level = 1;
-            _turn = 0;
-            _health = MaxHealth;
-            _combatLog.Clear();
-            GenerateMap();
-            AddLog("🎮 A new dungeon opens before you.");
+            game.Level = 1;
+            game.Turn = 0;
+            game.Health = MaxHealth;
+            game.CombatLog.Clear();
+            GenerateMap(game);
+            AddLog(game, "🎮 A new dungeon opens before you.");
         }
 
         if (notify)
         {
-            NotifyChanged();
+            game.NotifyChanged();
         }
     }
 
-    private void GenerateMap()
+    private void GenerateMap(GameSession game)
     {
-        _monsters.Clear();
-        _potion = null;
+        game.Monsters.Clear();
+        game.Potion = null;
 
         for (var y = 0; y < MapHeight; y++)
         {
             for (var x = 0; x < MapWidth; x++)
             {
                 var border = x == 0 || y == 0 || x == MapWidth - 1 || y == MapHeight - 1;
-                _tiles[x, y] = border || _random.NextDouble() < 0.13 ? Tile.Wall : Tile.Floor;
+                game.Tiles[x, y] = border || game.Random.NextDouble() < 0.13 ? Tile.Wall : Tile.Floor;
             }
         }
 
-        _player = new Cell(1, 1);
-        _tiles[_player.X, _player.Y] = Tile.Floor;
+        game.Player = new Cell(1, 1);
+        game.Tiles[game.Player.X, game.Player.Y] = Tile.Floor;
 
-        var stairs = PickOpenCell();
-        _tiles[stairs.X, stairs.Y] = Tile.Stairs;
+        var stairs = PickOpenCell(game);
+        game.Tiles[stairs.X, stairs.Y] = Tile.Stairs;
 
-        _potion = PickOpenCell();
+        game.Potion = PickOpenCell(game);
 
         // Get resource names to use as monster labels.
         // Exclude the parent resource, aspire-prefixed resources, and hidden resources.
@@ -344,15 +402,15 @@ internal sealed class RoguelikeInteraction
         // Shuffle resource names so different ones appear each run.
         for (var i = resourceNames.Count - 1; i > 0; i--)
         {
-            var j = _random.Next(i + 1);
+            var j = game.Random.Next(i + 1);
             (resourceNames[i], resourceNames[j]) = (resourceNames[j], resourceNames[i]);
         }
 
         var resourceIndex = 0;
-        var monsterCount = Math.Min(6, 3 + _level);
+        var monsterCount = Math.Min(6, 3 + game.Level);
         for (var i = 0; i < monsterCount; i++)
         {
-            var template = MonsterTemplate.All[_random.Next(MonsterTemplate.All.Length)];
+            var template = MonsterTemplate.All[game.Random.Next(MonsterTemplate.All.Length)];
             string? resourceName = null;
             string displayName;
 
@@ -366,16 +424,16 @@ internal sealed class RoguelikeInteraction
                 displayName = template.Name;
             }
 
-            _monsters.Add(new Monster(displayName, template.Emoji, template.Health + (_level / 3), template.Attack, PickOpenCell(), resourceName));
+            game.Monsters.Add(new Monster(displayName, template.Emoji, template.Health + (game.Level / 3), template.Attack, PickOpenCell(game), resourceName));
         }
     }
 
-    private Cell PickOpenCell()
+    private static Cell PickOpenCell(GameSession game)
     {
         for (var attempt = 0; attempt < 500; attempt++)
         {
-            var cell = new Cell(_random.Next(1, MapWidth - 1), _random.Next(1, MapHeight - 1));
-            if (_tiles[cell.X, cell.Y] == Tile.Floor && cell != _player && _potion != cell && FindMonster(cell) is null)
+            var cell = new Cell(game.Random.Next(1, MapWidth - 1), game.Random.Next(1, MapHeight - 1));
+            if (game.Tiles[cell.X, cell.Y] == Tile.Floor && cell != game.Player && game.Potion != cell && FindMonster(game, cell) is null)
             {
                 return cell;
             }
@@ -386,20 +444,21 @@ internal sealed class RoguelikeInteraction
             for (var x = 1; x < MapWidth - 1; x++)
             {
                 var cell = new Cell(x, y);
-                if (_tiles[x, y] == Tile.Floor && cell != _player && FindMonster(cell) is null)
+                if (game.Tiles[x, y] == Tile.Floor && cell != game.Player && FindMonster(game, cell) is null)
                 {
                     return cell;
                 }
             }
         }
 
-        return _player;
+        return game.Player;
     }
 
-    private string BuildHtml()
+    private (string Html, int Version) BuildHtml(GameSession game, string sessionId)
     {
-        lock (_gameLock)
+        lock (game.Lock)
         {
+            var sessionArguments = HtmlEncode($"{SessionIdArgumentName}={sessionId}");
             var sb = new StringBuilder();
             sb.AppendLine("## 🗡️ Roguelike Dungeon");
             sb.Append("<div class=\"roguelike\">");
@@ -412,7 +471,7 @@ internal sealed class RoguelikeInteraction
                 sb.Append("<div class=\"row\">");
                 for (var x = 0; x < MapWidth; x++)
                 {
-                    sb.Append(GetCellEmoji(new Cell(x, y)));
+                    sb.Append(GetCellEmoji(game, new Cell(x, y)));
                 }
                 sb.Append("</div>");
             }
@@ -420,18 +479,18 @@ internal sealed class RoguelikeInteraction
 
             // Sidebar
             sb.Append("<div class=\"roguelike-sidebar\">");
-            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Health:</span> <span class=\"hearts\">{RenderHearts()}</span></div>");
-            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Level:</span> {_level}</div>");
-            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Turn:</span> {_turn}</div>");
-            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Enemies:</span> {_monsters.Count}</div>");
+            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Health:</span> <span class=\"hearts\">{RenderHearts(game)}</span></div>");
+            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Level:</span> {game.Level}</div>");
+            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Turn:</span> {game.Turn}</div>");
+            sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Enemies:</span> {game.Monsters.Count}</div>");
             sb.Append("<hr/>");
             sb.Append("<div class=\"legend\">🧙 you &nbsp; 🧱 wall &nbsp; 🚪 exit &nbsp; 💖 potion</div>");
             sb.Append("<hr/>");
 
-            if (_monsters.Count > 0)
+            if (game.Monsters.Count > 0)
             {
-                var nearest = _monsters
-                    .OrderBy(m => Math.Abs(m.Position.X - _player.X) + Math.Abs(m.Position.Y - _player.Y))
+                var nearest = game.Monsters
+                    .OrderBy(m => Math.Abs(m.Position.X - game.Player.X) + Math.Abs(m.Position.Y - game.Player.Y))
                     .First();
                 sb.Append(CultureInfo.InvariantCulture, $"<div><span class=\"label\">Nearest:</span> {nearest.Emoji} {RenderMonsterNameHtml(nearest)} ({nearest.Health} hp)</div>");
             }
@@ -443,7 +502,7 @@ internal sealed class RoguelikeInteraction
             sb.Append("<hr/>");
             sb.Append("<div class=\"label\">Combat log:</div>");
             sb.Append("<div class=\"roguelike-log\">");
-            foreach (var entry in _combatLog)
+            foreach (var entry in game.CombatLog)
             {
                 sb.Append(CultureInfo.InvariantCulture, $"<div class=\"entry\">{entry}</div>");
             }
@@ -453,42 +512,42 @@ internal sealed class RoguelikeInteraction
             // Controls (bottom-left)
             sb.Append("<div class=\"roguelike-controls\">");
             sb.Append("<span class=\"empty\"></span>");
-            sb.Append("<a data-command=\"move-up\" data-resource=\"roguelike-commands\">⬆️</a>");
+            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-up\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬆️</a>");
             sb.Append("<span class=\"empty\"></span>");
-            sb.Append("<a data-command=\"move-left\" data-resource=\"roguelike-commands\">⬅️</a>");
-            sb.Append("<a data-command=\"move-down\" data-resource=\"roguelike-commands\">⬇️</a>");
-            sb.Append("<a data-command=\"move-right\" data-resource=\"roguelike-commands\">➡️</a>");
+            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-left\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬅️</a>");
+            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-down\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">⬇️</a>");
+            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"move-right\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\">➡️</a>");
             sb.Append("</div>");
 
             // New Game button (bottom-right)
             sb.Append("<div class=\"roguelike-newgame\">");
-            sb.Append("<a data-command=\"new-run\" data-resource=\"roguelike-commands\" class=\"newgame-btn\">🔄 New Game</a>");
+            sb.Append(CultureInfo.InvariantCulture, $"<a data-command=\"new-run\" data-resource=\"roguelike-commands\" data-arguments=\"{sessionArguments}\" class=\"newgame-btn\">🔄 New Game</a>");
             sb.Append("</div>");
 
             sb.Append("</div>"); // layout
             sb.Append("</div>"); // roguelike
-            return sb.ToString();
+            return (sb.ToString(), game.Version);
         }
     }
 
-    private string GetCellEmoji(Cell cell)
+    private static string GetCellEmoji(GameSession game, Cell cell)
     {
-        if (cell == _player)
+        if (cell == game.Player)
         {
-            return _health <= 0 ? "💀" : "🧙";
+            return game.Health <= 0 ? "💀" : "🧙";
         }
 
-        if (FindMonster(cell) is { } monster)
+        if (FindMonster(game, cell) is { } monster)
         {
             return monster.Emoji;
         }
 
-        if (_potion == cell)
+        if (game.Potion == cell)
         {
             return "💖";
         }
 
-        return _tiles[cell.X, cell.Y] switch
+        return game.Tiles[cell.X, cell.Y] switch
         {
             Tile.Wall => "🧱",
             Tile.Stairs => "🚪",
@@ -496,15 +555,15 @@ internal sealed class RoguelikeInteraction
         };
     }
 
-    private string RenderHearts()
+    private static string RenderHearts(GameSession game)
     {
-        return string.Concat(Enumerable.Repeat("❤️", _health)) +
-               string.Concat(Enumerable.Repeat("🖤", MaxHealth - _health));
+        return string.Concat(Enumerable.Repeat("❤️", game.Health)) +
+               string.Concat(Enumerable.Repeat("🖤", MaxHealth - game.Health));
     }
 
-    private Monster? FindMonster(Cell cell)
+    private static Monster? FindMonster(GameSession game, Cell cell)
     {
-        return _monsters.FirstOrDefault(m => m.Position == cell);
+        return game.Monsters.FirstOrDefault(m => m.Position == cell);
     }
 
     private static bool IsInBounds(Cell cell)
@@ -512,32 +571,27 @@ internal sealed class RoguelikeInteraction
         return cell.X >= 0 && cell.X < MapWidth && cell.Y >= 0 && cell.Y < MapHeight;
     }
 
-    private void AddLog(string message)
+    private static void AddLog(GameSession game, string message)
     {
-        _combatLog.Insert(0, HtmlEncode(message));
-        if (_combatLog.Count > 5)
+        game.CombatLog.Insert(0, HtmlEncode(message));
+        if (game.CombatLog.Count > 5)
         {
-            _combatLog.RemoveAt(_combatLog.Count - 1);
+            game.CombatLog.RemoveAt(game.CombatLog.Count - 1);
         }
-    }
-
-    private void AddLog(IFormatProvider provider, FormattableString message)
-    {
-        AddLog(message.ToString(provider));
     }
 
     /// <summary>
     /// Adds a combat log entry that includes the monster's name rendered with a colored resource badge.
     /// The message should contain the monster's plain-text Name; it will be replaced with the HTML version.
     /// </summary>
-    private void AddMonsterLog(Monster monster, string message)
+    private void AddMonsterLog(GameSession game, Monster monster, string message)
     {
         var htmlName = RenderMonsterNameHtml(monster);
         var htmlMessage = HtmlEncode(message).Replace(HtmlEncode(monster.Name), htmlName, StringComparison.Ordinal);
-        _combatLog.Insert(0, htmlMessage);
-        if (_combatLog.Count > 5)
+        game.CombatLog.Insert(0, htmlMessage);
+        if (game.CombatLog.Count > 5)
         {
-            _combatLog.RemoveAt(_combatLog.Count - 1);
+            game.CombatLog.RemoveAt(game.CombatLog.Count - 1);
         }
     }
 
@@ -601,11 +655,6 @@ internal sealed class RoguelikeInteraction
         return reader.ReadToEnd();
     }
 
-    private void NotifyChanged()
-    {
-        _gameChanged.Release();
-    }
-
     private enum Tile
     {
         Floor,
@@ -614,6 +663,47 @@ internal sealed class RoguelikeInteraction
     }
 
     private readonly record struct Cell(int X, int Y);
+
+    private sealed class GameSession
+    {
+        private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public object Lock { get; } = new();
+        public Random Random { get; } = new();
+        public Tile[,] Tiles { get; } = new Tile[MapWidth, MapHeight];
+        public List<Monster> Monsters { get; } = [];
+        public List<string> CombatLog { get; } = [];
+        public Cell Player { get; set; }
+        public Cell? Potion { get; set; }
+        public int Health { get; set; }
+        public int Level { get; set; }
+        public int Turn { get; set; }
+        public int Version { get; private set; }
+
+        public Task WaitForChangeAsync(int observedVersion, CancellationToken cancellationToken)
+        {
+            lock (Lock)
+            {
+                return Version != observedVersion
+                    ? Task.CompletedTask
+                    : _changed.Task.WaitAsync(cancellationToken);
+            }
+        }
+
+        public void NotifyChanged()
+        {
+            TaskCompletionSource changed;
+
+            lock (Lock)
+            {
+                Version++;
+                changed = _changed;
+                _changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            changed.TrySetResult();
+        }
+    }
 
     private sealed class Monster(string name, string emoji, int health, int attack, Cell position, string? resourceName)
     {
