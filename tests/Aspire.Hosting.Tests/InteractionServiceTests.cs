@@ -1273,7 +1273,7 @@ public class InteractionServiceTests
         // Assert
         Assert.NotNull(capturedSendMarkdown);
         var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
-        Assert.Equal("# Hello", pageInfo.SessionMarkdown["session-1"]);
+        Assert.Equal("# Hello", pageInfo.Sessions["session-1"].Markdown);
     }
 
     [Fact]
@@ -1523,6 +1523,123 @@ public class InteractionServiceTests
         // Assert
         Assert.True(found);
         Assert.Equal("second", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
+    public async Task RegisterPage_MultipleSessionsSendMarkdown_AllSessionsStored()
+    {
+        // Arrange
+        var interactionService = CreateInteractionService();
+        var session1Ready = new TaskCompletionSource();
+        var session2Ready = new TaskCompletionSource();
+        var continueSignal = new TaskCompletionSource();
+
+        interactionService.RegisterPage("test-page", new PageContext
+        {
+            Title = "Test",
+            OnVisit = async ctx =>
+            {
+                if (ctx.SessionId == "session-1")
+                {
+                    session1Ready.SetResult();
+                }
+                else
+                {
+                    session2Ready.SetResult();
+                }
+
+                await continueSignal.Task;
+                await ctx.SendMarkdownAsync($"# Content from {ctx.SessionId}", ctx.CancellationToken);
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Act — start two visits concurrently (fire-and-forget, like the real code does).
+        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "session-2", new Dictionary<string, string>(), CancellationToken.None);
+
+        // Wait for both callbacks to start.
+        await session1Ready.Task.DefaultTimeout();
+        await session2Ready.Task.DefaultTimeout();
+
+        // Let both sessions send markdown concurrently.
+        continueSignal.SetResult();
+
+        // Give the callbacks time to complete.
+        await Task.Delay(100);
+
+        // Assert — both sessions should have their content stored.
+        var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
+        Assert.Equal("# Content from session-1", pageInfo.Sessions["session-1"].Markdown);
+        Assert.Equal("# Content from session-2", pageInfo.Sessions["session-2"].Markdown);
+    }
+
+    [Fact]
+    public async Task RegisterPage_ConcurrentSendMarkdown_DoesNotCorruptDictionary()
+    {
+        // Arrange — stress test to verify the lock prevents dictionary corruption
+        // under concurrent writes from multiple sessions.
+        var interactionService = CreateInteractionService();
+        const int sessionCount = 10;
+        const int writesPerSession = 50;
+        var allReady = new TaskCompletionSource();
+        var readyCount = 0;
+        var visitContexts = new PageVisitContext[sessionCount];
+
+        interactionService.RegisterPage("stress-page", new PageContext
+        {
+            Title = "Stress",
+            OnVisit = async ctx =>
+            {
+                var index = int.Parse(ctx.SessionId.Replace("session-", ""));
+                visitContexts[index] = ctx;
+
+                if (Interlocked.Increment(ref readyCount) == sessionCount)
+                {
+                    allReady.SetResult();
+                }
+
+                // Keep the visit alive until cancelled.
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, ctx.CancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Start all sessions.
+        for (var i = 0; i < sessionCount; i++)
+        {
+            _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, $"session-{i}", new Dictionary<string, string>(), CancellationToken.None);
+        }
+
+        await allReady.Task.DefaultTimeout();
+
+        // Act — all sessions send markdown concurrently.
+        var tasks = new List<Task>();
+        for (var i = 0; i < sessionCount; i++)
+        {
+            var ctx = visitContexts[i];
+            tasks.Add(Task.Run(async () =>
+            {
+                for (var w = 0; w < writesPerSession; w++)
+                {
+                    await ctx.SendMarkdownAsync($"Update {w}", ctx.CancellationToken);
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks).DefaultTimeout();
+
+        // Assert — no exception was thrown and all sessions have entries.
+        var pageInfo = (Interaction.PageInteractionInfo)interaction.InteractionInfo;
+        Assert.Equal(sessionCount, pageInfo.Sessions.Count);
     }
 
     private static InteractionService CreateInteractionService(DistributedApplicationOptions? options = null)

@@ -192,19 +192,47 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                                 change.Page.ScriptRoutes.AddRange(scriptIncludes);
                             }
 
-                            // If there are active sessions with content, send the latest markdown
-                            // for each session. The dashboard uses session_id to route content
-                            // to the correct visitor.
-                            // For updates (not initial registration), the dashboard will receive
-                            // one message per session that has changed. We send all current sessions
-                            // so the dashboard can reconcile on reconnect.
-                            lock (pageInfo.ActiveSessions)
+                            // If there are active sessions with content, send a separate message
+                            // per session so the dashboard can route content to the correct visitor.
+                            // On reconnect all sessions are replayed so the dashboard can reconcile.
+                            List<(string SessionId, string Markdown)>? sessionSnapshots = null;
+                            lock (pageInfo.Sessions)
                             {
-                                foreach (var (sessionId, markdown) in pageInfo.SessionMarkdown)
+                                foreach (var (sid, ctx) in pageInfo.Sessions)
                                 {
-                                    change.Page.SessionId = sessionId;
-                                    change.Page.MarkdownContent = markdown;
+                                    if (ctx.Markdown is not null)
+                                    {
+                                        sessionSnapshots ??= new();
+                                        sessionSnapshots.Add((sid, ctx.Markdown));
+                                    }
                                 }
+                            }
+
+                            if (sessionSnapshots is not null)
+                            {
+                                // Send the initial page registration without session content.
+                                await responseStream.WriteAsync(change, cts.Token).ConfigureAwait(false);
+
+                                // Then send one message per active session.
+                                foreach (var (sessionId, markdown) in sessionSnapshots)
+                                {
+                                    var sessionChange = new WatchInteractionsResponseUpdate
+                                    {
+                                        InteractionId = interaction.InteractionId,
+                                        Page = new InteractionPage
+                                        {
+                                            Route = pageInfo.Route,
+                                            Title = pageInfo.PageContext.Title ?? pageInfo.Route,
+                                            EnableHtml = pageInfo.PageContext.EnableHtml,
+                                            SessionId = sessionId,
+                                            MarkdownContent = markdown
+                                        }
+                                    };
+                                    await responseStream.WriteAsync(sessionChange, cts.Token).ConfigureAwait(false);
+                                }
+
+                                // Skip the default write below since we already sent messages.
+                                continue;
                             }
                         }
                         else if (interaction.InteractionInfo is MenuButtonInteractionInfo menuButtonInfo)

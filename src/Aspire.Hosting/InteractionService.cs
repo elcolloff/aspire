@@ -540,10 +540,11 @@ internal class InteractionService : IInteractionService
         }
 
         var visitorCts = CancellationTokenSource.CreateLinkedTokenSource(interactionState.CancellationToken, cancellationToken);
+        var sessionContext = new Interaction.SessionContext(visitorCts);
 
-        lock (pageInfo.ActiveSessions)
+        lock (pageInfo.Sessions)
         {
-            pageInfo.ActiveSessions[sessionId] = visitorCts;
+            pageInfo.Sessions[sessionId] = sessionContext;
         }
 
         if (pageInfo.PageContext.OnVisit is { } onVisit)
@@ -556,9 +557,13 @@ internal class InteractionService : IInteractionService
                 CancellationToken = visitorCts.Token,
                 SendMarkdownAsync = (markdown, ct) =>
                 {
-                    // Store the markdown in the page info so the dashboard can retrieve it for this session.
-                    // Then broadcast an update to notify the dashboard.
-                    pageInfo.SessionMarkdown[sessionId] = markdown;
+                    // Store the markdown in the session context so the dashboard can retrieve it.
+                    // Lock on Sessions to synchronize with readers in the gRPC send loop
+                    // and ProcessPageLeaveAsync which removes entries under this lock.
+                    lock (pageInfo.Sessions)
+                    {
+                        sessionContext.Markdown = markdown;
+                    }
                     UpdateInteraction(interactionState);
                     return Task.CompletedTask;
                 }
@@ -597,20 +602,19 @@ internal class InteractionService : IInteractionService
             return;
         }
 
-        CancellationTokenSource? visitorCts;
+        Interaction.SessionContext? sessionContext;
 
-        lock (pageInfo.ActiveSessions)
+        lock (pageInfo.Sessions)
         {
-            if (!pageInfo.ActiveSessions.Remove(sessionId, out visitorCts))
+            if (!pageInfo.Sessions.Remove(sessionId, out sessionContext))
             {
                 return;
             }
-            pageInfo.SessionMarkdown.Remove(sessionId);
         }
 
         // Cancel the visitor's token to signal the OnVisit callback to stop.
-        await visitorCts.CancelAsync().ConfigureAwait(false);
-        visitorCts.Dispose();
+        await sessionContext.Cts.CancelAsync().ConfigureAwait(false);
+        sessionContext.Cts.Dispose();
     }
 
     /// <summary>
@@ -867,16 +871,17 @@ internal class Interaction
         public PageContext PageContext { get; }
 
         /// <summary>
-        /// Tracks active visitor sessions. Key is the session ID, value is the CTS that is
-        /// cancelled when the visitor leaves.
+        /// Tracks active visitor sessions. Key is the session ID, value contains the
+        /// cancellation token source and the latest markdown content for that visitor.
+        /// All access must be synchronized via <c>lock (Sessions)</c>.
         /// </summary>
-        public Dictionary<string, CancellationTokenSource> ActiveSessions { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, SessionContext> Sessions { get; } = new(StringComparer.Ordinal);
+    }
 
-        /// <summary>
-        /// Stores the latest markdown content per visitor session. Updated by SendMarkdownAsync
-        /// and read by the dashboard when streaming content updates.
-        /// </summary>
-        public Dictionary<string, string> SessionMarkdown { get; } = new(StringComparer.Ordinal);
+    internal sealed class SessionContext(CancellationTokenSource cts)
+    {
+        public CancellationTokenSource Cts { get; } = cts;
+        public string? Markdown { get; set; }
     }
 
     internal sealed class MenuButtonInteractionInfo : InteractionInfoBase

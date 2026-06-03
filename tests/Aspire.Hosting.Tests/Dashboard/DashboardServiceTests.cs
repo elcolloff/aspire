@@ -861,6 +861,88 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         Assert.Equal("MyApp", response.ApplicationName);
     }
 
+    [Fact]
+    public async Task WatchInteractions_PageWithMultipleSessions_SendsPerSessionMessages()
+    {
+        // Arrange
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Trace);
+            builder.AddXunit(testOutputHelper);
+        });
+
+        var interactionService = new InteractionService(
+            loggerFactory.CreateLogger<InteractionService>(),
+            new DistributedApplicationOptions(),
+            new ServiceCollection().BuildServiceProvider(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+
+        // Register a page that stores content per session and keeps the visit alive.
+        var session1Ready = new TaskCompletionSource();
+        var session2Ready = new TaskCompletionSource();
+
+        interactionService.RegisterPage("multi-session", new PageContext
+        {
+            Title = "Multi",
+            OnVisit = async ctx =>
+            {
+                await ctx.SendMarkdownAsync($"Hello {ctx.SessionId}", ctx.CancellationToken);
+                if (ctx.SessionId == "s1")
+                {
+                    session1Ready.SetResult();
+                }
+                else
+                {
+                    session2Ready.SetResult();
+                }
+
+                try { await Task.Delay(Timeout.Infinite, ctx.CancellationToken); }
+                catch (OperationCanceledException) { }
+            }
+        });
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+
+        // Start two visits — fire-and-forget like the real SendInteractionRequestAsync does.
+        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "s1", new Dictionary<string, string>(), CancellationToken.None);
+        _ = interactionService.ProcessPageVisitAsync(interaction.InteractionId, "s2", new Dictionary<string, string>(), CancellationToken.None);
+
+        await session1Ready.Task.DefaultTimeout();
+        await session2Ready.Task.DefaultTimeout();
+
+        using var dashboardServiceData = CreateDashboardServiceData(loggerFactory: loggerFactory, interactionService: interactionService);
+        var dashboardService = new DashboardServiceImpl(dashboardServiceData, new TestHostEnvironment(), new TestHostApplicationLifetime(), new ConfigurationBuilder().Build(), loggerFactory.CreateLogger<DashboardServiceImpl>());
+
+        var cts = new CancellationTokenSource();
+        var context = TestServerCallContext.Create(cancellationToken: cts.Token);
+        var writer = new TestServerStreamWriter<WatchInteractionsResponseUpdate>(context);
+        var reader = new TestAsyncStreamReader<WatchInteractionsRequestUpdate>(context);
+
+        // Act — start watching interactions. The page should be streamed with session content.
+        var task = dashboardService.WatchInteractions(reader, writer, context);
+
+        // The first message is the page registration (no session content — that gets separate messages).
+        var registration = await writer.ReadNextAsync().DefaultTimeout();
+        Assert.Equal(WatchInteractionsResponseUpdate.KindOneofCase.Page, registration.KindCase);
+        Assert.Equal("multi-session", registration.Page.Route);
+
+        // Then one message per active session.
+        var sessionMessages = new List<WatchInteractionsResponseUpdate>();
+        sessionMessages.Add(await writer.ReadNextAsync().DefaultTimeout());
+        sessionMessages.Add(await writer.ReadNextAsync().DefaultTimeout());
+
+        // Assert — both sessions received their own message with correct content.
+        Assert.All(sessionMessages, msg => Assert.Equal(WatchInteractionsResponseUpdate.KindOneofCase.Page, msg.KindCase));
+
+        var s1Msg = sessionMessages.Single(m => m.Page.SessionId == "s1");
+        Assert.Equal("Hello s1", s1Msg.Page.MarkdownContent);
+
+        var s2Msg = sessionMessages.Single(m => m.Page.SessionId == "s2");
+        Assert.Equal("Hello s2", s2Msg.Page.MarkdownContent);
+
+        await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
+    }
+
     private static DashboardServiceData CreateDashboardServiceData(
         ResourceLoggerService? resourceLoggerService = null,
         ResourceNotificationService? resourceNotificationService = null,
