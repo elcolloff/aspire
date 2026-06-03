@@ -318,7 +318,7 @@ public static class TerminalResourceBuilderExtensions
     private static void DeleteReplicaFiles(string trmnlDirectory, string replicaId, ILogger? logger)
     {
         // All four per-replica files share the same `{replicaId}.` filename prefix
-        // (e.g. `{id}.dcp.sock`, `{id}.host.sock`, `{id}.control.sock`, `{id}.metadata.json`).
+        // (e.g. `{id}.dcp.sock`, `{id}.host.sock`, `{id}.ctrl.sock`, `{id}.metadata.json`).
         try
         {
             if (!Directory.Exists(trmnlDirectory))

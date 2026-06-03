@@ -20,14 +20,14 @@ namespace Aspire.Shared.TerminalHost;
 /// <list type="bullet">
 ///   <item><description><c>{replicaId}.dcp.sock</c> — producer UDS (host listens, DCP dials)</description></item>
 ///   <item><description><c>{replicaId}.host.sock</c> — consumer UDS (host listens, viewers dial)</description></item>
-///   <item><description><c>{replicaId}.control.sock</c> — control UDS (host listens, AppHost dials)</description></item>
+///   <item><description><c>{replicaId}.ctrl.sock</c> — control UDS (host listens, AppHost dials)</description></item>
 ///   <item><description><c>{replicaId}.metadata.json</c> — descriptor sidecar (resource name, replica index, dims, PID)</description></item>
 /// </list>
 /// <para>
 /// A flat layout (no per-AppHost or per-replica sub-directories) keeps the absolute
 /// path short enough to fit inside <c>sockaddr_un.sun_path</c> on macOS (104 bytes
 /// including the trailing NUL). A typical macOS layout is
-/// <c>/Users/&lt;you&gt;/.aspire/trmnl/AbCdEfGhIjK.control.sock</c> ≈ 55 bytes.
+/// <c>/Users/&lt;you&gt;/.aspire/trmnl/AbCdEfGhIjK.ctrl.sock</c> ≈ 52 bytes.
 /// </para>
 /// <para>
 /// The hash inputs intentionally <em>exclude</em> PID and any random suffix so the
@@ -59,7 +59,7 @@ internal static class TerminalHostPaths
     public const string ConsumerSockPurpose = "host";
 
     /// <summary>Sockpurpose suffix for the control UDS (AppHost → host).</summary>
-    public const string ControlSockPurpose = "control";
+    public const string ControlSockPurpose = "ctrl";
 
     /// <summary>Suffix for the per-replica metadata sidecar (JSON).</summary>
     public const string MetadataSuffix = "metadata.json";

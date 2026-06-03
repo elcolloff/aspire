@@ -208,7 +208,7 @@ public class GetTerminalInfoAsyncTests : IAsyncDisposable
             // at a path that does not exist.
             var control = controlListeners is not null && i < controlListeners.Count && controlListeners[i] is { } listener
                 ? listener.SocketPath
-                : Path.Combine(baseDir, $"{pseudoId}.control.sock");
+                : Path.Combine(baseDir, $"{pseudoId}.ctrl.sock");
             var metadata = Path.Combine(baseDir, $"{pseudoId}.metadata.json");
 
             var layout = new TerminalHostLayout(

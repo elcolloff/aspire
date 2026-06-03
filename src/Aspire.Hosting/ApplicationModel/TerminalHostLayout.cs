@@ -33,7 +33,7 @@ namespace Aspire.Hosting.ApplicationModel;
 ///   </item>
 ///   <item>
 ///     <description>
-///       <c>~/.aspire/trmnl/{ReplicaId}.control.sock</c> (<see cref="ControlUdsPath"/>) — the control socket.
+///       <c>~/.aspire/trmnl/{ReplicaId}.ctrl.sock</c> (<see cref="ControlUdsPath"/>) — the control socket.
 ///       The terminal host LISTENS on this path; the AppHost DIALS it for status/shutdown
 ///       RPC. (See <see cref="Aspire.Shared.TerminalHost.TerminalHostControlProtocol"/>.)
 ///     </description>
