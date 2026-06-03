@@ -154,6 +154,59 @@ public class TerminalHostAppTests
     }
 
     [Fact]
+    public async Task HostStartsCleanlyWithStaleProducerAndConsumerSocketFiles()
+    {
+        // Regression: when a previous host crashes (or DCP kills the process before it
+        // can gracefully unlink its UDS), the next host run hits "address already in use"
+        // on Bind unless we explicitly pre-delete the path. Hex1b doesn't do this for us
+        // because it doesn't know the path was previously bound by an Aspire host vs
+        // some other process. Symmetry with TerminalHostControlListener (which has
+        // always pre-deleted its control path).
+        if (OperatingSystem.IsWindows())
+        {
+            // UDS files on Windows behave differently — File.Create at the path doesn't
+            // produce a regular file that EADDRINUSEs the next bind, so the scenario
+            // doesn't reproduce. The pre-delete still runs as defensive code.
+            return;
+        }
+
+        var (args, tmp, control) = BuildArgs();
+        using var disp = tmp;
+
+        // Pre-place leftovers exactly as a crashed previous host would have left them.
+        File.WriteAllBytes(args.ProducerUdsPath, []);
+        File.WriteAllBytes(args.ConsumerUdsPath, []);
+        Assert.True(File.Exists(args.ProducerUdsPath));
+        Assert.True(File.Exists(args.ConsumerUdsPath));
+
+        await using var app = new TerminalHostApp(args, NullLoggerFactory.Instance);
+        using var hostCts = new CancellationTokenSource();
+        var hostTask = app.RunAsync(hostCts.Token);
+
+        try
+        {
+            // If pre-delete is missing, Bind fails inside the recycle loop and the
+            // control listener may still come up (it pre-deletes its own path), but a
+            // real producer connect would never succeed. Use the producer dial as the
+            // end-to-end signal that both UDS paths are usable.
+            await WaitForFileAsync(control, TimeSpan.FromSeconds(10));
+
+            await using var producer = await ConnectProducerAsync(args.ProducerUdsPath, TimeSpan.FromSeconds(10));
+            await producer.SendHelloAsync(80, 24, default);
+            await WaitForAsync(
+                () => app.SnapshotSession().ProducerConnected,
+                TimeSpan.FromSeconds(5),
+                "Producer should connect after stale UDS files are pre-cleaned.");
+        }
+        finally
+        {
+            app.RequestShutdown();
+            hostCts.Cancel();
+            await hostTask.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Fact]
     public async Task SessionRecyclesAfterProducerDisconnect()
     {
         // End-to-end check of the recycle loop: the host should stay running

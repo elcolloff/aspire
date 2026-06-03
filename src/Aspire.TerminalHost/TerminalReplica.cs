@@ -346,6 +346,16 @@ internal sealed class TerminalReplica : IAsyncDisposable
     /// </summary>
     private Hex1bTerminal BuildTerminal()
     {
+        // Pre-delete any stale UDS files at our paths before Hex1b tries to bind. Without
+        // this, a previous host that crashed (or a stuck previous cycle that didn't get
+        // to clean teardown) leaves a file at the same path, and Hmp1Transports.ListenUnixSocket
+        // / WithHmp1UdsServer would fail with EADDRINUSE forever — the recycle loop would
+        // then go into its 5-second back-off and stay there while still reporting "ready".
+        // Symmetry with TerminalHostControlListener.StartAsync which already does this
+        // for the control socket.
+        TryDeleteUdsFile(ProducerUdsPath);
+        TryDeleteUdsFile(ConsumerUdsPath);
+
         // Build the upstream workload adapter ourselves so we can plumb downstream
         // resize events (from the consumer-side multi-head server below) into
         // unconditional FrameResize writes upstream to DCP. See DcpUpstreamAdapter
@@ -473,6 +483,36 @@ internal sealed class TerminalReplica : IAsyncDisposable
             _logger.LogDebug(ex, "Replica recycle loop terminated with an unexpected error.");
         }
 
+        // Post-delete the UDS files. Hex1b normally unlinks the socket file when its
+        // listener is disposed, but a partial dispose (e.g. cancel mid-bind) can leave
+        // the file behind. The AppHost also recursively deletes the per-run temp tree
+        // on ApplicationStopped — this best-effort delete just keeps the per-replica
+        // directory empty when the host process is recycled in-place by DCP without
+        // tearing down the whole AppHost.
+        TryDeleteUdsFile(ProducerUdsPath);
+        TryDeleteUdsFile(ConsumerUdsPath);
+
         _stopCts.Dispose();
+    }
+
+    private void TryDeleteUdsFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException ex)
+        {
+            // Best-effort: another process may hold an open handle, or the path may
+            // already be gone. Either way the next Bind will surface a clearer error.
+            _logger.LogDebug(ex, "Failed to delete stale UDS file '{Path}'.", path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogDebug(ex, "Failed to delete stale UDS file '{Path}' (access denied).", path);
+        }
     }
 }
