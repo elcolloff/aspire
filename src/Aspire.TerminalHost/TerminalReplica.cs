@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using Aspire.Shared.TerminalHost;
 using Hex1b;
 using Microsoft.Extensions.Logging;
@@ -44,7 +45,8 @@ namespace Aspire.TerminalHost;
 /// </summary>
 internal sealed class TerminalReplica : IAsyncDisposable
 {
-    private readonly ILogger _logger;
+    private readonly ILogger<TerminalReplica> _logger;
+    private readonly ILogger<DcpUpstreamAdapter> _upstreamLogger;
     private readonly Task _runTask;
     private readonly CancellationTokenSource _stopCts;
     private readonly object _gate = new();
@@ -166,7 +168,7 @@ internal sealed class TerminalReplica : IAsyncDisposable
         string consumerUdsPath,
         int columns,
         int rows,
-        ILogger logger,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         ProducerUdsPath = producerUdsPath;
@@ -175,7 +177,8 @@ internal sealed class TerminalReplica : IAsyncDisposable
         Rows = rows;
         _currentColumns = columns;
         _currentRows = rows;
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<TerminalReplica>();
+        _upstreamLogger = loggerFactory.CreateLogger<DcpUpstreamAdapter>();
         _stopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _runTask = Task.Run(() => RecycleLoopAsync(_stopCts.Token), _stopCts.Token);
     }
@@ -189,19 +192,21 @@ internal sealed class TerminalReplica : IAsyncDisposable
         string consumerUdsPath,
         int columns,
         int rows,
-        ILogger logger,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(producerUdsPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(consumerUdsPath);
-        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
 
-        logger.LogInformation(
-            "Starting replica: producer='{Producer}', consumer='{Consumer}'",
+        // Use the same category the constructor will use so the "starting" line shows up under
+        // the same logger as every subsequent replica-scope event.
+        loggerFactory.CreateLogger<TerminalReplica>().LogInformation(
+            "Starting replica: producer='{Producer}', consumer='{Consumer}'.",
             producerUdsPath, consumerUdsPath);
 
         return new TerminalReplica(
-            producerUdsPath, consumerUdsPath, columns, rows, logger, cancellationToken);
+            producerUdsPath, consumerUdsPath, columns, rows, loggerFactory, cancellationToken);
     }
 
     /// <summary>
@@ -381,11 +386,13 @@ internal sealed class TerminalReplica : IAsyncDisposable
                     {
                         _producerConnected = true;
                     }
+                    _logger.LogInformation(
+                        "DCP producer connected on '{ProducerUdsPath}'.", ProducerUdsPath);
                     return stream;
                 }
                 throw new OperationCanceledException("Producer UDS listener was cancelled before any client connected.");
             },
-            _logger);
+            _upstreamLogger);
 
         upstream.Disconnected += () =>
         {
@@ -393,6 +400,11 @@ internal sealed class TerminalReplica : IAsyncDisposable
             {
                 _producerConnected = false;
             }
+            // The recycle loop will rebind the producer UDS on the next iteration; count this
+            // as a "recycle" because that's the next observable event. A steadily growing
+            // counter on a single host process means DCP keeps reconnecting.
+            TerminalHostTelemetry.UpstreamRecycles.Add(1);
+            _logger.LogInformation("DCP producer disconnected; replica will rebind.");
         };
 
         return Hex1bTerminal.CreateBuilder()
@@ -405,7 +417,7 @@ internal sealed class TerminalReplica : IAsyncDisposable
                     // Track every HMP1 peer that connects/disconnects so the host can answer
                     // "who's currently attached to this replica?" via the control RPC. PeerId is
                     // assigned by Hex1b at handshake time and is unique per connection; DisplayName
-                    // is the optional ClientHello label (e.g. "aspire-cli:1234", "dashboard:abc12345").
+                    // is the optional ClientHello label (e.g. "aspire.cli:1234", "dashboard:abc12345").
                     srvOpts.OnClientConnected = (e, _) =>
                     {
                         lock (_gate)
@@ -416,14 +428,40 @@ internal sealed class TerminalReplica : IAsyncDisposable
                                 DisplayName = e.DisplayName,
                             };
                         }
+                        // Tag with peer attributes — viewer counts are low (single digits in
+                        // practice: one dashboard tab + maybe a CLI attach), so high-cardinality
+                        // worries don't apply here. Helps diagnose "which viewer is causing the
+                        // resize storm" in the dashboard metric explorer.
+                        var tags = new TagList
+                        {
+                            { "peer.id", e.PeerId },
+                            { "peer.name", e.DisplayName ?? "" },
+                        };
+                        TerminalHostTelemetry.ConsumerConnections.Add(1, tags);
+                        TerminalHostTelemetry.ConsumerPeersActive.Add(1, tags);
+                        _logger.LogInformation(
+                            "Consumer peer connected. PeerId={PeerId}, DisplayName='{DisplayName}'.",
+                            e.PeerId, e.DisplayName);
                         return Task.CompletedTask;
                     };
                     srvOpts.OnClientDisconnected = (e, _) =>
                     {
+                        string? displayName;
                         lock (_gate)
                         {
+                            _peers.TryGetValue(e.PeerId, out var existing);
+                            displayName = existing?.DisplayName;
                             _peers.Remove(e.PeerId);
                         }
+                        var tags = new TagList
+                        {
+                            { "peer.id", e.PeerId },
+                            { "peer.name", displayName ?? "" },
+                        };
+                        TerminalHostTelemetry.ConsumerDisconnections.Add(1, tags);
+                        TerminalHostTelemetry.ConsumerPeersActive.Add(-1, tags);
+                        _logger.LogInformation(
+                            "Consumer peer disconnected. PeerId={PeerId}.", e.PeerId);
                         return Task.CompletedTask;
                     };
 
@@ -445,6 +483,14 @@ internal sealed class TerminalReplica : IAsyncDisposable
                             _currentColumns = e.Width;
                             _currentRows = e.Height;
                         }
+
+                        TerminalHostTelemetry.ResizeRequests.Add(1, new TagList
+                        {
+                            { "direction", "downstream" },
+                        });
+                        _logger.LogDebug(
+                            "Downstream resize received from primary peer: {Width}x{Height}.",
+                            e.Width, e.Height);
 
                         try
                         {

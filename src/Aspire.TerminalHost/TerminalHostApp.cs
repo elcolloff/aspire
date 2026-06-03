@@ -120,13 +120,12 @@ public sealed class TerminalHostApp : IAsyncDisposable
         {
             // Start the replica first, then the control listener; that way as soon as
             // the AppHost can connect to control, the consumer UDS is bound.
-            var replicaLogger = _loggerFactory.CreateLogger("Aspire.TerminalHost.Replica");
             var replica = TerminalReplica.Start(
                 _args.ProducerUdsPath,
                 _args.ConsumerUdsPath,
                 _args.Columns,
                 _args.Rows,
-                replicaLogger,
+                _loggerFactory,
                 token);
             lock (_gate)
             {

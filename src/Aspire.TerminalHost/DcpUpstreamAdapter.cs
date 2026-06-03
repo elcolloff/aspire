@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Threading.Channels;
 using Hex1b;
 using Microsoft.Extensions.Logging;
@@ -58,7 +59,7 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
     private const int FrameHeaderLength = 5;
 
     private readonly Func<CancellationToken, Task<Stream>> _streamFactory;
-    private readonly ILogger _logger;
+    private readonly ILogger<DcpUpstreamAdapter> _logger;
     private readonly Channel<ReadOnlyMemory<byte>> _outputChannel;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
@@ -78,7 +79,7 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
 
     public DcpUpstreamAdapter(
         Func<CancellationToken, Task<Stream>> streamFactory,
-        ILogger logger)
+        ILogger<DcpUpstreamAdapter> logger)
     {
         _streamFactory = streamFactory ?? throw new ArgumentNullException(nameof(streamFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -228,6 +229,7 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
             }
 
             _stream = stream;
+            _logger.LogInformation("DcpUpstreamAdapter: upstream stream established.");
             // Use the disposal CT for the pump's lifetime; the per-call CT (`ct`) here
             // is just for waiting on the connect lock and the streamFactory call.
             // The pump must outlive any single caller's token.
@@ -306,6 +308,21 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
                 {
                     await stream.WriteAsync(payload, _disposeCts.Token).ConfigureAwait(false);
                 }
+
+                // Count both header + payload because they're real socket bytes on the
+                // producer (DCP-facing) UDS. Direction = "out" from the host's POV.
+                TerminalHostTelemetry.Bytes.Add(
+                    FrameHeaderLength + payload.Length,
+                    new TagList { { "socket", "producer" }, { "direction", "out" } });
+
+                if (type == FrameResize)
+                {
+                    TerminalHostTelemetry.ResizeRequests.Add(1, new TagList
+                    {
+                        { "direction", "upstream" },
+                        { "result", "ok" },
+                    });
+                }
             }
             catch (Exception ex) when (ex is IOException
                                           or ObjectDisposedException
@@ -314,6 +331,14 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
                 _logger.LogDebug(ex,
                     "DcpUpstreamAdapter: upstream write failed (type=0x{Type:X2}); marking disconnected.",
                     type);
+                if (type == FrameResize)
+                {
+                    TerminalHostTelemetry.ResizeRequests.Add(1, new TagList
+                    {
+                        { "direction", "upstream" },
+                        { "result", "failed" },
+                    });
+                }
                 Complete(ex);
             }
         }
@@ -356,6 +381,13 @@ internal sealed class DcpUpstreamAdapter : IHex1bTerminalWorkloadAdapter
                 {
                     break;
                 }
+
+                // Count header + payload as producer-direction bytes received. Done after the
+                // full frame is in hand so partial reads (which short-circuit out of the loop)
+                // are not double-counted.
+                TerminalHostTelemetry.Bytes.Add(
+                    FrameHeaderLength + payload.Length,
+                    new TagList { { "socket", "producer" }, { "direction", "in" } });
 
                 switch (type)
                 {
