@@ -6,6 +6,8 @@ using Aspire.Hosting.Eventing;
 using Aspire.Hosting.Lifecycle;
 using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using ExtensionsHealthCheckResult = Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult;
 
 namespace Aspire.Hosting.Ats;
 
@@ -60,6 +62,26 @@ internal static class ServiceCollectionExports
         ArgumentNullException.ThrowIfNull(serviceProvider);
 
         return serviceProvider.GetRequiredService<IAspireStore>();
+    }
+
+    /// <summary>
+    /// Adds a custom health check callback to the distributed-application builder.
+    /// </summary>
+    /// <param name="builder">The distributed-application builder.</param>
+    /// <param name="name">The health check registration name.</param>
+    /// <param name="check">The callback that evaluates the health check.</param>
+    [AspireExport]
+    public static void AddHealthCheck(this IDistributedApplicationBuilder builder, string name, Func<Task<HealthCheckResult>> check)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(check);
+
+        builder.Services.AddHealthChecks().AddAsyncCheck(name, async () =>
+        {
+            var result = await check().ConfigureAwait(false);
+            return result.ToExtensionsHealthCheckResult();
+        });
     }
 
     /// <summary>
@@ -133,6 +155,28 @@ internal static class ServiceCollectionExports
         {
             return subscribe(new EventingSubscriberRegistrationContext(eventing, executionContext, cancellationToken));
         }
+    }
+}
+
+/// <summary>
+/// ATS-friendly custom health check result.
+/// </summary>
+[AspireDto]
+internal sealed class HealthCheckResult
+{
+    /// <summary>
+    /// Gets the health status returned by the health check.
+    /// </summary>
+    public required HealthStatus Status { get; init; }
+
+    /// <summary>
+    /// Gets an optional description for the health check result.
+    /// </summary>
+    public string? Description { get; init; }
+
+    internal ExtensionsHealthCheckResult ToExtensionsHealthCheckResult()
+    {
+        return new ExtensionsHealthCheckResult(Status, Description);
     }
 }
 

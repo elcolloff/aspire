@@ -239,6 +239,15 @@ ENTRYPOINT ["dotnet", "App.dll"]
 
 	// WithRelationship
 	project.WithReference(cache)
+	project.WithEndpointsInEnvironment([]string{"https"})
+	if err = builder.AddHealthCheck("custom_check", func(args ...any) *aspire.HealthCheckResult {
+		return &aspire.HealthCheckResult{
+			Status:      aspire.HealthStatusHealthy,
+			Description: aspire.StringPtr("custom health check"),
+		}
+	}); err != nil {
+		log.Fatalf(aspire.FormatError(err))
+	}
 
 	// WithIconName
 	iconVariant := aspire.IconVariantFilled
@@ -522,6 +531,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 	_ = container.WithExplicitStart()
 	_ = container.WithUrl("http://localhost:8080")
 	_ = container.WithUrl(expr)
+	_ = container.WithHealthCheck("custom_check")
 	_ = container.WithHttpHealthCheck()
 	_ = container.WithHttpHealthCheck()
 	updateCommandState := func(args ...any) any {

@@ -14,7 +14,7 @@ import {
     ResourceCommandState,
     refExpr,
 } from './.aspire/modules/aspire.mjs';
-import type { DockerfileBuilderCallbackContext, DockerfileFactoryContext } from './.aspire/modules/aspire.mjs';
+import type { DockerfileBuilderCallbackContext, DockerfileFactoryContext, HealthCheckResult } from './.aspire/modules/aspire.mjs';
 import { fileURLToPath } from 'node:url';
 
 const builder = await createBuilder();
@@ -90,12 +90,19 @@ const exe = await builder.addExecutable("myexe", "echo", ".", ["hello"]);
 // addProject (pre-existing)
 const project = await builder.addProject("myproject", "./src/MyProject", { launchProfileOrOptions: "https" });
 const projectWithoutLaunchProfile = await builder.addProject("myproject-noprofile", "./src/MyProject");
+await project.withEndpointsInEnvironment(["https"]);
 // ATS exports ReferenceEnvironmentInjectionFlags as a DTO-shaped object in TypeScript.
 const referenceEnvironmentOptions = {
     connectionString: true,
     serviceDiscovery: true,
 };
 await project.withReferenceEnvironment(referenceEnvironmentOptions);
+
+const customHealthCheck = async (): Promise<HealthCheckResult> => ({
+    status: HealthStatus.Healthy,
+    description: "custom health check",
+});
+await builder.addHealthCheck("custom_check", customHealthCheck);
 
 // addCSharpApp
 const csharpApp = await builder.addCSharpApp("csharpapp", "./src/CSharpApp");
@@ -704,6 +711,7 @@ await container.withUrl(refExpr`http://${endpoint}`);
 
 // withHealthCheck
 await container.withHealthCheck("http");
+await container.withHealthCheck("custom_check");
 
 // withCommand
 await container.withCommand("noop", "Noop", async () => {

@@ -157,6 +157,15 @@ const (
 	InputTypeNumber InputType = "Number"
 )
 
+// HealthStatus represents HealthStatus.
+type HealthStatus string
+
+const (
+	HealthStatusUnhealthy HealthStatus = "Unhealthy"
+	HealthStatusDegraded HealthStatus = "Degraded"
+	HealthStatusHealthy HealthStatus = "Healthy"
+)
+
 // ResourceCommandVisibility represents ResourceCommandVisibility.
 type ResourceCommandVisibility string
 
@@ -192,15 +201,6 @@ const (
 	CommandResultFormatText CommandResultFormat = "Text"
 	CommandResultFormatJson CommandResultFormat = "Json"
 	CommandResultFormatMarkdown CommandResultFormat = "Markdown"
-)
-
-// HealthStatus represents HealthStatus.
-type HealthStatus string
-
-const (
-	HealthStatusUnhealthy HealthStatus = "Unhealthy"
-	HealthStatusDegraded HealthStatus = "Degraded"
-	HealthStatusHealthy HealthStatus = "Healthy"
 )
 
 // UrlDisplayLocation represents UrlDisplayLocation.
@@ -433,6 +433,20 @@ func (d *ReferenceEnvironmentInjectionOptions) ToMap() map[string]any {
 	m["ConnectionProperties"] = serializeValue(d.ConnectionProperties)
 	m["ServiceDiscovery"] = serializeValue(d.ServiceDiscovery)
 	m["Endpoints"] = serializeValue(d.Endpoints)
+	return m
+}
+
+// HealthCheckResult represents HealthCheckResult.
+type HealthCheckResult struct {
+	Status HealthStatus `json:"Status,omitempty"`
+	Description *string `json:"Description,omitempty"`
+}
+
+// ToMap converts the DTO to a map for JSON serialization.
+func (d *HealthCheckResult) ToMap() map[string]any {
+	m := map[string]any{}
+	m["Status"] = serializeValue(d.Status)
+	if d.Description != nil { m["Description"] = serializeValue(d.Description) }
 	return m
 }
 
@@ -3180,6 +3194,7 @@ type CSharpAppResource interface {
 	WithEndpointCallback(endpointName string, callback func(obj EndpointUpdateContext), options ...*WithEndpointCallbackOptions) CSharpAppResource
 	WithEndpointProxySupport(proxyEnabled bool) CSharpAppResource
 	WithEndpoints(endpoints []string) CSharpAppResource
+	WithEndpointsInEnvironment(endpointNames []string) CSharpAppResource
 	WithEnvironment(name string, value any) CSharpAppResource
 	WithEnvironmentCallback(callback func(arg EnvironmentCallbackContext)) CSharpAppResource
 	WithEnvironmentVariables(variables map[string]string) CSharpAppResource
@@ -3846,6 +3861,18 @@ func (s *cSharpAppResource) WithEndpoints(endpoints []string) CSharpAppResource 
 	}
 	if endpoints != nil { reqArgs["endpoints"] = serializeValue(endpoints) }
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting.CodeGeneration.Go.Tests/withEndpoints", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithEndpointsInEnvironment includes only the specified project endpoint names in environment-variable injection.
+func (s *cSharpAppResource) WithEndpointsInEnvironment(endpointNames []string) CSharpAppResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"resource": s.handle.ToJSON(),
+	}
+	if endpointNames != nil { reqArgs["endpointNames"] = serializeValue(endpointNames) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withEndpointsInEnvironment", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 
@@ -8336,6 +8363,7 @@ type DistributedApplicationBuilder interface {
 	AddEventingSubscriber(subscribe func(arg EventingSubscriberRegistrationContext)) error
 	AddExecutable(name string, command string, workingDirectory string, args []string) ExecutableResource
 	AddExternalService(name string, url any) ExternalServiceResource
+	AddHealthCheck(name string, check func(...any) *HealthCheckResult) error
 	AddParameter(name string, options ...*AddParameterOptions) ParameterResource
 	AddParameterFromConfiguration(name string, configurationKey string, options ...*AddParameterFromConfigurationOptions) ParameterResource
 	AddParameterWithGeneratedValue(name string, value *GenerateParameterDefault, options ...*AddParameterWithGeneratedValueOptions) ParameterResource
@@ -8672,6 +8700,25 @@ func (s *distributedApplicationBuilder) AddExternalService(name string, url any)
 		return &externalServiceResource{resourceBuilderBase: newErroredResourceBuilder(err, s.client)}
 	}
 	return &externalServiceResource{resourceBuilderBase: newResourceBuilderBase(href.getHandle(), s.client)}
+}
+
+// AddHealthCheck adds a custom health check callback to the distributed-application builder.
+func (s *distributedApplicationBuilder) AddHealthCheck(name string, check func(...any) *HealthCheckResult) error {
+	if s.err != nil { return s.err }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"builder": s.handle.ToJSON(),
+	}
+	reqArgs["name"] = serializeValue(name)
+	if check != nil {
+		cb := check
+		shim := func(args ...any) any {
+			return cb(args...)
+		}
+		reqArgs["check"] = s.client.registerCallback(shim)
+	}
+	_, err := s.client.invokeCapability(ctx, "Aspire.Hosting/addHealthCheck", reqArgs)
+	return err
 }
 
 // AddParameter adds a parameter resource
@@ -17611,6 +17658,7 @@ type ProjectResource interface {
 	WithEndpointCallback(endpointName string, callback func(obj EndpointUpdateContext), options ...*WithEndpointCallbackOptions) ProjectResource
 	WithEndpointProxySupport(proxyEnabled bool) ProjectResource
 	WithEndpoints(endpoints []string) ProjectResource
+	WithEndpointsInEnvironment(endpointNames []string) ProjectResource
 	WithEnvironment(name string, value any) ProjectResource
 	WithEnvironmentCallback(callback func(arg EnvironmentCallbackContext)) ProjectResource
 	WithEnvironmentVariables(variables map[string]string) ProjectResource
@@ -18277,6 +18325,18 @@ func (s *projectResource) WithEndpoints(endpoints []string) ProjectResource {
 	}
 	if endpoints != nil { reqArgs["endpoints"] = serializeValue(endpoints) }
 	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting.CodeGeneration.Go.Tests/withEndpoints", reqArgs); err != nil { s.setErr(err) }
+	return s
+}
+
+// WithEndpointsInEnvironment includes only the specified project endpoint names in environment-variable injection.
+func (s *projectResource) WithEndpointsInEnvironment(endpointNames []string) ProjectResource {
+	if s.err != nil { return s }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"resource": s.handle.ToJSON(),
+	}
+	if endpointNames != nil { reqArgs["endpointNames"] = serializeValue(endpointNames) }
+	if _, err := s.client.invokeCapability(ctx, "Aspire.Hosting/withEndpointsInEnvironment", reqArgs); err != nil { s.setErr(err) }
 	return s
 }
 

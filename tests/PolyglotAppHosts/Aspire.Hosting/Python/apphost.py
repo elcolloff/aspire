@@ -107,6 +107,12 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
     exe = builder.add_executable("resource", "echo", ".", [])
     # addProject (pre-existing)
     project = builder.add_project("resource", ".", launch_profile_or_options="default")
+    project.with_endpoints_in_environment(["https"])
+
+    def custom_health_check():
+        return {"Status": "Healthy", "Description": "custom health check"}
+
+    builder.add_health_check("custom_check", custom_health_check)
     # addCSharpApp
     csharp_app = builder.add_c_sharp_app("resource", ".")
     # addRedis
@@ -399,6 +405,8 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
     container.with_url("http://localhost")
     # withUrl - ReferenceExpression
     container.with_url(ReferenceExpression.format_string("http://localhost"))
+    # withHealthCheck
+    container.with_health_check("custom_check")
     # withHttpHealthCheck
     container.with_http_health_check()
     # withCommand
