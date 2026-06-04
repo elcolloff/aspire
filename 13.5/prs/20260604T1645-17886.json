@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Internal: hardening of the Foundry model generation automation tool (GenModel.cs) to handle HTTP 429 transient errors; changes are to the generator tool and auto-generated descriptor files, not user-facing.",
+  "mergedAt": "2026-06-04T16:45:23Z",
+  "number": 17886,
+  "runDate": "2026-06-04T18:43:15Z",
+  "status": "excluded",
+  "title": "Harden Foundry model generation"
+}
