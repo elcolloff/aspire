@@ -14,7 +14,7 @@ builder.AddProject<Projects.Terminals_Repl>("repl")
     {
         options.Columns = 120;
         options.Rows = 32;
-        options.ShowTerminalHosts = true;
+        options.ShowTerminalHost = true;
     });
 
 if (OperatingSystem.IsWindows())
@@ -22,7 +22,7 @@ if (OperatingSystem.IsWindows())
     // Single-replica executable wrapping cmd.exe to demonstrate that
     // WithTerminal() also works for arbitrary executables, not just projects.
     builder.AddExecutable("shell", "cmd.exe", ".")
-        .WithTerminal(options => options.ShowTerminalHosts = true);
+        .WithTerminal(options => options.ShowTerminalHost = true);
 
     // A/B control resource: same cmd.exe but WITHOUT WithTerminal(). Used to
     // bisect whether the "Stop kills the dashboard" symptom is specific to
@@ -42,7 +42,7 @@ if (OperatingSystem.IsWindows())
     // ("node") appended after bash and immediately exit.
     builder.AddContainer("nodebox", "node", "lts")
         .WithArgs("bash", "-l")
-        .WithTerminal(options => options.ShowTerminalHosts = true);
+        .WithTerminal(options => options.ShowTerminalHost = true);
 }
 else
 {
@@ -52,7 +52,7 @@ else
     // it source the user's login profile so `PATH`, aliases etc. behave the
     // same as a normal terminal session.
     builder.AddExecutable("shell", "/bin/bash", ".", "-i", "-l")
-        .WithTerminal(options => options.ShowTerminalHosts = true);
+        .WithTerminal(options => options.ShowTerminalHost = true);
 }
 
 #if !SKIP_DASHBOARD_REFERENCE

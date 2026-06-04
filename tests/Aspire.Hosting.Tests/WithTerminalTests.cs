@@ -182,12 +182,12 @@ public class WithTerminalTests
     }
 
     [Fact]
-    public async Task ShowTerminalHostsOptionMakesTerminalHostsVisible()
+    public async Task ShowTerminalHostOptionMakesTerminalHostsVisible()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
         var resource = builder.AddExecutable("myapp", "myapp", ".")
             .WithAnnotation(new ReplicaAnnotation(2));
-        resource.WithTerminal(options => options.ShowTerminalHosts = true);
+        resource.WithTerminal(options => options.ShowTerminalHost = true);
 
         var model = await BuildAndPublishBeforeStartAsync(builder);
 
@@ -197,7 +197,7 @@ public class WithTerminalTests
         {
             var snapshot = host.Annotations.OfType<ResourceSnapshotAnnotation>().Single();
             Assert.False(snapshot.InitialSnapshot.IsHidden,
-                $"'{host.Name}' should be visible when ShowTerminalHosts=true.");
+                $"'{host.Name}' should be visible when ShowTerminalHost=true.");
 
             // Visibility is the only thing that should change — exclusion from the
             // manifest is unconditional (terminal hosts are never user-deployable).

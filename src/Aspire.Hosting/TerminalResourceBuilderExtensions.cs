@@ -389,9 +389,9 @@ public static class TerminalResourceBuilderExtensions
             Properties = [],
             // Hidden by default — terminal hosts are an implementation detail of
             // WithTerminal(). Users opt in to seeing them via
-            // TerminalOptions.ShowTerminalHosts = true when diagnosing host startup /
+            // TerminalOptions.ShowTerminalHost = true when diagnosing host startup /
             // recycle / DCP-connectivity problems.
-            IsHidden = !options.ShowTerminalHosts,
+            IsHidden = !options.ShowTerminalHost,
         }));
 
         host.Annotations.Add(ManifestPublishingCallbackAnnotation.Ignore);

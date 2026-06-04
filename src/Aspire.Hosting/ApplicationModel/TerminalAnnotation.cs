@@ -148,5 +148,5 @@ public sealed class TerminalOptions
     /// the producer UDS" or "the host crashed during recycle".
     /// </para>
     /// </remarks>
-    public bool ShowTerminalHosts { get; set; }
+    public bool ShowTerminalHost { get; set; }
 }
