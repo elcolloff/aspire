@@ -10,13 +10,22 @@ namespace Aspire.Hosting.Tests.Utils;
 
 internal sealed class MockUserSecretsManager : IUserSecretsManager
 {
+    public Dictionary<string, string> Secrets { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool IsAvailable => true;
 
     public string FilePath => "/mock/path/secrets.json";
 
-    public bool TrySetSecret(string name, string value) => true;
+    public bool TrySetSecret(string name, string value)
+    {
+        Secrets[name] = value;
+        return true;
+    }
 
-    public bool TryDeleteSecret(string name) => true;
+    public bool TryDeleteSecret(string name)
+    {
+        return Secrets.Remove(name);
+    }
 
     public void GetOrSetSecret(IConfigurationManager configuration, string name, Func<string> valueGenerator)
     {

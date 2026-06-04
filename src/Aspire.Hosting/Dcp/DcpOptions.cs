@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Reflection;
 using Aspire.Shared;
 using Microsoft.Extensions.Configuration;
@@ -57,6 +59,21 @@ internal sealed class DcpOptions
     /// Whether to randomize ports used by resources during orchestration.
     /// </summary>
     public bool RandomizePorts { get; set; }
+
+    /// <summary>
+    /// The first port in the range used to allocate unspecified public ports for proxyless endpoints.
+    /// </summary>
+    public int ProxylessEndpointPortRangeStart { get; set; } = 10000;
+
+    /// <summary>
+    /// The last port in the range used to allocate unspecified public ports for proxyless endpoints.
+    /// </summary>
+    /// <remarks>
+    /// The default leaves room for Aspire to persist stable allocated ports in the future while staying
+    /// compatible across supported OSes. Linux's default ephemeral range starts at 32768, which is the
+    /// most restrictive default among those OSes, so default allocations stop one port lower.
+    /// </remarks>
+    public int ProxylessEndpointPortRangeEnd { get; set; } = 32767;
 
     public int KubernetesConfigReadRetryCount { get; set; } = 300;
 
@@ -126,6 +143,21 @@ internal class ValidateDcpOptions : IValidateOptions<DcpOptions>
         if (string.IsNullOrWhiteSpace(options.DashboardPath))
         {
             builder.AddError("The path to the Aspire Dashboard binaries is missing.", "DashboardPath");
+        }
+
+        if (options.ProxylessEndpointPortRangeStart is < 1 or > 65535)
+        {
+            builder.AddError("The proxyless endpoint port range start must be between 1 and 65535.", nameof(options.ProxylessEndpointPortRangeStart));
+        }
+
+        if (options.ProxylessEndpointPortRangeEnd is < 1 or > 65535)
+        {
+            builder.AddError("The proxyless endpoint port range end must be between 1 and 65535.", nameof(options.ProxylessEndpointPortRangeEnd));
+        }
+
+        if (options.ProxylessEndpointPortRangeStart > options.ProxylessEndpointPortRangeEnd)
+        {
+            builder.AddError("The proxyless endpoint port range start must be less than or equal to the range end.", nameof(options.ProxylessEndpointPortRangeStart));
         }
 
         return builder.Build();
@@ -224,6 +256,9 @@ internal class ConfigureDefaultDcpOptions(
         }
 
         options.RandomizePorts = dcpPublisherConfiguration.GetValue(nameof(options.RandomizePorts), options.RandomizePorts);
+        options.ProxylessEndpointPortRangeStart = dcpPublisherConfiguration.GetValue(nameof(options.ProxylessEndpointPortRangeStart), options.ProxylessEndpointPortRangeStart);
+        options.ProxylessEndpointPortRangeEnd = dcpPublisherConfiguration.GetValue(nameof(options.ProxylessEndpointPortRangeEnd), options.ProxylessEndpointPortRangeEnd);
+        ApplyProxylessEndpointPortRangeOverride(options, configuration);
         options.WaitForResourceCleanup = dcpPublisherConfiguration.GetValue(nameof(options.WaitForResourceCleanup), options.WaitForResourceCleanup);
         options.ServiceStartupWatchTimeout = configuration.GetValue(KnownConfigNames.ServiceStartupWatchTimeout, KnownConfigNames.Legacy.ServiceStartupWatchTimeout, options.ServiceStartupWatchTimeout);
         options.ContainerRuntimeInitializationTimeout = dcpPublisherConfiguration.GetValue(nameof(options.ContainerRuntimeInitializationTimeout), options.ContainerRuntimeInitializationTimeout);
@@ -232,6 +267,42 @@ internal class ConfigureDefaultDcpOptions(
         options.DiagnosticsLogLevel = dcpPublisherConfiguration[nameof(options.DiagnosticsLogLevel)];
         options.PreserveExecutableLogs = dcpPublisherConfiguration.GetValue<bool?>(nameof(options.PreserveExecutableLogs), options.PreserveExecutableLogs);
         options.EnableAspireContainerTunnel = configuration.GetValue(KnownConfigNames.EnableContainerTunnel, options.EnableAspireContainerTunnel);
+    }
+
+    private static void ApplyProxylessEndpointPortRangeOverride(DcpOptions options, IConfiguration configuration)
+    {
+        if (configuration[KnownConfigNames.ProxylessEndpointPortRange] is not { Length: > 0 } configuredRange)
+        {
+            return;
+        }
+
+        var separatorIndex = configuredRange.IndexOf('-', StringComparison.Ordinal);
+        if (separatorIndex < 0 || separatorIndex != configuredRange.LastIndexOf('-'))
+        {
+            ThrowInvalidProxylessEndpointPortRange(configuredRange);
+        }
+
+        var startText = configuredRange[..separatorIndex].Trim();
+        var endText = configuredRange[(separatorIndex + 1)..].Trim();
+        if (!int.TryParse(startText, NumberStyles.None, CultureInfo.InvariantCulture, out var start))
+        {
+            ThrowInvalidProxylessEndpointPortRange(configuredRange);
+        }
+
+        if (!int.TryParse(endText, NumberStyles.None, CultureInfo.InvariantCulture, out var end))
+        {
+            ThrowInvalidProxylessEndpointPortRange(configuredRange);
+        }
+
+        options.ProxylessEndpointPortRangeStart = start;
+        options.ProxylessEndpointPortRangeEnd = end;
+    }
+
+    [DoesNotReturn]
+    private static void ThrowInvalidProxylessEndpointPortRange(string configuredRange)
+    {
+        throw new InvalidOperationException(
+            $"Invalid value \"{configuredRange}\" for \"{KnownConfigNames.ProxylessEndpointPortRange}\". Expected a port range formatted as \"start-end\", for example \"10000-32767\".");
     }
 
     private static string? GetMetadataValue(IEnumerable<AssemblyMetadataAttribute>? assemblyMetadata, string key)
