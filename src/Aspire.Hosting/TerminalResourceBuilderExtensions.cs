@@ -282,8 +282,9 @@ public static class TerminalResourceBuilderExtensions
         }
 
         // The target waits until each host has started so its viewer-facing UDS listener
-        // is bound before any consumer (Dashboard or CLI) tries to connect. Phase 2 will
-        // switch this to WaitUntilHealthy once each host implements a real health probe.
+        // is bound before any consumer (Dashboard or CLI) tries to connect. A follow-up
+        // pass will switch this to WaitUntilHealthy once each host implements a real
+        // health probe.
         if (parent is IResourceWithWaitSupport)
         {
             for (var i = 0; i < terminalHosts.Length; i++)

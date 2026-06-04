@@ -8,10 +8,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Aspire.Cli.Tests.Commands;
 
 /// <summary>
-/// Phase 11 (multi-head HMP1 wire-up) unit tests for the parsing surface of the
-/// <c>terminal</c> command. The <c>--viewer</c> flag toggles whether the CLI takes
-/// primary on connect or stays secondary; protocol-level emission of ClientHello and
-/// RequestPrimary is exercised by Hex1b's own multi-head test suite.
+/// Unit tests for the parsing surface of the <c>terminal</c> command's
+/// <c>--viewer</c> flag, which toggles whether the CLI takes primary on connect
+/// or stays secondary. Protocol-level emission of ClientHello and RequestPrimary
+/// is exercised by Hex1b's own multi-head test suite.
 /// </summary>
 public class TerminalCommandViewerOptionTests(ITestOutputHelper outputHelper)
 {

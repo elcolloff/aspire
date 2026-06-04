@@ -4813,9 +4813,9 @@ public class DcpExecutorTests
     [Fact]
     public async Task Project_WithTerminal_PopulatesPerReplicaTerminalSpec()
     {
-        // Phase 4 wire-up: when a project resource is configured with WithTerminal(),
-        // each replica's Executable spec should carry a Terminal block whose UdsPath
-        // matches the per-replica producer path from TerminalHostLayout.ProducerUdsPaths.
+        // When a project resource is configured with WithTerminal(), each replica's
+        // Executable spec should carry a Terminal block whose UdsPath matches the
+        // per-replica producer path from TerminalHostLayout.ProducerUdsPaths.
 
         var builder = DistributedApplication.CreateBuilder();
         var resource = builder.AddProject<Projects.ServiceA>("ServiceA")

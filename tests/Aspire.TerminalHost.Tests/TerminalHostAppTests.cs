@@ -603,7 +603,7 @@ public class TerminalHostAppTests
         public async Task SendClientHelloAsync(string displayName, string defaultRole, CancellationToken ct)
         {
             // JSON keys are camelCase per Hmp1JsonContext.PropertyNamingPolicy.
-            // Roles on the wire are "primary" / "secondary" since Phase 15.
+            // Roles on the wire are the lowercase strings "primary" / "secondary".
             var json = $"{{\"displayName\":\"{displayName}\",\"defaultRole\":\"{defaultRole}\"}}";
             await SendFrameAsync(FrameClientHello, System.Text.Encoding.UTF8.GetBytes(json), ct).ConfigureAwait(false);
         }

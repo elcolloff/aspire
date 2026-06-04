@@ -117,11 +117,10 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         //   * Linux    - Unix98 master/slave pair via /dev/ptmx + grantpt/unlockpt.
         //   * macOS    - Same Unix98 surface, with the Darwin posix_openpt path.
         // Container PTYs (interactive `docker exec`-style sessions) are not yet
-        // wired through this annotation - tracked as a Phase 3 follow-up on the
-        // parent issue. If the running DCP build pre-dates terminal allocation on
-        // this host (e.g. an older bundled DCP that ships with Aspire), the
-        // executable fails to start with termpty.ErrTerminalNotSupported surfaced
-        // through the reconciler.
+        // wired through this annotation — tracked as a follow-up. If the running
+        // DCP build pre-dates terminal allocation on this host (e.g. an older
+        // bundled DCP that ships with Aspire), the executable fails to start
+        // with termpty.ErrTerminalNotSupported surfaced through the reconciler.
         if (er.ModelResource.TryGetAnnotationsOfType<TerminalAnnotation>(out var terminalAnnotations))
         {
             var terminalAnnotation = terminalAnnotations.FirstOrDefault();

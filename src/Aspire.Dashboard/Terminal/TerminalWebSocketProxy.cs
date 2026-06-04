@@ -67,9 +67,9 @@ internal static class TerminalWebSocketProxy
                 // Belt-and-braces: if any exception escapes the inner handler
                 // (e.g. from a code path our nested catches missed), log it
                 // here at error. Without this the exception would reach
-                // Kestrel which can take the entire dashboard down depending
-                // on the request state. Phase 9f hardening for the regression
-                // where Stop kills the dashboard.
+                // Kestrel, which can take the entire dashboard down depending
+                // on the request state — observed when an AppHost Stop killed
+                // the dashboard via an unhandled terminal-handler exception.
                 logger.LogError(ex, "Terminal WebSocket handler {ConnectionId} crashed.", connectionId);
 
                 // Best-effort response if we haven't started writing one yet.
@@ -310,10 +310,12 @@ internal static class TerminalWebSocketProxy
             }
             catch (Exception ex)
             {
-                // Catch-all (broadened in Phase 9f). HMP1-protocol exceptions
-                // and abrupt-kill races can surface here as IOException,
+                // Catch-all on purpose: HMP1-protocol exceptions and
+                // abrupt-kill races can surface here as IOException,
                 // WebSocketException, ObjectDisposedException, or unrelated
-                // types depending on the failure mode.
+                // types depending on the failure mode. Letting any of them
+                // escape the pump propagates to Kestrel and risks dropping
+                // the dashboard request pipeline.
                 endReason = "exception";
                 endException = ex;
             }

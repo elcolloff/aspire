@@ -174,21 +174,19 @@ internal sealed class TerminalAttachCommand : BaseCommand
 
         try
         {
-            // Phase 17 + UX transplant: delegate the embedded HMP1
-            // wire-up + role-aware TUI shell to TerminalViewerApp.
-            // It owns the Hex1bTerminal builder (via the easy-path
-            // WithHmp1UdsClient extension) and renders an InfoBar
-            // with role / peers / dims, plus a tmux-style chord
-            // hotkey set:
+            // Delegate the embedded HMP1 wire-up and role-aware TUI shell to
+            // TerminalViewerApp. It owns the Hex1bTerminal builder (via the
+            // WithHmp1UdsClient extension) and renders an InfoBar with role /
+            // peers / dims plus a tmux-style chord hotkey set:
             //
             //   Ctrl+B D  → detach (clean exit)
             //   Ctrl+B T  → take control (request primary)
             //
-            // When --viewer is passed, the app connects as secondary
-            // and stays passive until the user explicitly hits
-            // Ctrl+B T. Otherwise it auto-takes primary on connect
-            // (preserving the single-head default behaviour) and the
-            // "Take" InfoBar slot disappears in favour of "(primary)".
+            // When --viewer is passed, the app connects as secondary and stays
+            // passive until the user explicitly hits Ctrl+B T. Otherwise it
+            // auto-takes primary on connect (preserving the single-head default
+            // behaviour) and the "Take" InfoBar slot disappears in favour of
+            // "(primary)".
             var sessionLabel = string.Format(CultureInfo.InvariantCulture,
                 "{0} (replica {1})", canonicalName, replica.ReplicaIndex);
             var displayName = string.Format(CultureInfo.InvariantCulture,
