@@ -17,8 +17,6 @@
     <EmbeddedResource Include="Resources\MarkdownShowcase.txt" />
     <EmbeddedResource Include="Resources\AspireLogo.svg" />
     <EmbeddedResource Include="Resources\TodoStyles.css" />
-    <EmbeddedResource Include="Resources\RoguelikeStyles.css" />
-    <EmbeddedResource Include="Resources\RoguelikeControls.js" />
   </ItemGroup>
 
   <ItemGroup>

@@ -20,8 +20,68 @@
     background: var(--neutral-fill-subtle-rest, #1a1a2e);
 }
 
+@keyframes roguelike-map-death-fade {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: var(--roguelike-map-death-opacity, 0.8);
+    }
+}
+
+@keyframes roguelike-map-shake {
+    0%, 100% {
+        transform: translateX(0);
+    }
+
+    20% {
+        transform: translateX(-4px);
+    }
+
+    40% {
+        transform: translateX(4px);
+    }
+
+    60% {
+        transform: translateX(-3px);
+    }
+
+    80% {
+        transform: translateX(3px);
+    }
+}
+
+.roguelike-map-frame {
+    position: relative;
+    display: inline-block;
+}
+
+.roguelike-map-shake {
+    animation: roguelike-map-shake 180ms ease-in-out;
+}
+
 .roguelike-map .row {
     white-space: nowrap;
+}
+
+.roguelike-death-message {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.roguelike-death-message > div {
+    padding: 0.8em 1.2em;
+    border: 2px solid var(--neutral-stroke-strong-rest, #444);
+    border-radius: 6px;
+    background: var(--neutral-layer-floating, #1f1f1f);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+    font-size: 1.2em;
+    font-weight: bold;
 }
 
 .roguelike-sidebar {
