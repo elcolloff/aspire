@@ -17,24 +17,19 @@ internal sealed class RoguelikeInteraction
     private const string CssRoute = "roguelike-styles.css";
     private const string JsRoute = "roguelike-controls.js";
 
-    private readonly IResource _parentResource;
-    private readonly IDistributedApplicationBuilder _builder;
     private readonly object _sessionsLock = new();
     private readonly Dictionary<string, GameSession> _sessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _resourceColors = new(StringComparer.OrdinalIgnoreCase);
 
+    private IDistributedApplicationBuilder? _builder;
     private ResourceCommandService? _commandService;
     private ResourceNotificationService? _resourceNotificationService;
 
-    public RoguelikeInteraction(IResourceBuilder<ProjectResource> parentResource)
-    {
-        _parentResource = parentResource.Resource;
-        _builder = parentResource.ApplicationBuilder;
-        AssignResourceColors();
-    }
-
     public void Register(IDistributedApplicationBuilder builder)
     {
+        _builder = builder;
+        AssignResourceColors(builder);
+
         builder.OnBeforeStart((@event, ct) =>
         {
             var interactionService = @event.Services.GetRequiredService<IInteractionService>();
@@ -244,7 +239,8 @@ internal sealed class RoguelikeInteraction
             return;
         }
 
-        var resourceIds = _builder.Resources
+        var builder = GetBuilder();
+        var resourceIds = builder.Resources
             .Where(static r => !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
                 && !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
             .Select(static r => r.Name)
@@ -414,11 +410,11 @@ internal sealed class RoguelikeInteraction
 
         game.Potion = PickOpenCell(game);
 
+        var builder = GetBuilder();
         // Get resource names to use as monster labels.
-        // Exclude the parent resource, aspire-prefixed resources, and hidden resources.
-        var resourceNames = _builder.Resources
-            .Where(r => r != _parentResource
-                && !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
+        // Exclude aspire-prefixed resources and hidden resources.
+        var resourceNames = builder.Resources
+            .Where(r => !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
                 && !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
             .Select(r => r.Name)
             .ToList();
@@ -680,7 +676,12 @@ internal sealed class RoguelikeInteraction
     /// <summary>
     /// Assigns colors to resource names using the same palette order as the dashboard's ColorGenerator.
     /// </summary>
-    private void AssignResourceColors()
+    private IDistributedApplicationBuilder GetBuilder()
+    {
+        return _builder ?? throw new InvalidOperationException("Roguelike interaction must be registered before use.");
+    }
+
+    private void AssignResourceColors(IDistributedApplicationBuilder builder)
     {
         // Same palette used by Aspire.Dashboard's ColorGenerator for visual consistency.
         string[] palette =
@@ -694,7 +695,7 @@ internal sealed class RoguelikeInteraction
             "var(--accent-jade)", "var(--accent-olive)"
         ];
 
-        var names = _builder.Resources
+        var names = builder.Resources
             .Where(r => !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
             .Select(r => r.Name)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)

@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 #pragma warning disable ASPIREPERSISTENCE001 // Resource lifetime APIs are experimental.
-#pragma warning disable ASPIREINTERACTION001 // Type is for evaluation purposes only.
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -101,7 +100,7 @@ var frontend = builder.AddProject<Projects.MyFrontend>("frontend")
     .WithUrlForEndpoint("https", ep => new() { Url = "/health", DisplayText = "Health", DisplayLocation = UrlDisplayLocation.DetailsOnly })
     .WithHttpHealthCheck("/health");
 
-new RoguelikeInteraction(frontend).Register(builder);
+new RoguelikeInteraction().Register(builder);
 
 builder.AddProject<Projects.OrderProcessor>("orderprocessor", launchProfileName: "OrderProcessor")
     .WithReference(messaging)
