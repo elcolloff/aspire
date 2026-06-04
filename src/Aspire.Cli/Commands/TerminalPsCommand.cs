@@ -25,9 +25,9 @@ namespace Aspire.Cli.Commands;
 /// The command:
 /// <list type="number">
 /// <item>Resolves the running AppHost via <see cref="AppHostConnectionResolver"/>.</item>
-/// <item>Verifies the AppHost advertises the <c>terminals.ps.v1</c> capability and falls back to a
-///   "not supported" error message when it does not (older 13.4 AppHosts that only advertise
-///   <c>terminals.v1</c> can still serve <c>terminal attach</c>).</item>
+/// <item>Verifies the AppHost advertises the <c>terminals.v1</c> capability and falls back to a
+///   "not supported" error message when it does not (older AppHosts pre-13.4 lack the entire
+///   WithTerminal/<c>terminal attach</c>+<c>terminal ps</c> surface).</item>
 /// <item>Calls <see cref="IAppHostAuxiliaryBackchannel.ListTerminalsAsync"/> to enumerate every
 ///   terminal-enabled resource. Resources whose host process isn't reachable are still listed
 ///   with a status indicating they are unavailable rather than silently dropped.</item>
@@ -110,13 +110,13 @@ internal sealed class TerminalPsCommand : BaseCommand
 
         var connection = connectionResult.Connection!;
 
-        if (!connection.SupportsTerminalsPsV1)
+        if (!connection.SupportsTerminalsV1)
         {
             // Don't downgrade to 'no terminals' — older AppHosts may still have terminal-enabled
             // resources visible via 'terminal attach', so a misleading empty list would be worse
             // than an explicit incompatibility error.
             _interactionService.DisplayError(
-                "The connected AppHost does not support 'aspire terminal ps'. Update Aspire.Hosting to a build that advertises the 'terminals.ps.v1' capability.");
+                "The connected AppHost does not support 'aspire terminal ps'. Update Aspire.Hosting to a build that advertises the 'terminals.v1' capability.");
             return CommandResult.Failure(CliExitCodes.AppHostIncompatible);
         }
 

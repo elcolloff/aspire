@@ -52,22 +52,15 @@ internal static class AuxiliaryBackchannelCapabilities
     public const string V3 = "aux.v3";
 
     /// <summary>
-    /// Terminal feature flag (13.4+): <see cref="GetTerminalInfoResponse.Replicas"/> is populated for
-    /// resources configured with WithTerminal. Older clients ignore the new array; new clients
-    /// gate UI/CLI affordances on the presence of this capability.
+    /// Terminal capability (13.4+): the AppHost exposes per-replica terminal info via
+    /// <see cref="GetTerminalInfoResponse.Replicas"/> AND the per-resource list returned by
+    /// <c>ListTerminalsAsync</c> (with per-replica current grid size and attached-peer counts).
+    /// Together these surfaces back <c>aspire terminal attach</c> and <c>aspire terminal ps</c>.
+    /// The two were split during development as <c>terminals.v1</c> and <c>terminals.ps.v1</c>;
+    /// they were consolidated before ship because they are interconnected and always ship together.
+    /// Older clients ignore the new fields/RPC; new clients gate CLI/UI affordances on this capability.
     /// </summary>
     public const string Terminals_V1 = "terminals.v1";
-
-    /// <summary>
-    /// Terminal listing capability (13.4+): the AppHost exposes <c>ListTerminalsAsync</c>, returning
-    /// every <c>WithTerminal</c>-enabled resource with current grid size and attached-peer counts.
-    /// Backs <c>aspire terminal ps</c>. Distinct from <see cref="Terminals_V1"/> because the per-replica
-    /// metadata (<see cref="TerminalReplicaInfo.CurrentColumns"/>, <see cref="TerminalReplicaInfo.AttachedPeerCount"/>,
-    /// <see cref="TerminalReplicaInfo.Peers"/>) and the new RPC are additive over the v1 surface and
-    /// can be advertised independently. Older AppHosts that only speak <see cref="Terminals_V1"/>
-    /// continue to work for <c>terminal attach</c>; <c>terminal ps</c> requires both.
-    /// </summary>
-    public const string Terminals_PsV1 = "terminals.ps.v1";
 }
 
 /// <summary>
@@ -1568,7 +1561,7 @@ internal sealed class TerminalReplicaInfo
     /// Gets the current terminal grid width in columns, as last negotiated by the active HMP1
     /// primary peer. Falls back to <see cref="GetTerminalInfoResponse.Columns"/> when no peer has
     /// driven a resize yet. Null when the AppHost predates the
-    /// <see cref="AuxiliaryBackchannelCapabilities.Terminals_PsV1"/> capability.
+    /// <see cref="AuxiliaryBackchannelCapabilities.Terminals_V1"/> capability.
     /// </summary>
     public int? CurrentColumns { get; init; }
 
@@ -1581,14 +1574,14 @@ internal sealed class TerminalReplicaInfo
     /// Gets the count of HMP1 viewer peers currently attached to this replica's consumer UDS
     /// (Dashboard tabs, CLI <c>aspire terminal attach</c> sessions, etc.). Zero when no viewer
     /// is attached. Null when the AppHost predates the
-    /// <see cref="AuxiliaryBackchannelCapabilities.Terminals_PsV1"/> capability.
+    /// <see cref="AuxiliaryBackchannelCapabilities.Terminals_V1"/> capability.
     /// </summary>
     public int? AttachedPeerCount { get; init; }
 
     /// <summary>
     /// Gets per-peer details for currently-attached HMP1 viewers, in connect order. Useful for
     /// "who's attached?" diagnostics in <c>aspire terminal ps -v</c>. Null when the AppHost
-    /// predates the <see cref="AuxiliaryBackchannelCapabilities.Terminals_PsV1"/> capability.
+    /// predates the <see cref="AuxiliaryBackchannelCapabilities.Terminals_V1"/> capability.
     /// </summary>
     public TerminalPeerInfo[]? Peers { get; init; }
 }
@@ -1651,7 +1644,7 @@ internal sealed class GetTerminalInfoResponse
 /// <summary>
 /// Request for listing every <c>WithTerminal</c>-enabled resource. Empty payload — the AppHost
 /// already knows which resources have a <c>TerminalAnnotation</c>. Gated on the
-/// <see cref="AuxiliaryBackchannelCapabilities.Terminals_PsV1"/> capability.
+/// <see cref="AuxiliaryBackchannelCapabilities.Terminals_V1"/> capability.
 /// </summary>
 internal sealed class ListTerminalsRequest
 {

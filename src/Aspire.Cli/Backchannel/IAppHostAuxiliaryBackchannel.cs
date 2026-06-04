@@ -55,19 +55,13 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
 
     /// <summary>
     /// Gets a value indicating whether the AppHost advertises the
-    /// <c>terminals.v1</c> capability — the per-replica terminal info
-    /// surface returned by <see cref="GetTerminalInfoAsync"/>.
+    /// <c>terminals.v1</c> capability — covers both the per-replica terminal info
+    /// surface returned by <see cref="GetTerminalInfoAsync"/> AND the per-resource
+    /// list returned by <see cref="ListTerminalsAsync"/> (with current grid size,
+    /// attached peer count, and peer details on <see cref="TerminalReplicaInfo"/>).
+    /// These surfaces ship together and are gated by a single capability flag.
     /// </summary>
     bool SupportsTerminalsV1 { get; }
-
-    /// <summary>
-    /// Gets a value indicating whether the AppHost advertises the
-    /// <c>terminals.ps.v1</c> capability — the per-resource list returned by
-    /// <see cref="ListTerminalsAsync"/>, plus the additional per-replica metadata
-    /// (current grid size, attached peer count, peer details) carried on
-    /// <see cref="TerminalReplicaInfo"/>.
-    /// </summary>
-    bool SupportsTerminalsPsV1 { get; }
 
     /// <summary>
     /// Gets the Dashboard URLs from the AppHost.
@@ -202,7 +196,7 @@ internal interface IAppHostAuxiliaryBackchannel : IDisposable
     /// Lists every <c>WithTerminal</c>-enabled resource in the AppHost. Returns an empty list when
     /// no resource is configured. Each entry includes per-replica current grid size and attached
     /// peer details (when <see cref="TerminalSummary.IsHostReachable"/> is true). Backs
-    /// <c>aspire terminal ps</c>. Gated on <see cref="SupportsTerminalsPsV1"/>; older AppHosts
+    /// <c>aspire terminal ps</c>. Gated on <see cref="SupportsTerminalsV1"/>; older AppHosts
     /// without this capability return an empty response.
     /// </summary>
     Task<ListTerminalsResponse> ListTerminalsAsync(CancellationToken cancellationToken = default);

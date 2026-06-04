@@ -91,7 +91,7 @@ public class BackchannelJsonSerializerContextTests
     [Fact]
     public void TerminalReplicaInfo_OldPayloadWithoutNewFields_DeserializesWithNulls()
     {
-        // Back-compat: an older AppHost (pre-terminals.ps.v1) that only knows about the original
+        // Back-compat: an older AppHost (pre-terminals.v1) that only knows about the original
         // TerminalReplicaInfo shape will not emit CurrentColumns/CurrentRows/AttachedPeerCount/Peers.
         // The CLI must accept that payload and treat the new fields as null. See
         // docs/specs/cli-backchannel.md §3 for the per-feature capability strategy.

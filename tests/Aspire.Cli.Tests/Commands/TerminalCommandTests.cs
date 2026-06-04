@@ -305,17 +305,17 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task TerminalPsCommand_WhenAppHostLacksTerminalsPsV1Capability_ReturnsAppHostIncompatible()
+    public async Task TerminalPsCommand_WhenAppHostLacksTerminalsV1Capability_ReturnsAppHostIncompatible()
     {
-        // Older AppHosts that pre-date the 'terminals.ps.v1' capability return
-        // SupportsTerminalsPsV1=false; the command must surface that explicitly rather
+        // Older AppHosts that pre-date the 'terminals.v1' capability return
+        // SupportsTerminalsV1=false; the command must surface that explicitly rather
         // than misleadingly listing nothing.
         using var workspace = TemporaryWorkspace.Create(outputHelper);
         var (provider, _) = CreateProviderWithBackchannel(
             workspace,
             backchannel =>
             {
-                backchannel.SupportsTerminalsPsV1 = false;
+                backchannel.SupportsTerminalsV1 = false;
             });
         using (provider)
         {
@@ -480,7 +480,6 @@ public class TerminalCommandTests(ITestOutputHelper outputHelper)
         public bool SupportsV2 => _inner.SupportsV2;
         public bool SupportsV3 => _inner.SupportsV3;
         public bool SupportsTerminalsV1 => _inner.SupportsTerminalsV1;
-        public bool SupportsTerminalsPsV1 => _inner.SupportsTerminalsPsV1;
 
         public Task<GetTerminalInfoResponse> GetTerminalInfoAsync(string resourceName, CancellationToken cancellationToken = default)
         {

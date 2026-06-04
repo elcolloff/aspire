@@ -99,9 +99,6 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
     public bool SupportsTerminalsV1 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.Terminals_V1);
     public bool SupportsV3 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.V3);
 
-    /// <inheritdoc />
-    public bool SupportsTerminalsPsV1 => _capabilities.Contains(AuxiliaryBackchannelCapabilities.Terminals_PsV1);
-
     /// <summary>
     /// Gets the JSON-RPC proxy for communicating with the AppHost.
     /// </summary>
@@ -1050,13 +1047,13 @@ internal sealed class AppHostAuxiliaryBackchannel : IAppHostAuxiliaryBackchannel
 
     /// <summary>
     /// Lists every <c>WithTerminal</c>-enabled resource in the AppHost. Older AppHosts without
-    /// the <see cref="AuxiliaryBackchannelCapabilities.Terminals_PsV1"/> capability are
+    /// the <see cref="AuxiliaryBackchannelCapabilities.Terminals_V1"/> capability are
     /// short-circuited to an empty response so the CLI can render a clean "nothing to show"
     /// message rather than a mysterious RPC error.
     /// </summary>
     public async Task<ListTerminalsResponse> ListTerminalsAsync(CancellationToken cancellationToken = default)
     {
-        if (!SupportsTerminalsPsV1)
+        if (!SupportsTerminalsV1)
         {
             return new ListTerminalsResponse { Terminals = Array.Empty<TerminalSummary>() };
         }
