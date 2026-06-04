@@ -1,0 +1,9 @@
+{
+  "author": "app/dependabot",
+  "comment": "Dependency bump for npm packages in docs frontend - not related to any changelog entry",
+  "mergedAt": "2026-06-04T01:53:51Z",
+  "number": 1207,
+  "runDate": "2026-06-04T07:37:26Z",
+  "status": "excluded",
+  "title": "build(deps): bump the npm-all group across 1 directory with 7 updates"
+}
