@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "The Foundry Local integration (RunAsFoundryLocal) now uses the installed foundry CLI for service lifecycle management instead of internal SDK APIs, ensuring compatibility with Foundry Local 1.1.0. The AppHost API is unchanged, but the foundry CLI must be installed and available on PATH.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🤖",
+  "firstMergedAt": "2026-06-03T23:48:35Z",
+  "lastMergedAt": "2026-06-03T23:48:35Z",
+  "name": "Foundry Local integration updated to use foundry CLI",
+  "owner": "sebastienros",
+  "prs": [
+    17889
+  ]
+}

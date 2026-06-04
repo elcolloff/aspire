@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Foundry Local integration upgraded to 1.1.0 using foundry CLI for lifecycle management; user-facing change requiring foundry CLI on PATH",
+  "mergedAt": "2026-06-03T23:48:35Z",
+  "number": 17889,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "included",
+  "title": "Upgrade Foundry Local to 1.1.0"
+}

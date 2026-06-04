@@ -1,0 +1,9 @@
+{
+  "author": "danegsta",
+  "comment": "Refines dynamic endpoint allocation: smarter fallback detection, circular reference handling, and persistent endpoint proxy defaults",
+  "mergedAt": "2026-06-03T22:10:52Z",
+  "number": 17879,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "included",
+  "title": "Refine dynamic endpoint allocation"
+}

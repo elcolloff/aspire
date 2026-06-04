@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Security fix: bumped undici in VS Code extension to patch CRLF injection, WebSocket parser crash, and HTTP smuggling vulnerabilities",
+  "mergedAt": "2026-06-03T21:14:11Z",
+  "number": 17868,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "included",
+  "title": "Bump undici to 7.27.0 to fix three open Dependabot alerts in extension/"
+}

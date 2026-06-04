@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Bug fixes",
+  "communityContributors": [],
+  "description": "Upgraded the undici dependency in the VS Code extension to 7.27.0 to address three security vulnerabilities: CRLF injection via the upgrade option, a WebSocket 64-bit length parser crash, and HTTP request/response smuggling.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔒",
+  "firstMergedAt": "2026-06-03T21:14:11Z",
+  "lastMergedAt": "2026-06-03T21:14:11Z",
+  "name": "Security fixes in VS Code extension dependencies",
+  "owner": "IEvangelist",
+  "prs": [
+    17868
+  ]
+}

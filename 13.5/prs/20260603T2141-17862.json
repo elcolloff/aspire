@@ -1,0 +1,9 @@
+{
+  "author": "mitchdenny",
+  "comment": "Internal loc-breakdown canvas tool update; no user-facing product changes",
+  "mergedAt": "2026-06-03T21:41:07Z",
+  "number": 17862,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "excluded",
+  "title": "Use session working directory in loc-breakdown canvas"
+}

@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "GitHub Actions workflow update for release automation; no user-facing product changes",
+  "mergedAt": "2026-06-03T21:01:51Z",
+  "number": 17869,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "excluded",
+  "title": "Allow release gh-aw workflows for bot events"
+}

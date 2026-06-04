@@ -1,0 +1,9 @@
+{
+  "author": "app/copilot-swe-agent",
+  "comment": "Test-only changes adding persistent container test coverage; no user-facing product changes",
+  "mergedAt": "2026-06-03T20:34:24Z",
+  "number": 17871,
+  "runDate": "2026-06-04T00:38:56Z",
+  "status": "excluded",
+  "title": "Add persistent container test coverage"
+}
