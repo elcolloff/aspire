@@ -238,7 +238,7 @@ public class HostedAgentExtensionTests
             .AddProject("my-project");
 
         builder.AddProject<Project>("agent", launchProfileName: null)
-            .WithHttpEndpoint(targetPort: 9000)
+            .WithHttpEndpoint(targetPort: 9000, env: "DEFAULT_AD_PORT")
             .AsHostedAgent(project);
 
         using var app = builder.Build();
@@ -257,6 +257,7 @@ public class HostedAgentExtensionTests
         Assert.DoesNotContain("ASPNETCORE_URLS", envVars.Keys);
         Assert.DoesNotContain("HTTP_PORTS", envVars.Keys);
         Assert.DoesNotContain("HTTPS_PORTS", envVars.Keys);
+        Assert.DoesNotContain("DEFAULT_AD_PORT", envVars.Keys);
     }
 
     [Fact]
