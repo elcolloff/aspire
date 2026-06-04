@@ -2,10 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
-using Aspire.Cli.Configuration;
-using Aspire.Cli.Interaction;
-using Aspire.Cli.Telemetry;
-using Aspire.Cli.Utils;
 
 namespace Aspire.Cli.Commands;
 
@@ -20,12 +16,8 @@ internal sealed class TerminalCommand : BaseCommand
     public TerminalCommand(
         TerminalAttachCommand attachCommand,
         TerminalPsCommand psCommand,
-        IInteractionService interactionService,
-        IFeatures features,
-        ICliUpdateNotifier updateNotifier,
-        CliExecutionContext executionContext,
-        AspireCliTelemetry telemetry)
-        : base("terminal", "Manage interactive terminal sessions for resources.", features, updateNotifier, executionContext, interactionService, telemetry)
+        CommonCommandServices services)
+        : base("terminal", "Manage interactive terminal sessions for resources.", services)
     {
         ArgumentNullException.ThrowIfNull(attachCommand);
         ArgumentNullException.ThrowIfNull(psCommand);

@@ -6,11 +6,9 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aspire.Cli.Backchannel;
-using Aspire.Cli.Configuration;
 using Aspire.Cli.Interaction;
 using Aspire.Cli.Projects;
 using Aspire.Cli.Resources;
-using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -57,19 +55,15 @@ internal sealed class TerminalPsCommand : BaseCommand
     };
 
     public TerminalPsCommand(
-        IInteractionService interactionService,
         IAuxiliaryBackchannelMonitor backchannelMonitor,
-        IFeatures features,
-        ICliUpdateNotifier updateNotifier,
-        CliExecutionContext executionContext,
         IProjectLocator projectLocator,
-        AspireCliTelemetry telemetry,
-        ILogger<TerminalPsCommand> logger)
-        : base("ps", "List interactive terminal sessions in the connected AppHost.", features, updateNotifier, executionContext, interactionService, telemetry)
+        ILogger<TerminalPsCommand> logger,
+        CommonCommandServices services)
+        : base("ps", "List interactive terminal sessions in the connected AppHost.", services)
     {
-        _interactionService = interactionService;
+        _interactionService = services.InteractionService;
         _logger = logger;
-        _connectionResolver = new AppHostConnectionResolver(backchannelMonitor, interactionService, projectLocator, executionContext, logger);
+        _connectionResolver = new AppHostConnectionResolver(backchannelMonitor, services.InteractionService, projectLocator, services.ExecutionContext, logger);
 
         Options.Add(s_appHostOption);
         Options.Add(s_formatOption);
