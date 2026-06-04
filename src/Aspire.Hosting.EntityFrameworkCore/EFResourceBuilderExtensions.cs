@@ -481,9 +481,21 @@ public static class EFResourceBuilderExtensions
                 }
             }
 
-            foreach (var kvp in executionConfiguration.EnvironmentVariables)
+            foreach (var kvp in executionConfiguration.EnvironmentVariablesWithUnprocessed)
             {
-                startInfo.Environment[kvp.Key] = kvp.Value;
+                // In publish mode connection string references resolve to manifest placeholder
+                // expressions (e.g. "{postgres.connectionString}") rather than real values because
+                // the target resources aren't provisioned yet. Passing such a placeholder to the EF
+                // tool makes design-time DbContext creation fail with "Format of the initialization
+                // string does not conform to specification". Generating the migration script/bundle
+                // doesn't require a live database, so omit connection strings entirely in publish
+                // mode and let the bundle receive the real connection string at deploy time.
+                if (executionContext.IsPublishMode && kvp.Value.Unprocessed is ConnectionStringReference)
+                {
+                    continue;
+                }
+
+                startInfo.Environment[kvp.Key] = kvp.Value.Processed;
             }
 
             await notificationService.PublishUpdateAsync(toolResource, s => s with
