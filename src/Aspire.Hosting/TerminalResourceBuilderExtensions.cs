@@ -206,8 +206,26 @@ public static class TerminalResourceBuilderExtensions
             //
             // AddOtlpEnvironment also injects OTEL_RESOURCE_ATTRIBUTES=service.instance.id=...,
             // which combined with DCP's OTEL_SERVICE_NAME annotation gives each replica's
-            // host process a unique identity in the dashboard.
+            // host process a unique identity in the dashboard. We do not pin a protocol here
+            // (gRPC vs HTTP/protobuf); the env-callback picks the dashboard's preferred
+            // protocol and the host's composite `UseOtlpExporter()` honours
+            // OTEL_EXPORTER_OTLP_PROTOCOL — same path every ServiceDefaults-wired Aspire
+            // project takes.
             OtlpConfigurationExtensions.AddOtlpEnvironment(terminalHost, configuration, @event.Services.GetRequiredService<IHostEnvironment>());
+
+            // Propagate ASPIRE_TERMINAL_HOST_LOG_LEVEL from the AppHost process so playground/dev
+            // can dial up host verbosity (e.g. "Debug") from launchSettings.json without code
+            // changes. The terminal host itself reads this env var and applies it to
+            // ILoggingBuilder.SetMinimumLevel; only relevant when OTLP is wired so the resulting
+            // log records reach the dashboard.
+            var hostLogLevel = Environment.GetEnvironmentVariable("ASPIRE_TERMINAL_HOST_LOG_LEVEL");
+            if (!string.IsNullOrWhiteSpace(hostLogLevel))
+            {
+                terminalHost.Annotations.Add(new EnvironmentCallbackAnnotation(ctx =>
+                {
+                    ctx.EnvironmentVariables["ASPIRE_TERMINAL_HOST_LOG_LEVEL"] = hostLogLevel;
+                }));
+            }
 
             @event.Model.Resources.Add(terminalHost);
 

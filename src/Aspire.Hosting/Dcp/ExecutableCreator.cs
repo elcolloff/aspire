@@ -127,6 +127,8 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
                     spec.Terminal = new TerminalSpec
                     {
                         UdsPath = terminalAnnotation.TerminalHosts[replicaIndex].Layout.ProducerUdsPath,
+                        // The Aspire terminal host owns the listener at UdsPath; DCP must dial it.
+                        SocketMode = "connect",
                         Cols = terminalAnnotation.Options.Columns,
                         Rows = terminalAnnotation.Options.Rows
                     };

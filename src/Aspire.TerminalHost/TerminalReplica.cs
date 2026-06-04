@@ -248,6 +248,10 @@ internal sealed class TerminalReplica : IAsyncDisposable
                     _producerConnected = false;
                 }
 
+                _logger.LogInformation(
+                    "Replica cycle starting (cycle #{RestartCount}); consumer endpoint at '{ConsumerUdsPath}'.",
+                    _restartCount, ConsumerUdsPath);
+
                 try
                 {
                     exitCode = await terminal.RunAsync(ct).ConfigureAwait(false);
@@ -380,14 +384,20 @@ internal sealed class TerminalReplica : IAsyncDisposable
         var upstream = new DcpUpstreamAdapter(
             async cct =>
             {
+                _logger.LogInformation(
+                    "Awaiting DCP producer connection on '{ProducerUdsPath}' (cols={Cols}, rows={Rows}).",
+                    ProducerUdsPath, Columns, Rows);
                 await foreach (var stream in Hmp1Transports.ListenUnixSocket(ProducerUdsPath, cct).ConfigureAwait(false))
                 {
+                    int restartCount;
                     lock (_gate)
                     {
                         _producerConnected = true;
+                        restartCount = _restartCount;
                     }
                     _logger.LogInformation(
-                        "DCP producer connected on '{ProducerUdsPath}'.", ProducerUdsPath);
+                        "DCP producer connected on '{ProducerUdsPath}' (cycle #{RestartCount}).",
+                        ProducerUdsPath, restartCount);
                     return stream;
                 }
                 throw new OperationCanceledException("Producer UDS listener was cancelled before any client connected.");

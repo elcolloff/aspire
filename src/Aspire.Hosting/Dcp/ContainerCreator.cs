@@ -374,6 +374,8 @@ internal sealed class ContainerCreator : IObjectCreator<Container, ContainerCrea
                     spec.Terminal = new TerminalSpec
                     {
                         UdsPath = terminalAnnotation.TerminalHosts[0].Layout.ProducerUdsPath,
+                        // The Aspire terminal host owns the listener at UdsPath; DCP must dial it.
+                        SocketMode = "connect",
                         Cols = terminalAnnotation.Options.Columns,
                         Rows = terminalAnnotation.Options.Rows
                     };
