@@ -151,8 +151,8 @@ internal static class DcpModelUtilities
             AddContainerNetworkAllocatedEndpoint(containerResource, serviceResource);
         }
 
-        modelResource = serviceResource.ModelResource;
-        return AreResourceEndpointsAllocated(modelResource);
+        modelResource = null;
+        return false;
     }
 
     private static bool TryAddLocalhostAllocatedEndpoint(ServiceWithModelResource sp, bool allowPending, int? fallbackPort = null)
