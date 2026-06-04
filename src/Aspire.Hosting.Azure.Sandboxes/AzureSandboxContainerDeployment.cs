@@ -9,7 +9,6 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -17,6 +16,7 @@ using System.Text.Json.Nodes;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Publishing;
+using Azure.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +26,9 @@ internal static class AzureSandboxContainerDeployment
 {
     private const string SandboxStateParentSection = "Azure:Sandboxes";
     internal const string SandboxStateSectionPrefix = $"{SandboxStateParentSection}:";
+    private const string AzureManagementScope = "https://management.azure.com/.default";
     private const string SandboxGroupDataOwnerRole = "Container Apps SandboxGroup Data Owner";
+    private const int DiskImageReadyTimeoutSeconds = 600;
     private const int PublicEndpointTimeoutSeconds = 60;
 
     public static IEnumerable<PipelineStep> CreatePipelineSteps(AzureSandboxContainerResource resource)
@@ -130,12 +132,14 @@ internal static class AzureSandboxContainerDeployment
         var azureState = await GetAzureStateAsync(deploymentStateManager, context.CancellationToken).ConfigureAwait(false);
 
         var sandboxGroupName = GetRequiredOutput(resource.Parent, "name");
-        var command = new AcaCommandContext(azureState.SubscriptionId, azureState.ResourceGroup, azureState.Location, sandboxGroupName);
+        var dataPlaneScope = new AzureDevComputeResourceScope(azureState.SubscriptionId, azureState.ResourceGroup, sandboxGroupName, azureState.Location);
+        var roleCommand = new AcaCommandContext(azureState.SubscriptionId, azureState.ResourceGroup, azureState.Location, sandboxGroupName);
+        var client = CreateAzureDevComputeClient(context);
 
         var stateSection = await deploymentStateManager.AcquireSectionAsync(GetStateSectionName(resource), context.CancellationToken).ConfigureAwait(false);
-        await EnsureSandboxGroupDataOwnerAsync(context, command).ConfigureAwait(false);
+        await EnsureSandboxGroupDataOwnerAsync(context, roleCommand).ConfigureAwait(false);
 
-        await DeleteExistingDeploymentAsync(context, command, stateSection, throwOnError: false).ConfigureAwait(false);
+        await DeleteExistingDeploymentAsync(context, client, dataPlaneScope, stateSection, throwOnError: false).ConfigureAwait(false);
         await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
         stateSection = await deploymentStateManager.AcquireSectionAsync(GetStateSectionName(resource), context.CancellationToken).ConfigureAwait(false);
 
@@ -153,8 +157,9 @@ internal static class AzureSandboxContainerDeployment
             var diskTask = await context.ReportingStep.CreateTaskAsync($"Creating sandbox disk image for {targetResource.Name}", context.CancellationToken).ConfigureAwait(false);
             await using (diskTask.ConfigureAwait(false))
             {
-                var diskOutput = await CreateDiskImageAsync(context, command, resource, imageReference, diskImageName, deployId).ConfigureAwait(false);
-                diskImageId = TryGetJsonString(diskOutput, "id") ?? throw new InvalidOperationException("The aca CLI disk create response did not contain an id.");
+                var diskImage = await CreateDiskImageAsync(context, client, dataPlaneScope, resource, imageReference, diskImageName, deployId).ConfigureAwait(false);
+                diskImageId = diskImage.Id;
+                diskImage = await WaitForDiskImageReadyAsync(context, client, dataPlaneScope, diskImage).ConfigureAwait(false);
                 await diskTask.CompleteAsync($"Created sandbox disk image {diskImageId}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
 
@@ -167,13 +172,8 @@ internal static class AzureSandboxContainerDeployment
             var createTask = await context.ReportingStep.CreateTaskAsync($"Creating sandbox for {targetResource.Name}", context.CancellationToken).ConfigureAwait(false);
             await using (createTask.ConfigureAwait(false))
             {
-                var createOutput = await CreateSandboxAsync(context, command, resource, diskImageId, environmentVariables, imageMetadata, deployId).ConfigureAwait(false);
-                sandboxId = TryGetSandboxId(createOutput) ?? await FindSandboxByLabelAsync(context, command, deployId).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(sandboxId))
-                {
-                    throw new InvalidOperationException("The aca CLI did not return a sandbox ID and the created sandbox could not be found by label.");
-                }
-
+                var sandbox = await CreateSandboxAsync(context, client, dataPlaneScope, resource, diskImageId, environmentVariables, imageMetadata, deployId).ConfigureAwait(false);
+                sandboxId = sandbox.Id;
                 await createTask.CompleteAsync($"Created sandbox {sandboxId}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
 
@@ -182,15 +182,11 @@ internal static class AzureSandboxContainerDeployment
                 var lifecycleTask = await context.ReportingStep.CreateTaskAsync($"Configuring lifecycle for {resource.Name}", context.CancellationToken).ConfigureAwait(false);
                 await using (lifecycleTask.ConfigureAwait(false))
                 {
-                    await RunAcaAsync(
-                        context,
-                        command,
-                        [
-                            "sandbox", "lifecycle", "set",
-                            "--id", sandboxId,
-                            "--auto-suspend", "disable"
-                        ]).ConfigureAwait(false);
-
+                    await client.SetLifecycleAsync(
+                        dataPlaneScope,
+                        sandboxId,
+                        CreateAutoSuspendDisabledLifecyclePolicy(),
+                        context.CancellationToken).ConfigureAwait(false);
                     await lifecycleTask.CompleteAsync("Auto-suspend disabled", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
                 }
             }
@@ -201,10 +197,10 @@ internal static class AzureSandboxContainerDeployment
                 var exposeTask = await context.ReportingStep.CreateTaskAsync($"Exposing sandbox port {endpoint.TargetPort}", context.CancellationToken).ConfigureAwait(false);
                 await using (exposeTask.ConfigureAwait(false))
                 {
-                    var portOutput = await AddPortAsync(context, command, sandboxId, endpoint).ConfigureAwait(false);
+                    var addedPort = await AddPortAsync(context, client, dataPlaneScope, sandboxId, endpoint).ConfigureAwait(false);
                     addedPorts.Add(endpoint);
 
-                    var endpointUrl = TryGetJsonString(portOutput, "url") ?? throw new InvalidOperationException("The aca CLI port add response did not contain a URL.");
+                    var endpointUrl = addedPort.Url.ToString();
                     if (endpoint.IsHttp)
                     {
                         await WaitForPublicHttpAsync(endpointUrl, context.CancellationToken).ConfigureAwait(false);
@@ -226,10 +222,10 @@ internal static class AzureSandboxContainerDeployment
             stateSection.Data.Clear();
             stateSection.Data["SandboxId"] = sandboxId;
             stateSection.Data["DiskImageId"] = diskImageId;
-            stateSection.Data["SubscriptionId"] = command.SubscriptionId;
-            stateSection.Data["ResourceGroup"] = command.ResourceGroup;
-            stateSection.Data["Location"] = command.Region;
-            stateSection.Data["SandboxGroup"] = command.SandboxGroup;
+            stateSection.Data["SubscriptionId"] = dataPlaneScope.SubscriptionId;
+            stateSection.Data["ResourceGroup"] = dataPlaneScope.ResourceGroupName;
+            stateSection.Data["Location"] = azureState.Location;
+            stateSection.Data["SandboxGroup"] = dataPlaneScope.SandboxGroupName;
             stateSection.Data["Ports"] = portStates;
             await deploymentStateManager.SaveSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
 
@@ -246,30 +242,57 @@ internal static class AzureSandboxContainerDeployment
         {
             if (!string.IsNullOrWhiteSpace(sandboxId))
             {
-                await DeleteSandboxAsync(context, command, sandboxId, addedPorts.Select(static endpoint => endpoint.TargetPort), throwOnError: false).ConfigureAwait(false);
+                await DeleteSandboxAsync(context, client, dataPlaneScope, sandboxId, addedPorts.Select(static endpoint => endpoint.TargetPort), throwOnError: false).ConfigureAwait(false);
             }
 
             if (!string.IsNullOrWhiteSpace(diskImageId))
             {
-                await DeleteDiskImageAsync(context, command, diskImageId, throwOnError: false).ConfigureAwait(false);
+                await DeleteDiskImageAsync(context, client, dataPlaneScope, diskImageId, throwOnError: false).ConfigureAwait(false);
             }
 
             throw;
         }
     }
 
-    private static async Task<string> CreateDiskImageAsync(PipelineStepContext context, AcaCommandContext command, AzureSandboxContainerResource resource, string imageReference, string diskImageName, string deployId)
+    private static AzureDevComputeClient CreateAzureDevComputeClient(PipelineStepContext context)
     {
-        var args = new List<string>
-        {
-            "sandboxgroup", "disk", "create",
-            "--image", imageReference,
-            "--name", diskImageName,
-            "--label", $"aspire-resource={resource.Name}",
-            "--label", $"aspire-source={resource.TargetResource.Name}",
-            "--label", $"aspire-deploy={deployId}"
-        };
+        var httpClientFactory = context.Services.GetRequiredService<IHttpClientFactory>();
+        var tokenCredentialProvider = context.Services.GetRequiredService<ITokenCredentialProvider>();
+        return new AzureDevComputeClient(httpClientFactory.CreateClient(), tokenCredentialProvider.TokenCredential, context.Logger);
+    }
 
+    private static Dictionary<string, string> CreateLabels(AzureSandboxContainerResource resource, string deployId)
+    {
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["aspire-resource"] = resource.Name,
+            ["aspire-source"] = resource.TargetResource.Name,
+            ["aspire-deploy"] = deployId
+        };
+    }
+
+    private static AzureDevComputeSandboxLifecyclePolicy CreateAutoSuspendDisabledLifecyclePolicy()
+    {
+        return new AzureDevComputeSandboxLifecyclePolicy
+        {
+            AutoSuspendPolicy = new AzureDevComputeSandboxAutoSuspendPolicy
+            {
+                Enabled = false
+            },
+            AutoDeletePolicy = null
+        };
+    }
+
+    private static async Task<AzureDevComputeDiskImage> CreateDiskImageAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        AzureSandboxContainerResource resource,
+        string imageReference,
+        string diskImageName,
+        string deployId)
+    {
+        AzureDevComputeRegistryCredentials? registryCredentials = null;
         var registry = resource.Parent.ContainerRegistry;
         if (registry is not null)
         {
@@ -278,14 +301,27 @@ internal static class AzureSandboxContainerDeployment
                 imageReference.StartsWith($"{registryEndpoint}/", StringComparison.OrdinalIgnoreCase))
             {
                 var token = await GetAcrRefreshTokenAsync(context, registryEndpoint).ConfigureAwait(false);
-                args.Add("--username");
-                args.Add(token.Username);
-                args.Add("--token");
-                args.Add(token.Token);
+                registryCredentials = new AzureDevComputeRegistryCredentials
+                {
+                    Username = token.Username,
+                    Token = token.Token
+                };
             }
         }
 
-        return await RunAcaAsync(context, command, args).ConfigureAwait(false);
+        return await client.CreateDiskImageAsync(
+            scope,
+            new AzureDevComputeCreateDiskImageRequest
+            {
+                Name = diskImageName,
+                Labels = CreateLabels(resource, deployId),
+                Image = new AzureDevComputeDiskImageSpec
+                {
+                    Base = imageReference
+                },
+                RegistryCredentials = registryCredentials
+            },
+            context.CancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<AcrRefreshToken> GetAcrRefreshTokenAsync(PipelineStepContext context, string registryEndpoint)
@@ -306,96 +342,90 @@ internal static class AzureSandboxContainerDeployment
             context.CancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string> CreateSandboxAsync(
+    private static async Task<AzureDevComputeDiskImage> WaitForDiskImageReadyAsync(
         PipelineStepContext context,
-        AcaCommandContext command,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        AzureDevComputeDiskImage diskImage)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(DiskImageReadyTimeoutSeconds);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (IsDiskImageReady(diskImage))
+            {
+                return diskImage;
+            }
+
+            if (IsTerminalDiskImageFailure(diskImage))
+            {
+                throw new InvalidOperationException($"Sandbox disk image '{diskImage.Id}' failed to become ready. {diskImage.Status.ErrorMessage}");
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), context.CancellationToken).ConfigureAwait(false);
+            diskImage = await client.GetDiskImageAsync(scope, diskImage.Id, context.CancellationToken).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException($"Sandbox disk image '{diskImage.Id}' was not ready after {DiskImageReadyTimeoutSeconds} seconds (last state: '{diskImage.Status.State}').");
+    }
+
+    private static bool IsDiskImageReady(AzureDevComputeDiskImage diskImage) =>
+        string.Equals(diskImage.Status.State, "Ready", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTerminalDiskImageFailure(AzureDevComputeDiskImage diskImage) =>
+        diskImage.Status.State.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+        diskImage.Status.State.Contains("error", StringComparison.OrdinalIgnoreCase);
+
+    private static Task<AzureDevComputeSandbox> CreateSandboxAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
         AzureSandboxContainerResource resource,
         string diskImageId,
         IReadOnlyDictionary<string, string> environmentVariables,
         ContainerImageMetadata imageMetadata,
         string deployId)
     {
-        var spec = new JsonObject
-        {
-            ["diskId"] = diskImageId,
-            ["labels"] = new JsonObject
+        return client.CreateSandboxAsync(
+            scope,
+            new AzureDevComputeSandboxRequest
             {
-                ["aspire-resource"] = resource.Name,
-                ["aspire-source"] = resource.TargetResource.Name,
-                ["aspire-deploy"] = deployId
-            }
-        };
-
-        if (environmentVariables.Count > 0)
-        {
-            var environment = new JsonObject();
-            foreach (var (key, value) in environmentVariables.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-            {
-                environment[key] = value;
-            }
-
-            spec["environment"] = environment;
-        }
-
-        if (imageMetadata.Entrypoint.Count > 0)
-        {
-            spec["entrypoint"] = ToJsonArray(imageMetadata.Entrypoint);
-        }
-
-        if (imageMetadata.Command.Count > 0)
-        {
-            spec["cmd"] = ToJsonArray(imageMetadata.Command);
-        }
-
-        // `aca sandbox apply` is the CLI shape that accepts structured entrypoint/cmd arrays.
-        // The spec can include resolved environment values, so keep it in a temporary directory,
-        // pass only the path to the CLI, and delete it immediately after the command returns.
-        var tempDirectory = Directory.CreateTempSubdirectory("aspire-sandbox-");
-        try
-        {
-            var specPath = Path.Combine(tempDirectory.FullName, "sandbox.json");
-            await File.WriteAllTextAsync(specPath, spec.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), context.CancellationToken).ConfigureAwait(false);
-
-            return await RunAcaAsync(
-                context,
-                command,
-                [
-                    "sandbox", "apply",
-                    "--file", specPath
-                ]).ConfigureAwait(false);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(tempDirectory.FullName, recursive: true);
-            }
-            catch (IOException ex)
-            {
-                context.Logger.LogWarning(ex, "Failed to delete temporary sandbox spec directory '{Directory}'.", tempDirectory.FullName);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                context.Logger.LogWarning(ex, "Failed to delete temporary sandbox spec directory '{Directory}'.", tempDirectory.FullName);
-            }
-        }
+                Labels = CreateLabels(resource, deployId),
+                Environment = environmentVariables.Count > 0 ? environmentVariables : null,
+                Entrypoint = imageMetadata.Entrypoint.Count > 0 ? [.. imageMetadata.Entrypoint] : null,
+                Cmd = imageMetadata.Command.Count > 0 ? [.. imageMetadata.Command] : null,
+                SourcesRef = new AzureDevComputeSandboxSource
+                {
+                    DiskImage = new AzureDevComputeSandboxDiskImageSource
+                    {
+                        Id = diskImageId,
+                        IsPublic = false
+                    }
+                },
+                Resources = new AzureDevComputeSandboxResources()
+            },
+            context.CancellationToken);
     }
 
-    private static Task<string> AddPortAsync(PipelineStepContext context, AcaCommandContext command, string sandboxId, SandboxEndpoint endpoint)
+    private static async Task<AzureDevComputeSandboxPort> AddPortAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        string sandboxId,
+        SandboxEndpoint endpoint)
     {
-        var args = new List<string>
-        {
-            "sandbox", "port", "add",
-            "--id", sandboxId,
-            "--port", endpoint.TargetPort.ToString(CultureInfo.InvariantCulture)
-        };
+        var ports = await client.AddPortAsync(
+            scope,
+            sandboxId,
+            new AzureDevComputeAddPortRequest
+            {
+                Name = endpoint.Name,
+                Port = endpoint.TargetPort,
+                Auth = endpoint.IsExternal ? new AzureDevComputePortAuthConfig { Anonymous = true } : null
+            },
+            context.CancellationToken).ConfigureAwait(false);
 
-        if (endpoint.IsExternal)
-        {
-            args.Add("--anonymous");
-        }
-
-        return RunAcaAsync(context, command, args);
+        return ports.FirstOrDefault(port => port.Port == endpoint.TargetPort)
+            ?? throw new InvalidOperationException($"The ADC port add response did not contain port '{endpoint.TargetPort}' for sandbox '{sandboxId}'.");
     }
 
     private static async Task<string> ResolveContainerImageAsync(PipelineStepContext context, AzureSandboxContainerResource resource)
@@ -530,17 +560,6 @@ internal static class AzureSandboxContainerDeployment
             environmentVariables);
     }
 
-    private static JsonArray ToJsonArray(IEnumerable<string> values)
-    {
-        var array = new JsonArray();
-        foreach (var value in values)
-        {
-            array.Add(value);
-        }
-
-        return array;
-    }
-
     private static IEnumerable<string> ReadCommandParts(JsonNode? node)
     {
         switch (node)
@@ -620,13 +639,14 @@ internal static class AzureSandboxContainerDeployment
             return;
         }
 
-        var command = new AcaCommandContext(
+        var client = CreateAzureDevComputeClient(context);
+        var scope = new AzureDevComputeResourceScope(
             GetRequiredStateValue(stateSection, "SubscriptionId"),
             GetRequiredStateValue(stateSection, "ResourceGroup"),
-            GetRequiredStateValue(stateSection, "Location"),
-            GetRequiredStateValue(stateSection, "SandboxGroup"));
+            GetRequiredStateValue(stateSection, "SandboxGroup"),
+            GetRequiredStateValue(stateSection, "Location"));
 
-        await DeleteExistingDeploymentAsync(context, command, stateSection, throwOnError: true).ConfigureAwait(false);
+        await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
         await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
     }
 
@@ -652,16 +672,17 @@ internal static class AzureSandboxContainerDeployment
                 continue;
             }
 
-            var command = new AcaCommandContext(
+            var client = CreateAzureDevComputeClient(context);
+            var scope = new AzureDevComputeResourceScope(
                 GetRequiredStateValue(stateSection, "SubscriptionId"),
                 GetRequiredStateValue(stateSection, "ResourceGroup"),
-                GetRequiredStateValue(stateSection, "Location"),
-                GetRequiredStateValue(stateSection, "SandboxGroup"));
+                GetRequiredStateValue(stateSection, "SandboxGroup"),
+                GetRequiredStateValue(stateSection, "Location"));
 
             var cleanupTask = await context.ReportingStep.CreateTaskAsync($"Deleting stale sandbox deployment {sectionName}", context.CancellationToken).ConfigureAwait(false);
             await using (cleanupTask.ConfigureAwait(false))
             {
-                await DeleteExistingDeploymentAsync(context, command, stateSection, throwOnError: true).ConfigureAwait(false);
+                await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
                 await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
                 await cleanupTask.CompleteAsync($"Deleted stale sandbox deployment {sectionName}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
@@ -704,18 +725,23 @@ internal static class AzureSandboxContainerDeployment
         return [.. endpoints.Values.OrderBy(static endpoint => endpoint.TargetPort)];
     }
 
-    private static async Task DeleteExistingDeploymentAsync(PipelineStepContext context, AcaCommandContext command, DeploymentStateSection stateSection, bool throwOnError)
+    private static async Task DeleteExistingDeploymentAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        DeploymentStateSection stateSection,
+        bool throwOnError)
     {
         var sandboxId = stateSection.Data["SandboxId"]?.GetValue<string>();
         if (!string.IsNullOrWhiteSpace(sandboxId))
         {
-            await DeleteSandboxAsync(context, command, sandboxId, GetStatePorts(stateSection), throwOnError).ConfigureAwait(false);
+            await DeleteSandboxAsync(context, client, scope, sandboxId, GetStatePorts(stateSection), throwOnError).ConfigureAwait(false);
         }
 
         var diskImageId = stateSection.Data["DiskImageId"]?.GetValue<string>();
         if (!string.IsNullOrWhiteSpace(diskImageId))
         {
-            await DeleteDiskImageAsync(context, command, diskImageId, throwOnError).ConfigureAwait(false);
+            await DeleteDiskImageAsync(context, client, scope, diskImageId, throwOnError).ConfigureAwait(false);
         }
     }
 
@@ -762,20 +788,12 @@ internal static class AzureSandboxContainerDeployment
 
     private static async Task<string> GetCurrentAzurePrincipalIdAsync(PipelineStepContext context)
     {
-        var accessToken = (await RunProcessAsync(
-            context,
-            "az",
-            ["account", "get-access-token", "--query", "accessToken", "-o", "tsv"],
-            workingDirectory: null,
-            logOutput: false,
-            includeOutputInException: false).ConfigureAwait(false)).Trim();
+        var tokenCredentialProvider = context.Services.GetRequiredService<ITokenCredentialProvider>();
+        var accessToken = await tokenCredentialProvider.TokenCredential.GetTokenAsync(
+            new TokenRequestContext([AzureManagementScope]),
+            context.CancellationToken).ConfigureAwait(false);
 
-        if (string.IsNullOrWhiteSpace(accessToken))
-        {
-            throw new InvalidOperationException("Azure CLI did not return an access token for the current account.");
-        }
-
-        return GetPrincipalIdFromAccessToken(accessToken);
+        return GetPrincipalIdFromAccessToken(accessToken.Token);
     }
 
     private static string GetPrincipalIdFromAccessToken(string accessToken)
@@ -783,12 +801,13 @@ internal static class AzureSandboxContainerDeployment
         var parts = accessToken.Split('.');
         if (parts.Length < 2)
         {
-            throw new InvalidOperationException("Azure CLI returned an access token that is not a JWT.");
+            throw new InvalidOperationException("Azure Dev Compute access token is not a JWT.");
         }
 
         // Azure access tokens are JWTs with the current user's object ID in the payload:
         //   <base64url header>.<base64url {"oid":"<principal-id>",...}>.<signature>
-        // The value is used for the sandbox data-plane role assignment; never log the token.
+        // Use an ARM-audience token for this lookup so we don't cache an ADC token before
+        // the sandbox data-plane role has been assigned. Never log the token.
         var payload = parts[1].Replace('-', '+').Replace('_', '/');
         payload = payload.PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
 
@@ -799,7 +818,7 @@ internal static class AzureSandboxContainerDeployment
         }
         catch (FormatException ex)
         {
-            throw new InvalidOperationException("Azure CLI returned an access token with an invalid JWT payload.", ex);
+            throw new InvalidOperationException("Azure Dev Compute access token has an invalid JWT payload.", ex);
         }
 
         using var document = JsonDocument.Parse(payloadBytes);
@@ -807,7 +826,7 @@ internal static class AzureSandboxContainerDeployment
             oidElement.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(oidElement.GetString()))
         {
-            throw new InvalidOperationException("Azure CLI access token did not contain an 'oid' principal claim.");
+            throw new InvalidOperationException("Azure Dev Compute access token did not contain an 'oid' principal claim.");
         }
 
         return oidElement.GetString()!;
@@ -848,45 +867,53 @@ internal static class AzureSandboxContainerDeployment
 
     private static async Task DeleteSandboxAsync(
         PipelineStepContext context,
-        AcaCommandContext command,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
         string sandboxId,
         IEnumerable<int> ports,
         bool throwOnError)
     {
-        foreach (var port in ports.Distinct())
+        try
         {
-            await RunAcaAsync(
-                context,
-                command,
-                [
-                    "sandbox", "port", "remove",
-                    "--id", sandboxId,
-                    "--port", port.ToString(CultureInfo.InvariantCulture)
-                ],
-                throwOnError: false).ConfigureAwait(false);
-        }
+            foreach (var port in ports.Distinct())
+            {
+                try
+                {
+                    await client.RemovePortAsync(
+                        scope,
+                        sandboxId,
+                        new AzureDevComputeRemovePortRequest { Port = port },
+                        context.CancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    context.Logger.LogWarning(ex, "Failed to remove sandbox port {Port} from sandbox '{SandboxId}'.", port, sandboxId);
+                }
+            }
 
-        await RunAcaAsync(
-            context,
-            command,
-            [
-                "sandbox", "delete",
-                "--id", sandboxId,
-                "--yes"
-            ],
-            throwOnError).ConfigureAwait(false);
+            await client.DeleteSandboxAsync(scope, sandboxId, context.CancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (!throwOnError)
+        {
+            context.Logger.LogWarning(ex, "Failed to delete sandbox '{SandboxId}'.", sandboxId);
+        }
     }
 
-    private static Task DeleteDiskImageAsync(PipelineStepContext context, AcaCommandContext command, string diskImageId, bool throwOnError)
+    private static async Task DeleteDiskImageAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        string diskImageId,
+        bool throwOnError)
     {
-        return RunAcaAsync(
-            context,
-            command,
-            [
-                "sandboxgroup", "disk", "delete",
-                "--id", diskImageId
-            ],
-            throwOnError);
+        try
+        {
+            await client.DeleteDiskImageAsync(scope, diskImageId, context.CancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (!throwOnError)
+        {
+            context.Logger.LogWarning(ex, "Failed to delete sandbox disk image '{DiskImageId}'.", diskImageId);
+        }
     }
 
     private static Task<string> RunAcaAsync(PipelineStepContext context, AcaCommandContext command, IReadOnlyList<string> arguments, bool throwOnError = true)
@@ -1023,71 +1050,6 @@ internal static class AzureSandboxContainerDeployment
         }
 
         return value.ToString()!;
-    }
-
-    private static async Task<string> FindSandboxByLabelAsync(PipelineStepContext context, AcaCommandContext command, string deployId)
-    {
-        var listOutput = await RunAcaAsync(
-            context,
-            command,
-            [
-                "sandbox", "list",
-                "--selector", $"aspire-deploy={deployId}"
-            ]).ConfigureAwait(false);
-
-        return TryGetSandboxId(listOutput) ?? string.Empty;
-    }
-
-    private static string? TryGetSandboxId(string output)
-    {
-        // The aca CLI has returned both human text:
-        //   Created sandbox: <id>
-        // and JSON shapes:
-        //   { "id": "<id>", ... }
-        //   [{ "id": "<id>", ... }]
-        //   { "items": [{ "id": "<id>", ... }] }
-        var jsonId = TryGetJsonString(output, "id")
-            ?? TryGetJsonString(output, "sandboxId")
-            ?? TryGetJsonString(output, "sandbox_id");
-        if (!string.IsNullOrWhiteSpace(jsonId))
-        {
-            return jsonId;
-        }
-
-        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            const string prefix = "Created sandbox:";
-            if (line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return line[prefix.Length..].Trim();
-            }
-        }
-
-        return null;
-    }
-
-    private static string? TryGetJsonString(string output, string propertyName)
-    {
-        try
-        {
-            var node = JsonNode.Parse(output);
-            return TryGetJsonString(node, propertyName);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static string? TryGetJsonString(JsonNode? node, string propertyName)
-    {
-        return node switch
-        {
-            JsonObject obj when obj[propertyName]?.GetValue<string>() is { } value => value,
-            JsonObject obj when obj["items"] is JsonArray items => items.Select(item => TryGetJsonString(item, propertyName)).FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)),
-            JsonArray array => array.Select(item => TryGetJsonString(item, propertyName)).FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)),
-            _ => null
-        };
     }
 
     private static string CreateSandboxResourceName(string resourceName, string deployId)

@@ -5,9 +5,13 @@
 #pragma warning disable ASPIREAZURE001
 #pragma warning disable ASPIREAZURE003
 
+using System.Net;
+using System.Text;
+using System.Text.Json;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Utils;
+using Azure.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -124,6 +128,174 @@ public class AzureSandboxesTests
         Assert.Equal("/usr/local/bin:/usr/bin:/bin", metadata.EnvironmentVariables["PATH"]);
         Assert.Equal("http://+:5000", metadata.EnvironmentVariables["ASPNETCORE_URLS"]);
         Assert.Equal(string.Empty, metadata.EnvironmentVariables["EMPTY"]);
+    }
+
+    [Fact]
+    public async Task AzureDevComputeClientCreatesDiskImageWithRegistryCredentials()
+    {
+        var credential = new RecordingTokenCredential();
+        var handler = new RecordingHandler(async request =>
+        {
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal("management.westus3.azuredevcompute.io", request.RequestUri?.Host);
+            Assert.Equal("/subscriptions/sub/resourceGroups/rg/sandboxGroups/sg/diskimages", request.RequestUri?.AbsolutePath);
+            Assert.Equal("?api-version=2026-02-01-preview", request.RequestUri?.Query);
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("test-token", request.Headers.Authorization?.Parameter);
+
+            var body = await request.Content!.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert.Equal("site-1234", root.GetProperty("name").GetString());
+            Assert.Equal("site-container", root.GetProperty("labels").GetProperty("aspire-resource").GetString());
+            Assert.Equal("example.azurecr.io/site:tag", root.GetProperty("image").GetProperty("base").GetString());
+            Assert.Equal("00000000-0000-0000-0000-000000000000", root.GetProperty("registryCredentials").GetProperty("username").GetString());
+            Assert.Equal("refresh-token", root.GetProperty("registryCredentials").GetProperty("token").GetString());
+
+            return JsonResponse(
+                """
+                {
+                  "id": "disk-1",
+                  "labels": {},
+                  "image": { "base": "example.azurecr.io/site:tag" },
+                  "status": { "state": "Ready", "createdAt": "2026-06-03T00:00:00Z", "updatedAt": "2026-06-03T00:00:00Z" }
+                }
+                """);
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), credential, NullLogger.Instance);
+
+        var diskImage = await client.CreateDiskImageAsync(
+            new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3"),
+            new AzureDevComputeCreateDiskImageRequest
+            {
+                Name = "site-1234",
+                Labels = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["aspire-resource"] = "site-container"
+                },
+                Image = new AzureDevComputeDiskImageSpec
+                {
+                    Base = "example.azurecr.io/site:tag"
+                },
+                RegistryCredentials = new AzureDevComputeRegistryCredentials
+                {
+                    Username = "00000000-0000-0000-0000-000000000000",
+                    Token = "refresh-token"
+                }
+            },
+            CancellationToken.None);
+
+        Assert.Equal("disk-1", diskImage.Id);
+        Assert.Equal([AzureDevComputeClient.AuthorizationScope], credential.Scopes);
+    }
+
+    [Fact]
+    public async Task AzureDevComputeClientCreatesSandboxWithContainerMetadata()
+    {
+        var handler = new RecordingHandler(async request =>
+        {
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal("management.westus3.azuredevcompute.io", request.RequestUri?.Host);
+            Assert.Equal("/subscriptions/sub/resourceGroups/rg/sandboxGroups/sg/sandboxes", request.RequestUri?.AbsolutePath);
+            Assert.Equal("?api-version=2026-02-01-preview", request.RequestUri?.Query);
+
+            var body = await request.Content!.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert.Equal("disk-1", root.GetProperty("sourcesRef").GetProperty("diskImage").GetProperty("id").GetString());
+            Assert.False(root.GetProperty("sourcesRef").GetProperty("diskImage").GetProperty("isPublic").GetBoolean());
+            Assert.Equal("1000m", root.GetProperty("resources").GetProperty("cpu").GetString());
+            Assert.Equal("2048Mi", root.GetProperty("resources").GetProperty("memory").GetString());
+            Assert.Equal("20480Mi", root.GetProperty("resources").GetProperty("disk").GetString());
+            Assert.Equal("dotnet", root.GetProperty("entrypoint")[0].GetString());
+            Assert.Equal("/app/app.dll", root.GetProperty("entrypoint")[1].GetString());
+            Assert.Equal("--urls", root.GetProperty("cmd")[0].GetString());
+            Assert.Equal("http://+:5000", root.GetProperty("environment").GetProperty("ASPNETCORE_URLS").GetString());
+
+            return JsonResponse(
+                """
+                {
+                  "id": "sandbox-1",
+                  "vmmType": "cloudhypervisor",
+                  "sourcesRef": { "diskImage": { "id": "disk-1", "isPublic": false } },
+                  "resources": { "cpu": "1000m", "memory": "2048Mi", "disk": "20480Mi" },
+                  "ports": []
+                }
+                """,
+                HttpStatusCode.Created);
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), new RecordingTokenCredential(), NullLogger.Instance);
+
+        var sandbox = await client.CreateSandboxAsync(
+            new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3"),
+            new AzureDevComputeSandboxRequest
+            {
+                Labels = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["aspire-resource"] = "site-container"
+                },
+                Entrypoint = ["dotnet", "/app/app.dll"],
+                Cmd = ["--urls"],
+                Environment = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["ASPNETCORE_URLS"] = "http://+:5000"
+                },
+                SourcesRef = new AzureDevComputeSandboxSource
+                {
+                    DiskImage = new AzureDevComputeSandboxDiskImageSource
+                    {
+                        Id = "disk-1",
+                        IsPublic = false
+                    }
+                },
+                Resources = new AzureDevComputeSandboxResources()
+            },
+            CancellationToken.None);
+
+        Assert.Equal("sandbox-1", sandbox.Id);
+    }
+
+    [Fact]
+    public async Task AzureDevComputeClientAddsAnonymousPort()
+    {
+        var handler = new RecordingHandler(async request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("management.westus3.azuredevcompute.io", request.RequestUri?.Host);
+            Assert.Equal("/subscriptions/sub/resourceGroups/rg/sandboxGroups/sg/sandboxes/sandbox-1/ports/add", request.RequestUri?.AbsolutePath);
+            Assert.Equal("?api-version=2026-02-01-preview", request.RequestUri?.Query);
+
+            var body = await request.Content!.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert.Equal(80, root.GetProperty("port").GetInt32());
+            Assert.True(root.GetProperty("auth").GetProperty("anonymous").GetBoolean());
+            Assert.Equal("Http", root.GetProperty("protocol").GetString());
+
+            return JsonResponse(
+                """
+                {
+                  "ports": [
+                    { "port": 80, "url": "https://sandbox.example.test" }
+                  ]
+                }
+                """);
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), new RecordingTokenCredential(), NullLogger.Instance);
+
+        var ports = await client.AddPortAsync(
+            new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3"),
+            "sandbox-1",
+            new AzureDevComputeAddPortRequest
+            {
+                Port = 80,
+                Auth = new AzureDevComputePortAuthConfig { Anonymous = true }
+            },
+            CancellationToken.None);
+
+        var port = Assert.Single(ports);
+        Assert.Equal(80, port.Port);
+        Assert.Equal("https://sandbox.example.test/", port.Url.ToString());
     }
 
     [Fact]
@@ -305,5 +477,38 @@ public class AzureSandboxesTests
     private sealed class TestProject : IProjectMetadata
     {
         public string ProjectPath => "testproject";
+    }
+
+    private sealed class RecordingHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return handler(request);
+        }
+    }
+
+    private sealed class RecordingTokenCredential : TokenCredential
+    {
+        public string[] Scopes { get; private set; } = [];
+
+        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            Scopes = [.. requestContext.Scopes];
+            return new AccessToken("test-token", DateTimeOffset.UtcNow.AddHours(1));
+        }
+
+        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            Scopes = [.. requestContext.Scopes];
+            return ValueTask.FromResult(new AccessToken("test-token", DateTimeOffset.UtcNow.AddHours(1)));
+        }
+    }
+
+    private static HttpResponseMessage JsonResponse(string content, HttpStatusCode statusCode = HttpStatusCode.OK)
+    {
+        return new HttpResponseMessage(statusCode)
+        {
+            Content = new StringContent(content, Encoding.UTF8, "application/json")
+        };
     }
 }
