@@ -177,7 +177,7 @@ internal static class AzureSandboxContainerDeployment
                 await createTask.CompleteAsync($"Created sandbox {sandboxId}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
 
-            if (!resource.AutoSuspend)
+            if (CreateLifecyclePolicy(resource) is { } lifecycle)
             {
                 var lifecycleTask = await context.ReportingStep.CreateTaskAsync($"Configuring lifecycle for {resource.Name}", context.CancellationToken).ConfigureAwait(false);
                 await using (lifecycleTask.ConfigureAwait(false))
@@ -185,9 +185,9 @@ internal static class AzureSandboxContainerDeployment
                     await client.SetLifecycleAsync(
                         dataPlaneScope,
                         sandboxId,
-                        CreateAutoSuspendDisabledLifecyclePolicy(),
+                        lifecycle,
                         context.CancellationToken).ConfigureAwait(false);
-                    await lifecycleTask.CompleteAsync("Auto-suspend disabled", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
+                    await lifecycleTask.CompleteAsync("Lifecycle policy configured", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -201,7 +201,7 @@ internal static class AzureSandboxContainerDeployment
                     addedPorts.Add(endpoint);
 
                     var endpointUrl = addedPort.Url.ToString();
-                    if (endpoint.IsHttp)
+                    if (endpoint.IsExternal && endpoint.IsHttp)
                     {
                         await WaitForPublicHttpAsync(endpointUrl, context.CancellationToken).ConfigureAwait(false);
                     }
@@ -271,15 +271,32 @@ internal static class AzureSandboxContainerDeployment
         };
     }
 
-    private static AzureDevComputeSandboxLifecyclePolicy CreateAutoSuspendDisabledLifecyclePolicy()
+    internal static AzureDevComputeSandboxLifecyclePolicy? CreateLifecyclePolicy(AzureSandboxContainerResource resource)
     {
+        var options = GetAzureSandboxContainerOptions(resource.TargetResource);
+        var hasAutoSuspendOverride = options?.AutoSuspendEnabled is not null;
+        var hasAutoDeleteOverride = options?.AutoDeleteEnabled is not null;
+
+        if (resource.AutoSuspend && !hasAutoSuspendOverride && !hasAutoDeleteOverride)
+        {
+            return null;
+        }
+
         return new AzureDevComputeSandboxLifecyclePolicy
         {
-            AutoSuspendPolicy = new AzureDevComputeSandboxAutoSuspendPolicy
+            AutoSuspendPolicy = hasAutoSuspendOverride || !resource.AutoSuspend ? new AzureDevComputeSandboxAutoSuspendPolicy
             {
-                Enabled = false
-            },
-            AutoDeletePolicy = null
+                Enabled = options?.AutoSuspendEnabled ?? resource.AutoSuspend,
+                Interval = options?.AutoSuspendInterval,
+                Mode = options?.AutoSuspendMode
+            } : null,
+            AutoDeletePolicy = hasAutoDeleteOverride ? new AzureDevComputeSandboxAutoDeletePolicy
+            {
+                Enabled = options!.AutoDeleteEnabled!.Value,
+                DeleteIntervalInDays = options.AutoDeleteIntervalInDays,
+                DeleteIntervalInSeconds = options.AutoDeleteIntervalInSeconds,
+                Trigger = options.AutoDeleteTrigger
+            } : null
         };
     }
 
@@ -401,9 +418,49 @@ internal static class AzureSandboxContainerDeployment
                         IsPublic = false
                     }
                 },
-                Resources = new AzureDevComputeSandboxResources()
+                Resources = CreateSandboxResources(resource),
+                Volumes = ResolveSandboxVolumes(resource.TargetResource)
             },
             context.CancellationToken);
+    }
+
+    internal static AzureDevComputeSandboxResources CreateSandboxResources(AzureSandboxContainerResource resource)
+    {
+        var options = GetAzureSandboxContainerOptions(resource.TargetResource);
+        return new AzureDevComputeSandboxResources
+        {
+            Cpu = options?.Cpu ?? "1000m",
+            Memory = options?.Memory ?? "2048Mi",
+            Disk = options?.Disk ?? "20480Mi"
+        };
+    }
+
+    internal static List<AzureDevComputeSandboxVolume>? ResolveSandboxVolumes(IResource resource)
+    {
+        if (!resource.TryGetContainerMounts(out var mounts))
+        {
+            return null;
+        }
+
+        var volumes = new List<AzureDevComputeSandboxVolume>();
+        var index = 0;
+        foreach (var mount in mounts)
+        {
+            if (mount.Type == ContainerMountType.BindMount)
+            {
+                throw new NotSupportedException($"Bind mount '{mount.Source}' on resource '{resource.Name}' cannot be deployed to an Azure sandbox. Use a container volume instead.");
+            }
+
+            volumes.Add(new AzureDevComputeSandboxVolume
+            {
+                VolumeName = string.IsNullOrWhiteSpace(mount.Source) ? CreateSandboxVolumeName(resource.Name, index) : mount.Source,
+                Mountpoint = mount.Target,
+                ReadOnly = mount.IsReadOnly
+            });
+            index++;
+        }
+
+        return volumes.Count > 0 ? volumes : null;
     }
 
     private static async Task<AzureDevComputeSandboxPort> AddPortAsync(
@@ -420,7 +477,8 @@ internal static class AzureSandboxContainerDeployment
             {
                 Name = endpoint.Name,
                 Port = endpoint.TargetPort,
-                Auth = endpoint.IsExternal ? new AzureDevComputePortAuthConfig { Anonymous = true } : null
+                Auth = endpoint.IsExternal ? new AzureDevComputePortAuthConfig { Anonymous = endpoint.Anonymous ?? true } : null,
+                Protocol = endpoint.Protocol
             },
             context.CancellationToken).ConfigureAwait(false);
 
@@ -452,7 +510,7 @@ internal static class AzureSandboxContainerDeployment
         var (modeledEntrypoint, modeledCommand) = await ResolveModeledCommandAsync(context, resource).ConfigureAwait(false);
         if (!resource.RequiresImageBuildAndPush())
         {
-            return new ContainerImageMetadata(modeledEntrypoint ?? [], modeledCommand ?? [], new Dictionary<string, string>(StringComparer.Ordinal));
+            return new ContainerImageMetadata(modeledEntrypoint ?? [], modeledCommand ?? [], new Dictionary<string, string>(StringComparer.Ordinal), WorkingDirectory: null);
         }
 
         var metadata = await InspectLocalContainerImageAsync(context, imageReference).ConfigureAwait(false);
@@ -557,7 +615,8 @@ internal static class AzureSandboxContainerDeployment
         return new ContainerImageMetadata(
             ReadCommandParts(configObject["Entrypoint"]).ToArray(),
             ReadCommandParts(configObject["Cmd"]).ToArray(),
-            environmentVariables);
+            environmentVariables,
+            configObject["WorkingDir"]?.GetValue<string>());
     }
 
     private static IEnumerable<string> ReadCommandParts(JsonNode? node)
@@ -693,6 +752,8 @@ internal static class AzureSandboxContainerDeployment
     {
         ArgumentNullException.ThrowIfNull(resource);
 
+        var options = GetAzureSandboxContainerOptions(resource.TargetResource);
+        var unmatchedEndpointOptions = options is null ? null : new HashSet<string>(options.Endpoints.Keys, StringComparer.Ordinal);
         var endpoints = new Dictionary<int, SandboxEndpoint>();
         foreach (var resolvedEndpoint in resource.TargetResource.ResolveEndpoints())
         {
@@ -701,19 +762,29 @@ internal static class AzureSandboxContainerDeployment
                 throw new InvalidOperationException($"Endpoint '{resolvedEndpoint.Endpoint.Name}' on resource '{resource.TargetResource.Name}' does not have a target port. Configure a target port before deploying it to an Azure sandbox.");
             }
 
-            var transport = resolvedEndpoint.Endpoint.Transport;
+            var protocol = ResolveSandboxPortProtocol(resource.TargetResource, resolvedEndpoint.Endpoint);
+            var endpointOptions = options?.Endpoints.GetValueOrDefault(resolvedEndpoint.Endpoint.Name);
+            unmatchedEndpointOptions?.Remove(resolvedEndpoint.Endpoint.Name);
             var endpoint = new SandboxEndpoint(
                 resolvedEndpoint.Endpoint.Name,
                 targetPort,
                 resolvedEndpoint.Endpoint.IsExternal,
-                transport is "http" or "http2");
+                IsHttp: true,
+                protocol,
+                endpointOptions?.Anonymous);
 
             if (endpoints.TryGetValue(targetPort, out var existingEndpoint))
             {
+                if (!string.Equals(existingEndpoint.Protocol, endpoint.Protocol, StringComparison.Ordinal))
+                {
+                    throw new NotSupportedException($"Endpoint '{resolvedEndpoint.Endpoint.Name}' on resource '{resource.TargetResource.Name}' shares target port {targetPort} with endpoint '{existingEndpoint.Name}' but uses a different transport. Azure sandbox ports support a single HTTP protocol per target port.");
+                }
+
                 endpoints[targetPort] = existingEndpoint with
                 {
                     IsExternal = existingEndpoint.IsExternal || endpoint.IsExternal,
-                    IsHttp = existingEndpoint.IsHttp || endpoint.IsHttp
+                    IsHttp = existingEndpoint.IsHttp || endpoint.IsHttp,
+                    Anonymous = MergeAnonymousAccess(existingEndpoint.Anonymous, endpoint.Anonymous)
                 };
             }
             else
@@ -722,7 +793,32 @@ internal static class AzureSandboxContainerDeployment
             }
         }
 
+        if (unmatchedEndpointOptions is { Count: > 0 })
+        {
+            throw new InvalidOperationException($"Resource '{resource.TargetResource.Name}' has Azure sandbox endpoint options for unknown endpoint(s): {string.Join(", ", unmatchedEndpointOptions)}.");
+        }
+
         return [.. endpoints.Values.OrderBy(static endpoint => endpoint.TargetPort)];
+    }
+
+    private static string ResolveSandboxPortProtocol(IResource resource, EndpointAnnotation endpoint)
+    {
+        return endpoint.Transport switch
+        {
+            "http" => "Http",
+            "http2" => "Http2",
+            _ => throw new NotSupportedException($"Endpoint '{endpoint.Name}' on resource '{resource.Name}' uses transport '{endpoint.Transport}'. Azure sandbox ports currently support only HTTP and HTTP/2 endpoints.")
+        };
+    }
+
+    private static bool? MergeAnonymousAccess(bool? existing, bool? current)
+    {
+        if (existing == false || current == false)
+        {
+            return false;
+        }
+
+        return existing ?? current;
     }
 
     private static async Task DeleteExistingDeploymentAsync(
@@ -1068,6 +1164,27 @@ internal static class AzureSandboxContainerDeployment
         return $"{normalized}-{deployId[..8]}";
     }
 
+    private static string CreateSandboxVolumeName(string resourceName, int index)
+    {
+        var normalized = new string(resourceName.ToLowerInvariant().Select(static c => char.IsLetterOrDigit(c) ? c : '-').ToArray()).Trim('-');
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            normalized = "volume";
+        }
+
+        if (normalized.Length > 48)
+        {
+            normalized = normalized[..48].Trim('-');
+        }
+
+        return $"{normalized}-volume-{index}";
+    }
+
+    private static AzureSandboxContainerOptionsAnnotation? GetAzureSandboxContainerOptions(IResource resource)
+    {
+        return resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault();
+    }
+
     private static string FormatProcessArgumentsForDisplay(IReadOnlyList<string> arguments)
     {
         var formattedArguments = new string[arguments.Count];
@@ -1136,9 +1253,9 @@ internal static class AzureSandboxContainerDeployment
 
     private static string GetDestroyStepName(AzureSandboxContainerResource resource) => $"destroy-{resource.Name}";
 
-    internal readonly record struct SandboxEndpoint(string Name, int TargetPort, bool IsExternal, bool IsHttp);
+    internal readonly record struct SandboxEndpoint(string Name, int TargetPort, bool IsExternal, bool IsHttp, string Protocol, bool? Anonymous);
 
-    internal sealed record ContainerImageMetadata(IReadOnlyList<string> Entrypoint, IReadOnlyList<string> Command, IReadOnlyDictionary<string, string> EnvironmentVariables);
+    internal sealed record ContainerImageMetadata(IReadOnlyList<string> Entrypoint, IReadOnlyList<string> Command, IReadOnlyDictionary<string, string> EnvironmentVariables, string? WorkingDirectory);
 
     private sealed record AzureDeploymentState(string SubscriptionId, string ResourceGroup, string Location);
 

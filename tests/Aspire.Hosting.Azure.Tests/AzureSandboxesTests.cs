@@ -128,6 +128,7 @@ public class AzureSandboxesTests
         Assert.Equal("/usr/local/bin:/usr/bin:/bin", metadata.EnvironmentVariables["PATH"]);
         Assert.Equal("http://+:5000", metadata.EnvironmentVariables["ASPNETCORE_URLS"]);
         Assert.Equal(string.Empty, metadata.EnvironmentVariables["EMPTY"]);
+        Assert.Equal("/app", metadata.WorkingDirectory);
     }
 
     [Fact]
@@ -190,6 +191,38 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public async Task AzureDevComputeClientRetriesForbiddenResponses()
+    {
+        var attempts = 0;
+        var handler = new RecordingHandler(_ =>
+        {
+            attempts++;
+            if (attempts == 1)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+            }
+
+            return Task.FromResult(JsonResponse(
+                """
+                {
+                  "id": "disk-1",
+                  "labels": {},
+                  "status": { "state": "Ready" }
+                }
+                """));
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), new RecordingTokenCredential(), NullLogger.Instance, TimeSpan.Zero);
+
+        var diskImage = await client.GetDiskImageAsync(
+            new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3"),
+            "disk-1",
+            CancellationToken.None);
+
+        Assert.Equal("disk-1", diskImage.Id);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
     public async Task AzureDevComputeClientCreatesSandboxWithContainerMetadata()
     {
         var handler = new RecordingHandler(async request =>
@@ -204,13 +237,16 @@ public class AzureSandboxesTests
             var root = document.RootElement;
             Assert.Equal("disk-1", root.GetProperty("sourcesRef").GetProperty("diskImage").GetProperty("id").GetString());
             Assert.False(root.GetProperty("sourcesRef").GetProperty("diskImage").GetProperty("isPublic").GetBoolean());
-            Assert.Equal("1000m", root.GetProperty("resources").GetProperty("cpu").GetString());
-            Assert.Equal("2048Mi", root.GetProperty("resources").GetProperty("memory").GetString());
-            Assert.Equal("20480Mi", root.GetProperty("resources").GetProperty("disk").GetString());
+            Assert.Equal("2000m", root.GetProperty("resources").GetProperty("cpu").GetString());
+            Assert.Equal("4096Mi", root.GetProperty("resources").GetProperty("memory").GetString());
+            Assert.Equal("32768Mi", root.GetProperty("resources").GetProperty("disk").GetString());
             Assert.Equal("dotnet", root.GetProperty("entrypoint")[0].GetString());
             Assert.Equal("/app/app.dll", root.GetProperty("entrypoint")[1].GetString());
             Assert.Equal("--urls", root.GetProperty("cmd")[0].GetString());
             Assert.Equal("http://+:5000", root.GetProperty("environment").GetProperty("ASPNETCORE_URLS").GetString());
+            Assert.Equal("cache", root.GetProperty("volumes")[0].GetProperty("volumeName").GetString());
+            Assert.Equal("/cache", root.GetProperty("volumes")[0].GetProperty("mountpoint").GetString());
+            Assert.True(root.GetProperty("volumes")[0].GetProperty("readOnly").GetBoolean());
 
             return JsonResponse(
                 """
@@ -249,6 +285,71 @@ public class AzureSandboxesTests
                     }
                 },
                 Resources = new AzureDevComputeSandboxResources()
+                {
+                    Cpu = "2000m",
+                    Memory = "4096Mi",
+                    Disk = "32768Mi"
+                },
+                Volumes =
+                [
+                    new AzureDevComputeSandboxVolume
+                    {
+                        VolumeName = "cache",
+                        Mountpoint = "/cache",
+                        ReadOnly = true
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        Assert.Equal("sandbox-1", sandbox.Id);
+    }
+
+    [Fact]
+    public async Task AzureDevComputeClientSetsLifecycleWithAutoDelete()
+    {
+        var handler = new RecordingHandler(async request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/subscriptions/sub/resourceGroups/rg/sandboxGroups/sg/sandboxes/sandbox-1/lifecycle", request.RequestUri?.AbsolutePath);
+
+            var body = await request.Content!.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert.False(root.GetProperty("autoSuspendPolicy").GetProperty("enabled").GetBoolean());
+            Assert.Equal(300, root.GetProperty("autoSuspendPolicy").GetProperty("interval").GetInt32());
+            Assert.Equal("Disk", root.GetProperty("autoSuspendPolicy").GetProperty("mode").GetString());
+            Assert.True(root.GetProperty("autoDeletePolicy").GetProperty("enabled").GetBoolean());
+            Assert.Equal(3600, root.GetProperty("autoDeletePolicy").GetProperty("deleteIntervalInSeconds").GetInt64());
+            Assert.Equal("AfterSuspend", root.GetProperty("autoDeletePolicy").GetProperty("trigger").GetString());
+
+            return JsonResponse(
+                """
+                {
+                  "id": "sandbox-1",
+                  "ports": []
+                }
+                """);
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), new RecordingTokenCredential(), NullLogger.Instance);
+
+        var sandbox = await client.SetLifecycleAsync(
+            new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3"),
+            "sandbox-1",
+            new AzureDevComputeSandboxLifecyclePolicy
+            {
+                AutoSuspendPolicy = new AzureDevComputeSandboxAutoSuspendPolicy
+                {
+                    Enabled = false,
+                    Interval = 300,
+                    Mode = "Disk"
+                },
+                AutoDeletePolicy = new AzureDevComputeSandboxAutoDeletePolicy
+                {
+                    Enabled = true,
+                    DeleteIntervalInSeconds = 3600,
+                    Trigger = "AfterSuspend"
+                }
             },
             CancellationToken.None);
 
@@ -289,13 +390,130 @@ public class AzureSandboxesTests
             new AzureDevComputeAddPortRequest
             {
                 Port = 80,
-                Auth = new AzureDevComputePortAuthConfig { Anonymous = true }
+                Auth = new AzureDevComputePortAuthConfig { Anonymous = true },
+                Protocol = "Http"
             },
             CancellationToken.None);
 
         var port = Assert.Single(ports);
         Assert.Equal(80, port.Port);
         Assert.Equal("https://sandbox.example.test/", port.Url.ToString());
+    }
+
+    [Fact]
+    public async Task SandboxContainerOptionsMapToRuntimeRequestShapes()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .WithVolume("cache", "/cache", isReadOnly: true)
+            .WithAzureSandboxResources(cpu: "2000m", memory: "4096Mi", disk: "32768Mi")
+            .WithAzureSandboxAutoSuspend(enabled: false, interval: 300, mode: "Disk")
+            .WithAzureSandboxAutoDelete(deleteIntervalInSeconds: 3600, trigger: "AfterSuspend")
+            .WithAzureSandboxEndpointAnonymousAccess("http", anonymous: false);
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "frontend");
+        var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget?.DeploymentTarget);
+
+        var resources = AzureSandboxContainerDeployment.CreateSandboxResources(sandboxContainer);
+        Assert.Equal("2000m", resources.Cpu);
+        Assert.Equal("4096Mi", resources.Memory);
+        Assert.Equal("32768Mi", resources.Disk);
+
+        var lifecycle = AzureSandboxContainerDeployment.CreateLifecyclePolicy(sandboxContainer);
+        Assert.NotNull(lifecycle);
+        Assert.NotNull(lifecycle.AutoSuspendPolicy);
+        Assert.False(lifecycle.AutoSuspendPolicy.Enabled);
+        Assert.Equal(300, lifecycle.AutoSuspendPolicy.Interval);
+        Assert.Equal("Disk", lifecycle.AutoSuspendPolicy.Mode);
+        Assert.NotNull(lifecycle.AutoDeletePolicy);
+        Assert.True(lifecycle.AutoDeletePolicy.Enabled);
+        Assert.Equal(3600, lifecycle.AutoDeletePolicy.DeleteIntervalInSeconds);
+        Assert.Equal("AfterSuspend", lifecycle.AutoDeletePolicy.Trigger);
+
+        var volume = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxVolumes(computeResource)!);
+        Assert.Equal("cache", volume.VolumeName);
+        Assert.Equal("/cache", volume.Mountpoint);
+        Assert.True(volume.ReadOnly);
+
+        var endpoint = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
+        Assert.Equal("Http", endpoint.Protocol);
+        Assert.False(endpoint.Anonymous);
+    }
+
+    [Fact]
+    public async Task SandboxContainerEndpointResolutionMapsHttp2()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .AsHttp2Service();
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "frontend");
+        var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget?.DeploymentTarget);
+
+        var endpoint = Assert.Single(AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
+        Assert.Equal("Http2", endpoint.Protocol);
+    }
+
+    [Fact]
+    public async Task SandboxContainerEndpointResolutionRejectsUnknownEndpointOptions()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .WithAzureSandboxEndpointAnonymousAccess("typo", anonymous: false);
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "frontend");
+        var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget?.DeploymentTarget);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
+        Assert.Contains("unknown endpoint", exception.Message);
+    }
+
+    [Fact]
+    public async Task SandboxContainerEndpointResolutionRejectsTcp()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddContainer("cache", "redis", "latest")
+            .WithEndpoint(targetPort: 6379, scheme: "tcp");
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var computeResource = Assert.Single(model.GetComputeResources(), resource => resource.Name == "cache");
+        var deploymentTarget = computeResource.GetDeploymentTargetAnnotation(sandboxGroup.Resource);
+        var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget?.DeploymentTarget);
+
+        var exception = Assert.Throws<NotSupportedException>(() => AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
+        Assert.Contains("support only HTTP and HTTP/2 endpoints", exception.Message);
     }
 
     [Fact]

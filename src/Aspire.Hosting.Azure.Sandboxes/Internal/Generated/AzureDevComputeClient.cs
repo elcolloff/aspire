@@ -14,11 +14,12 @@ namespace Aspire.Hosting.Azure;
 // Generated-style client for the ADC Global API OpenAPI v1 surface:
 //   https://management.azuredevcompute.io/openapi/v1.json
 // Keep this internal and intentionally narrow until the sandbox data-plane API stabilizes.
-internal sealed class AzureDevComputeClient(HttpClient httpClient, TokenCredential credential, ILogger logger)
+internal sealed class AzureDevComputeClient(HttpClient httpClient, TokenCredential credential, ILogger logger, TimeSpan? forbiddenRetryDelay = null)
 {
     internal const string AuthorizationScope = "https://management.azuredevcompute.io/.default";
 
     private const string ApiVersion = "2026-02-01-preview";
+    private const int ForbiddenRetryCount = 6;
     private static readonly string[] s_authorizationScopes = [AuthorizationScope];
     private static readonly JsonSerializerOptions s_jsonSerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -129,17 +130,36 @@ internal sealed class AzureDevComputeClient(HttpClient httpClient, TokenCredenti
 
     private async Task SendAsync(AzureDevComputeResourceScope scope, HttpMethod method, string path, object? content, CancellationToken cancellationToken)
     {
-        using var response = await SendCoreAsync(scope, method, path, content, cancellationToken).ConfigureAwait(false);
+        using var response = await SendWithForbiddenRetryAsync(scope, method, path, content, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, method, path, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<T> SendAsync<T>(AzureDevComputeResourceScope scope, HttpMethod method, string path, object? content, CancellationToken cancellationToken)
     {
-        using var response = await SendCoreAsync(scope, method, path, content, cancellationToken).ConfigureAwait(false);
+        using var response = await SendWithForbiddenRetryAsync(scope, method, path, content, cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, method, path, cancellationToken).ConfigureAwait(false);
 
         var result = await response.Content.ReadFromJsonAsync<T>(s_jsonSerializerOptions, cancellationToken).ConfigureAwait(false);
         return result ?? throw new InvalidOperationException($"ADC request '{method} {path}' returned an empty response.");
+    }
+
+    private async Task<HttpResponseMessage> SendWithForbiddenRetryAsync(AzureDevComputeResourceScope scope, HttpMethod method, string path, object? content, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var response = await SendCoreAsync(scope, method, path, content, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode != HttpStatusCode.Forbidden || attempt >= ForbiddenRetryCount)
+            {
+                return response;
+            }
+
+            // Sandbox data-plane role grants can take a few seconds to propagate after
+            // `aca sandboxgroup role create` succeeds. Retry only 403s so real request
+            // shape errors and service failures still surface immediately.
+            response.Dispose();
+            logger.LogInformation("ADC request {Method} {Path} returned 403. Retrying after sandbox role propagation delay.", method.Method, path);
+            await Task.Delay(forbiddenRetryDelay ?? TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<HttpResponseMessage> SendCoreAsync(AzureDevComputeResourceScope scope, HttpMethod method, string path, object? content, CancellationToken cancellationToken)
@@ -289,6 +309,8 @@ internal sealed class AzureDevComputeSandboxRequest
     public required AzureDevComputeSandboxSource SourcesRef { get; init; }
 
     public required AzureDevComputeSandboxResources Resources { get; init; }
+
+    public List<AzureDevComputeSandboxVolume>? Volumes { get; init; }
 }
 
 internal sealed class AzureDevComputeSandboxSource
@@ -312,6 +334,15 @@ internal sealed class AzureDevComputeSandboxResources
     public string Disk { get; init; } = "20480Mi";
 }
 
+internal sealed class AzureDevComputeSandboxVolume
+{
+    public required string VolumeName { get; init; }
+
+    public required string Mountpoint { get; init; }
+
+    public bool ReadOnly { get; init; }
+}
+
 internal sealed class AzureDevComputeSandbox
 {
     public required string Id { get; init; }
@@ -323,7 +354,8 @@ internal sealed class AzureDevComputeSandbox
 
 internal sealed class AzureDevComputeSandboxLifecyclePolicy
 {
-    public required AzureDevComputeSandboxAutoSuspendPolicy AutoSuspendPolicy { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public AzureDevComputeSandboxAutoSuspendPolicy? AutoSuspendPolicy { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public AzureDevComputeSandboxAutoDeletePolicy? AutoDeletePolicy { get; init; }
@@ -332,11 +364,21 @@ internal sealed class AzureDevComputeSandboxLifecyclePolicy
 internal sealed class AzureDevComputeSandboxAutoSuspendPolicy
 {
     public required bool Enabled { get; init; }
+
+    public int? Interval { get; init; }
+
+    public string? Mode { get; init; }
 }
 
 internal sealed class AzureDevComputeSandboxAutoDeletePolicy
 {
     public required bool Enabled { get; init; }
+
+    public int? DeleteIntervalInDays { get; init; }
+
+    public long? DeleteIntervalInSeconds { get; init; }
+
+    public string? Trigger { get; init; }
 }
 
 internal sealed class AzureDevComputeAddPortRequest
@@ -347,7 +389,7 @@ internal sealed class AzureDevComputeAddPortRequest
 
     public AzureDevComputePortAuthConfig? Auth { get; init; }
 
-    public string Protocol { get; init; } = "Http";
+    public required string Protocol { get; init; }
 }
 
 internal sealed class AzureDevComputeRemovePortRequest

@@ -270,6 +270,139 @@ public static class AzureSandboxesExtensions
     }
 
     /// <summary>
+    /// Configures CPU, memory, and disk resources for a compute resource deployed to an Azure sandbox.
+    /// </summary>
+    /// <typeparam name="T">The compute resource type.</typeparam>
+    /// <param name="builder">The compute resource builder.</param>
+    /// <param name="cpu">The CPU quantity, such as <c>1000m</c>.</param>
+    /// <param name="memory">The memory quantity, such as <c>2048Mi</c>.</param>
+    /// <param name="disk">The disk quantity, such as <c>20480Mi</c>.</param>
+    /// <returns>The resource builder.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when a configured quantity is empty.</exception>
+    [AspireExport]
+    public static IResourceBuilder<T> WithAzureSandboxResources<T>(
+        this IResourceBuilder<T> builder,
+        string? cpu = null,
+        string? memory = null,
+        string? disk = null)
+        where T : IResource, IComputeResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        ValidateOptionalQuantity(cpu, nameof(cpu));
+        ValidateOptionalQuantity(memory, nameof(memory));
+        ValidateOptionalQuantity(disk, nameof(disk));
+
+        var options = GetOrCreateAzureSandboxOptions(builder);
+        options.Cpu = cpu ?? options.Cpu;
+        options.Memory = memory ?? options.Memory;
+        options.Disk = disk ?? options.Disk;
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures the auto-suspend policy for a compute resource deployed to an Azure sandbox.
+    /// </summary>
+    /// <typeparam name="T">The compute resource type.</typeparam>
+    /// <param name="builder">The compute resource builder.</param>
+    /// <param name="enabled">A value indicating whether auto-suspend is enabled.</param>
+    /// <param name="interval">The idle interval, in seconds, before auto-suspend runs.</param>
+    /// <param name="mode">The sandbox suspend mode. Supported values are <c>Memory</c>, <c>Disk</c>, and <c>None</c>.</param>
+    /// <returns>The resource builder.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="interval"/> is negative.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="mode"/> is not supported.</exception>
+    [AspireExport]
+    public static IResourceBuilder<T> WithAzureSandboxAutoSuspend<T>(
+        this IResourceBuilder<T> builder,
+        bool enabled = true,
+        int? interval = null,
+        string? mode = null)
+        where T : IResource, IComputeResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ValidateOptionalNonNegative(interval, nameof(interval));
+        ValidateOptionalAllowedValue(mode, nameof(mode), "Memory", "Disk", "None");
+
+        var options = GetOrCreateAzureSandboxOptions(builder);
+        options.AutoSuspendEnabled = enabled;
+        options.AutoSuspendInterval = interval;
+        options.AutoSuspendMode = mode;
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures the auto-delete policy for a compute resource deployed to an Azure sandbox.
+    /// </summary>
+    /// <typeparam name="T">The compute resource type.</typeparam>
+    /// <param name="builder">The compute resource builder.</param>
+    /// <param name="enabled">A value indicating whether auto-delete is enabled.</param>
+    /// <param name="deleteIntervalInDays">The delete interval, in days.</param>
+    /// <param name="deleteIntervalInSeconds">The delete interval, in seconds.</param>
+    /// <param name="trigger">The auto-delete trigger. Supported values are <c>AfterSuspend</c> and <c>AfterCreation</c>.</param>
+    /// <returns>The resource builder.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when an interval is negative.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="trigger"/> is not supported.</exception>
+    [AspireExport]
+    public static IResourceBuilder<T> WithAzureSandboxAutoDelete<T>(
+        this IResourceBuilder<T> builder,
+        bool enabled = true,
+        int? deleteIntervalInDays = null,
+        long? deleteIntervalInSeconds = null,
+        string? trigger = null)
+        where T : IResource, IComputeResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ValidateOptionalNonNegative(deleteIntervalInDays, nameof(deleteIntervalInDays));
+        ValidateOptionalNonNegative(deleteIntervalInSeconds, nameof(deleteIntervalInSeconds));
+        ValidateOptionalAllowedValue(trigger, nameof(trigger), "AfterSuspend", "AfterCreation");
+
+        var options = GetOrCreateAzureSandboxOptions(builder);
+        options.AutoDeleteEnabled = enabled;
+        options.AutoDeleteIntervalInDays = deleteIntervalInDays;
+        options.AutoDeleteIntervalInSeconds = deleteIntervalInSeconds;
+        options.AutoDeleteTrigger = trigger;
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures anonymous access for a compute resource endpoint deployed to an Azure sandbox.
+    /// </summary>
+    /// <typeparam name="T">The compute resource type.</typeparam>
+    /// <param name="builder">The compute resource builder.</param>
+    /// <param name="endpointName">The Aspire endpoint name.</param>
+    /// <param name="anonymous">A value indicating whether the sandbox port allows anonymous access.</param>
+    /// <returns>The resource builder.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="endpointName"/> is empty.</exception>
+    [AspireExport]
+    public static IResourceBuilder<T> WithAzureSandboxEndpointAnonymousAccess<T>(
+        this IResourceBuilder<T> builder,
+        string endpointName,
+        bool anonymous = true)
+        where T : IResource, IComputeResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
+
+        var options = GetOrCreateAzureSandboxOptions(builder);
+        if (!options.Endpoints.TryGetValue(endpointName, out var endpointOptions))
+        {
+            endpointOptions = new AzureSandboxEndpointOptions();
+            options.Endpoints.Add(endpointName, endpointOptions);
+        }
+
+        endpointOptions.Anonymous = anonymous;
+
+        return builder;
+    }
+
+    /// <summary>
     /// Configures the Azure sandbox group to use no managed identity.
     /// </summary>
     /// <param name="builder">The sandbox group resource builder.</param>
@@ -372,6 +505,61 @@ public static class AzureSandboxesExtensions
         }
 
         return builder.WithRoleAssignments(target, builtInRoles);
+    }
+
+    private static AzureSandboxContainerOptionsAnnotation GetOrCreateAzureSandboxOptions<T>(IResourceBuilder<T> builder)
+        where T : IResource, IComputeResource
+    {
+        var annotation = builder.Resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault();
+        if (annotation is null)
+        {
+            annotation = new AzureSandboxContainerOptionsAnnotation();
+            builder.Resource.Annotations.Add(annotation);
+        }
+
+        return annotation;
+    }
+
+    private static void ValidateOptionalQuantity(string? value, string paramName)
+    {
+        if (value is not null && string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("The quantity cannot be empty.", paramName);
+        }
+    }
+
+    private static void ValidateOptionalNonNegative(int? value, string paramName)
+    {
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "The value cannot be negative.");
+        }
+    }
+
+    private static void ValidateOptionalNonNegative(long? value, string paramName)
+    {
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "The value cannot be negative.");
+        }
+    }
+
+    private static void ValidateOptionalAllowedValue(string? value, string paramName, params string[] allowedValues)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        foreach (var allowedValue in allowedValues)
+        {
+            if (string.Equals(value, allowedValue, StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+
+        throw new ArgumentException($"The value '{value}' is not supported. Supported values: {string.Join(", ", allowedValues)}.", paramName);
     }
 
     private static void ApplyManagedServiceIdentity(ManagedServiceIdentity identity, AzureSandboxGroupResource resource, AzureResourceInfrastructure infrastructure)
