@@ -884,6 +884,16 @@ export interface GenerateParameterDefault {
     minSpecial?: number;
 }
 
+/** ATS-friendly custom health check result. */
+export interface HealthCheckResult {
+    /** Gets the health status returned by the health check. */
+    status?: HealthStatus;
+    /** Gets an optional description for the health check result. */
+    description?: string | null;
+    /** Gets optional string data for the health check result. */
+    data?: Record<string, string>;
+}
+
 /** ATS-friendly configuration for resource HTTP commands. */
 export interface HttpCommandExportOptions {
     /** Optional description of the command, to be shown in the UI. */
@@ -9296,6 +9306,12 @@ export interface DistributedApplicationBuilder {
      */
     tryAddEventingSubscriber(subscribe: (arg: EventingSubscriberRegistrationContext) => Promise<void>): DistributedApplicationBuilderPromise;
     /**
+     * Adds a custom health check callback to the distributed-application builder.
+     * @param name The health check registration name.
+     * @param check The callback that evaluates the health check.
+     */
+    addHealthCheck(name: string, check: () => Promise<HealthCheckResult>): DistributedApplicationBuilderPromise;
+    /**
      * Adds a test Redis resource from ATS documentation.
      * @param name The ATS resource name.
      * @param options Additional options.
@@ -9510,6 +9526,12 @@ export interface DistributedApplicationBuilderPromise extends PromiseLike<Distri
      * @param subscribe The callback that registers the event subscriptions.
      */
     tryAddEventingSubscriber(subscribe: (arg: EventingSubscriberRegistrationContext) => Promise<void>): DistributedApplicationBuilderPromise;
+    /**
+     * Adds a custom health check callback to the distributed-application builder.
+     * @param name The health check registration name.
+     * @param check The callback that evaluates the health check.
+     */
+    addHealthCheck(name: string, check: () => Promise<HealthCheckResult>): DistributedApplicationBuilderPromise;
     /**
      * Adds a test Redis resource from ATS documentation.
      * @param name The ATS resource name.
@@ -10107,6 +10129,28 @@ class DistributedApplicationBuilderImpl implements DistributedApplicationBuilder
     }
 
     /** @internal */
+    async _addHealthCheckInternal(name: string, check: () => Promise<HealthCheckResult>): Promise<DistributedApplicationBuilder> {
+        const checkId = registerCallback(async () => {
+            return await check();
+        });
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, name, check: checkId };
+        await this._client.invokeCapability<void>(
+            'Aspire.Hosting/addHealthCheck',
+            rpcArgs
+        );
+        return this;
+    }
+
+    /**
+     * Adds a custom health check callback to the distributed-application builder.
+     * @param name The health check registration name.
+     * @param check The callback that evaluates the health check.
+     */
+    addHealthCheck(name: string, check: () => Promise<HealthCheckResult>): DistributedApplicationBuilderPromise {
+        return new DistributedApplicationBuilderPromiseImpl(this._addHealthCheckInternal(name, check), this._client);
+    }
+
+    /** @internal */
     async _addTestRedisInternal(name: string, port?: number): Promise<TestRedisResource> {
         const rpcArgs: Record<string, unknown> = { builder: this._handle, name };
         if (port !== undefined) rpcArgs.port = port;
@@ -10270,6 +10314,10 @@ class DistributedApplicationBuilderPromiseImpl implements DistributedApplication
 
     tryAddEventingSubscriber(subscribe: (arg: EventingSubscriberRegistrationContext) => Promise<void>): DistributedApplicationBuilderPromise {
         return new DistributedApplicationBuilderPromiseImpl(this._promise.then(obj => obj.tryAddEventingSubscriber(subscribe)), this._client);
+    }
+
+    addHealthCheck(name: string, check: () => Promise<HealthCheckResult>): DistributedApplicationBuilderPromise {
+        return new DistributedApplicationBuilderPromiseImpl(this._promise.then(obj => obj.addHealthCheck(name, check)), this._client);
     }
 
     addTestRedis(name: string, options?: AddTestRedisOptions): TestRedisResourcePromise {
@@ -12112,6 +12160,11 @@ class ReportingTaskPromiseImpl implements ReportingTaskPromise {
 export interface ServiceProvider {
     toJSON(): MarshalledHandle;
     /**
+     * Gets the Aspire store from the service provider.
+     * @returns The Aspire store.
+     */
+    getAspireStore(): AspireStorePromise;
+    /**
      * Gets the distributed application eventing service from the service provider.
      * @returns The distributed application eventing handle.
      */
@@ -12146,11 +12199,6 @@ export interface ServiceProvider {
      * @returns A resource command service handle.
      */
     getResourceCommandService(): ResourceCommandServicePromise;
-    /**
-     * Gets the Aspire store from the service provider.
-     * @returns The Aspire store.
-     */
-    getAspireStore(): AspireStorePromise;
     /**
      * Gets the user secrets manager from the service provider.
      * @returns A user secrets manager handle.
@@ -12160,6 +12208,11 @@ export interface ServiceProvider {
 
 export interface ServiceProviderPromise extends PromiseLike<ServiceProvider> {
     /**
+     * Gets the Aspire store from the service provider.
+     * @returns The Aspire store.
+     */
+    getAspireStore(): AspireStorePromise;
+    /**
      * Gets the distributed application eventing service from the service provider.
      * @returns The distributed application eventing handle.
      */
@@ -12194,11 +12247,6 @@ export interface ServiceProviderPromise extends PromiseLike<ServiceProvider> {
      * @returns A resource command service handle.
      */
     getResourceCommandService(): ResourceCommandServicePromise;
-    /**
-     * Gets the Aspire store from the service provider.
-     * @returns The Aspire store.
-     */
-    getAspireStore(): AspireStorePromise;
     /**
      * Gets the user secrets manager from the service provider.
      * @returns A user secrets manager handle.
@@ -12216,6 +12264,24 @@ class ServiceProviderImpl implements ServiceProvider {
 
     /** Serialize for JSON-RPC transport */
     toJSON(): MarshalledHandle { return this._handle.toJSON(); }
+
+    /** @internal */
+    async _getAspireStoreInternal(): Promise<AspireStore> {
+        const rpcArgs: Record<string, unknown> = { serviceProvider: this._handle };
+        const result = await this._client.invokeCapability<IAspireStoreHandle>(
+            'Aspire.Hosting/getAspireStore',
+            rpcArgs
+        );
+        return new AspireStoreImpl(result, this._client);
+    }
+
+    /**
+     * Gets the Aspire store from the service provider.
+     * @returns The Aspire store.
+     */
+    getAspireStore(): AspireStorePromise {
+        return new AspireStorePromiseImpl(this._getAspireStoreInternal(), this._client);
+    }
 
     /** @internal */
     async _getEventingInternal(): Promise<DistributedApplicationEventing> {
@@ -12344,24 +12410,6 @@ class ServiceProviderImpl implements ServiceProvider {
     }
 
     /** @internal */
-    async _getAspireStoreInternal(): Promise<AspireStore> {
-        const rpcArgs: Record<string, unknown> = { serviceProvider: this._handle };
-        const result = await this._client.invokeCapability<IAspireStoreHandle>(
-            'Aspire.Hosting/getAspireStore',
-            rpcArgs
-        );
-        return new AspireStoreImpl(result, this._client);
-    }
-
-    /**
-     * Gets the Aspire store from the service provider.
-     * @returns The Aspire store.
-     */
-    getAspireStore(): AspireStorePromise {
-        return new AspireStorePromiseImpl(this._getAspireStoreInternal(), this._client);
-    }
-
-    /** @internal */
     async _getUserSecretsManagerInternal(): Promise<UserSecretsManager> {
         const rpcArgs: Record<string, unknown> = { serviceProvider: this._handle };
         const result = await this._client.invokeCapability<IUserSecretsManagerHandle>(
@@ -12396,6 +12444,10 @@ class ServiceProviderPromiseImpl implements ServiceProviderPromise {
         return this._promise.then(onfulfilled, onrejected);
     }
 
+    getAspireStore(): AspireStorePromise {
+        return new AspireStorePromiseImpl(this._promise.then(obj => obj.getAspireStore()), this._client);
+    }
+
     getEventing(): DistributedApplicationEventingPromise {
         return new DistributedApplicationEventingPromiseImpl(this._promise.then(obj => obj.getEventing()), this._client);
     }
@@ -12422,10 +12474,6 @@ class ServiceProviderPromiseImpl implements ServiceProviderPromise {
 
     getResourceCommandService(): ResourceCommandServicePromise {
         return new ResourceCommandServicePromiseImpl(this._promise.then(obj => obj.getResourceCommandService()), this._client);
-    }
-
-    getAspireStore(): AspireStorePromise {
-        return new AspireStorePromiseImpl(this._promise.then(obj => obj.getAspireStore()), this._client);
     }
 
     getUserSecretsManager(): UserSecretsManagerPromise {
@@ -19373,6 +19421,12 @@ export interface CSharpAppResource {
      */
     getResourceName(): Promise<string>;
     /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): CSharpAppResourcePromise;
+    /**
      * Subscribes to the BeforeResourceStarted event.
      * @param callback The callback to invoke when the event fires.
      * @returns The resource builder.
@@ -19934,6 +19988,12 @@ export interface CSharpAppResourcePromise extends PromiseLike<CSharpAppResource>
      * @returns The resource name.
      */
     getResourceName(): Promise<string>;
+    /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): CSharpAppResourcePromise;
     /**
      * Subscribes to the BeforeResourceStarted event.
      * @param callback The callback to invoke when the event fires.
@@ -21494,6 +21554,25 @@ class CSharpAppResourceImpl extends ResourceBuilderBase<CSharpAppResourceHandle>
     }
 
     /** @internal */
+    private async _withEndpointsInEnvironmentInternal(endpointNames: string[]): Promise<CSharpAppResource> {
+        const rpcArgs: Record<string, unknown> = { resource: this._handle, endpointNames };
+        const result = await this._client.invokeCapability<CSharpAppResourceHandle>(
+            'Aspire.Hosting/withEndpointsInEnvironment',
+            rpcArgs
+        );
+        return new CSharpAppResourceImpl(result, this._client);
+    }
+
+    /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): CSharpAppResourcePromise {
+        return new CSharpAppResourcePromiseImpl(this._withEndpointsInEnvironmentInternal(endpointNames), this._client);
+    }
+
+    /** @internal */
     private async _onBeforeResourceStartedInternal(callback: (arg: BeforeResourceStartedEvent) => Promise<void>): Promise<CSharpAppResource> {
         const callbackId = registerCallback(async (argData: unknown) => {
             const argHandle = wrapIfHandle(argData) as BeforeResourceStartedEventHandle;
@@ -22302,6 +22381,10 @@ class CSharpAppResourcePromiseImpl implements CSharpAppResourcePromise {
 
     getResourceName(): Promise<string> {
         return this._promise.then(obj => obj.getResourceName());
+    }
+
+    withEndpointsInEnvironment(endpointNames: string[]): CSharpAppResourcePromise {
+        return new CSharpAppResourcePromiseImpl(this._promise.then(obj => obj.withEndpointsInEnvironment(endpointNames)), this._client);
     }
 
     onBeforeResourceStarted(callback: (arg: BeforeResourceStartedEvent) => Promise<void>): CSharpAppResourcePromise {
@@ -33944,6 +34027,12 @@ export interface ProjectResource {
      */
     getResourceName(): Promise<string>;
     /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): ProjectResourcePromise;
+    /**
      * Subscribes to the BeforeResourceStarted event.
      * @param callback The callback to invoke when the event fires.
      * @returns The resource builder.
@@ -34505,6 +34594,12 @@ export interface ProjectResourcePromise extends PromiseLike<ProjectResource> {
      * @returns The resource name.
      */
     getResourceName(): Promise<string>;
+    /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): ProjectResourcePromise;
     /**
      * Subscribes to the BeforeResourceStarted event.
      * @param callback The callback to invoke when the event fires.
@@ -36066,6 +36161,25 @@ class ProjectResourceImpl extends ResourceBuilderBase<ProjectResourceHandle> imp
     }
 
     /** @internal */
+    private async _withEndpointsInEnvironmentInternal(endpointNames: string[]): Promise<ProjectResource> {
+        const rpcArgs: Record<string, unknown> = { resource: this._handle, endpointNames };
+        const result = await this._client.invokeCapability<ProjectResourceHandle>(
+            'Aspire.Hosting/withEndpointsInEnvironment',
+            rpcArgs
+        );
+        return new ProjectResourceImpl(result, this._client);
+    }
+
+    /**
+     * Includes only the specified project endpoint names in environment-variable injection.
+     * @param endpointNames The endpoint names to include in environment variables.
+     * @returns The same project resource builder handle for chaining.
+     */
+    withEndpointsInEnvironment(endpointNames: string[]): ProjectResourcePromise {
+        return new ProjectResourcePromiseImpl(this._withEndpointsInEnvironmentInternal(endpointNames), this._client);
+    }
+
+    /** @internal */
     private async _onBeforeResourceStartedInternal(callback: (arg: BeforeResourceStartedEvent) => Promise<void>): Promise<ProjectResource> {
         const callbackId = registerCallback(async (argData: unknown) => {
             const argHandle = wrapIfHandle(argData) as BeforeResourceStartedEventHandle;
@@ -36874,6 +36988,10 @@ class ProjectResourcePromiseImpl implements ProjectResourcePromise {
 
     getResourceName(): Promise<string> {
         return this._promise.then(obj => obj.getResourceName());
+    }
+
+    withEndpointsInEnvironment(endpointNames: string[]): ProjectResourcePromise {
+        return new ProjectResourcePromiseImpl(this._promise.then(obj => obj.withEndpointsInEnvironment(endpointNames)), this._client);
     }
 
     onBeforeResourceStarted(callback: (arg: BeforeResourceStartedEvent) => Promise<void>): ProjectResourcePromise {

@@ -218,6 +218,10 @@ Aspire.Hosting/Aspire.Hosting.Ats.CreateInteractionInputOptions # Optional confi
 Aspire.Hosting/Aspire.Hosting.Ats.DynamicLoadingOptions # Options controlling when a dynamic-loading callback runs.
   AlwaysLoadOnStart?: boolean # Gets or sets a value indicating whether the callback always runs at the start of the prompt.
   DependsOnInputs?: string[] # Gets or sets the names of inputs this input depends on. The callback runs when any of them change.
+Aspire.Hosting/Aspire.Hosting.Ats.HealthCheckResult # ATS-friendly custom health check result.
+  Data?: Aspire.Hosting/Dict<string,string> # Gets optional string data for the health check result.
+  Description?: string # Gets an optional description for the health check result.
+  Status: enum:Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus # Gets the health status returned by the health check.
 Aspire.Hosting/Aspire.Hosting.Ats.HttpsCertificateExecutionConfigurationExportData # ATS-friendly HTTPS certificate data returned from an execution-configuration result.
   IsKeyPathReferenced: boolean # Indicates whether the key path was referenced.
   IsPfxPathReferenced: boolean # Indicates whether the PFX path was referenced.
@@ -513,6 +517,7 @@ Aspire.Hosting/addDotnetTool(name: string, packageId: string) -> Aspire.Hosting/
 Aspire.Hosting/addEventingSubscriber(subscribe: callback) -> void
 Aspire.Hosting/addExecutable(name: string, command: string, workingDirectory: string, args: string[]) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.ExecutableResource
 Aspire.Hosting/addExternalService(name: string, url: string|uri|Aspire.Hosting/Aspire.Hosting.ApplicationModel.ParameterResource) -> Aspire.Hosting/Aspire.Hosting.ExternalServiceResource
+Aspire.Hosting/addHealthCheck(name: string, check: callback) -> void
 Aspire.Hosting/addMarkdown(key: string, markdownString: string) -> void
 Aspire.Hosting/addParameter(name: string, value?: string, publishValueAsDefault?: boolean, secret?: boolean) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.ParameterResource
 Aspire.Hosting/addParameterFromConfiguration(name: string, configurationKey: string, secret?: boolean) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.ParameterResource
@@ -709,6 +714,7 @@ Aspire.Hosting/withDockerfileFactory(contextPath: string, dockerfileFactory: cal
 Aspire.Hosting/withEndpoint(port?: number, targetPort?: number, scheme?: string, name?: string, env?: string, isProxied?: boolean, isExternal?: boolean, protocol?: enum:System.Net.Sockets.ProtocolType) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEndpoints
 Aspire.Hosting/withEndpointCallback(endpointName: string, callback: callback, createIfNotExists?: boolean) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEndpoints
 Aspire.Hosting/withEndpointProxySupport(proxyEnabled: boolean) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEndpoints
+Aspire.Hosting/withEndpointsInEnvironment(endpointNames: string[]) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.ProjectResource
 Aspire.Hosting/withEntrypoint(entrypoint: string) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.ContainerResource
 Aspire.Hosting/withEnvironment(name: string, value: string|Aspire.Hosting/Aspire.Hosting.ApplicationModel.ReferenceExpression|Aspire.Hosting/Aspire.Hosting.ApplicationModel.EndpointReference|Aspire.Hosting/Aspire.Hosting.ApplicationModel.ParameterResource|Aspire.Hosting/Aspire.Hosting.ExternalServiceResource|Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithConnectionString|Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExpressionValue) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEnvironment
 Aspire.Hosting/withEnvironmentCallback(callback: callback) -> Aspire.Hosting/Aspire.Hosting.ApplicationModel.IResourceWithEnvironment

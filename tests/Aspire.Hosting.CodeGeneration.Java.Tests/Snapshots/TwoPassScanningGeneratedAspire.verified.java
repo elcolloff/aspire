@@ -1371,9 +1371,9 @@ public class AspireRegistrations {
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationEvent", (h, c) -> new IDistributedApplicationEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationResourceEvent", (h, c) -> new IDistributedApplicationResourceEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationEventing", (h, c) -> new IDistributedApplicationEventing(h, c));
+        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegistrationContext", (h, c) -> new EventingSubscriberRegistrationContext(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", (h, c) -> new InteractionInputBuilder(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext", (h, c) -> new InteractionInputLoadContext(h, c));
-        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegistrationContext", (h, c) -> new EventingSubscriberRegistrationContext(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.AfterResourcesCreatedEvent", (h, c) -> new AfterResourcesCreatedEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeResourceStartedEvent", (h, c) -> new BeforeResourceStartedEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeStartEvent", (h, c) -> new BeforeStartEvent(h, c));
@@ -2813,6 +2813,15 @@ public class CSharpAppResource extends ProjectResource {
         reqArgs.put("resource", AspireClient.serializeValue(getHandle()));
         var result = getClient().invokeCapability("Aspire.Hosting/getResourceName", reqArgs);
         return (String) result;
+    }
+
+    /** Includes only the specified project endpoint names in environment-variable injection. */
+    public CSharpAppResource withEndpointsInEnvironment(String[] endpointNames) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("resource", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("endpointNames", AspireClient.serializeValue(endpointNames));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointsInEnvironment", reqArgs);
+        return this;
     }
 
     /** Subscribes to the BeforeResourceStarted event. */
@@ -12428,6 +12437,48 @@ public class HandleWrapperBase {
     }
 }
 
+// ===== HealthCheckResult.java =====
+// HealthCheckResult.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** HealthCheckResult DTO. */
+public class HealthCheckResult implements JsonSerializable {
+    private HealthStatus status;
+    private String description;
+    private Map<String, String> data;
+
+    public HealthStatus getStatus() { return status; }
+    public void setStatus(HealthStatus value) { this.status = value; }
+    public String getDescription() { return description; }
+    public void setDescription(String value) { this.description = value; }
+    public Map<String, String> getData() { return data; }
+    public void setData(Map<String, String> value) { this.data = value; }
+
+    @SuppressWarnings("unchecked")
+    public static HealthCheckResult fromMap(Map<String, Object> map) {
+        var value = new HealthCheckResult();
+        var statusValue = map.get("Status");
+        value.setStatus(HealthStatus.fromValue((String) statusValue));
+        var descriptionValue = map.get("Description");
+        value.setDescription(descriptionValue == null ? null : (String) descriptionValue);
+        var dataValue = map.get("Data");
+        value.setData(dataValue == null ? null : (Map<String, String>) dataValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("Status", AspireClient.serializeValue(status));
+        map.put("Description", AspireClient.serializeValue(description));
+        map.put("Data", AspireClient.serializeValue(data));
+        return map;
+    }
+}
+
 // ===== HealthStatus.java =====
 // HealthStatus.java - GENERATED CODE - DO NOT EDIT
 
@@ -13385,6 +13436,20 @@ public class IDistributedApplicationBuilder extends HandleWrapperBase {
             reqArgs.put("subscribe", subscribeId);
         }
         getClient().invokeCapability("Aspire.Hosting/tryAddEventingSubscriber", reqArgs);
+    }
+
+    /** Adds a custom health check callback to the distributed-application builder. */
+    public void addHealthCheck(String name, AspireFunc0<HealthCheckResult> check) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("builder", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        var checkId = getClient().registerCallback(args -> {
+            return AspireClient.awaitValue(check.invoke());
+        });
+        if (checkId != null) {
+            reqArgs.put("check", checkId);
+        }
+        getClient().invokeCapability("Aspire.Hosting/addHealthCheck", reqArgs);
     }
 
     public TestRedisResource addTestRedis(String name) {
@@ -14511,6 +14576,14 @@ public class IServiceProvider extends HandleWrapperBase {
         super(handle, client);
     }
 
+    /** Gets the Aspire store from the service provider. */
+    public IAspireStore getAspireStore() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("serviceProvider", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting/getAspireStore", reqArgs);
+        return (IAspireStore) result;
+    }
+
     /** Gets the distributed application eventing service from the service provider. */
     public IDistributedApplicationEventing getEventing() {
         Map<String, Object> reqArgs = new HashMap<>();
@@ -14565,14 +14638,6 @@ public class IServiceProvider extends HandleWrapperBase {
         reqArgs.put("serviceProvider", AspireClient.serializeValue(getHandle()));
         var result = getClient().invokeCapability("Aspire.Hosting/getResourceCommandService", reqArgs);
         return (ResourceCommandService) result;
-    }
-
-    /** Gets the Aspire store from the service provider. */
-    public IAspireStore getAspireStore() {
-        Map<String, Object> reqArgs = new HashMap<>();
-        reqArgs.put("serviceProvider", AspireClient.serializeValue(getHandle()));
-        var result = getClient().invokeCapability("Aspire.Hosting/getAspireStore", reqArgs);
-        return (IAspireStore) result;
     }
 
     /** Gets the user secrets manager from the service provider. */
@@ -18179,6 +18244,15 @@ public class ProjectResource extends ResourceBuilderBase {
         reqArgs.put("resource", AspireClient.serializeValue(getHandle()));
         var result = getClient().invokeCapability("Aspire.Hosting/getResourceName", reqArgs);
         return (String) result;
+    }
+
+    /** Includes only the specified project endpoint names in environment-variable injection. */
+    public ProjectResource withEndpointsInEnvironment(String[] endpointNames) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("resource", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("endpointNames", AspireClient.serializeValue(endpointNames));
+        getClient().invokeCapability("Aspire.Hosting/withEndpointsInEnvironment", reqArgs);
+        return this;
     }
 
     /** Subscribes to the BeforeResourceStarted event. */
@@ -26938,6 +27012,7 @@ public final class WithVolumeOptions {
 .aspire/modules/GenerateParameterDefault.java
 .aspire/modules/Handle.java
 .aspire/modules/HandleWrapperBase.java
+.aspire/modules/HealthCheckResult.java
 .aspire/modules/HealthStatus.java
 .aspire/modules/HttpCommandExportOptions.java
 .aspire/modules/HttpCommandResultMode.java
