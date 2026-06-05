@@ -285,7 +285,7 @@ public sealed class DashboardWebApplication : IAsyncDisposable
         builder.Services.TryAddScoped<DashboardCommandExecutor>();
 
         builder.Services.AddSingleton<PauseManager>();
-        builder.Services.AddSingleton<Model.Interaction.CustomInteractionState>();
+        builder.Services.AddScoped<Model.Interaction.CustomInteractionState>();
 
         // Telemetry
         builder.Services.TryAddScoped<ComponentTelemetryContextProvider>();

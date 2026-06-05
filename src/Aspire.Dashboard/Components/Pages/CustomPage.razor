@@ -21,14 +21,7 @@
     {
         @if (_iframeUrl is not null)
         {
-            @if (_iframePersistent)
-            {
-                @* Iframe is rendered by PersistentIframeContainer in the layout to preserve state across navigations. *@
-            }
-            else
-            {
-                <iframe class="custom-page-iframe" src="@_iframeUrl" title="@_pageTitle"></iframe>
-            }
+            @* Iframe is rendered by IframeContainer in the layout. *@
         }
         else
         {

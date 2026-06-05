@@ -12,11 +12,11 @@ public sealed class CustomInteractionState
 {
     private readonly object _lock = new();
     private ImmutableArray<MenuButtonState> _menuButtons = [];
-    private ImmutableArray<PersistentIframeState> _persistentIframes = [];
+    private ImmutableArray<IframeState> _iframes = [];
 
     public event Action? OnMenuButtonsChanged;
     public event Action<PageContentUpdate>? OnPageContentUpdated;
-    public event Action? OnPersistentIframesChanged;
+    public event Action? OnIframesChanged;
 
     public ImmutableArray<MenuButtonState> MenuButtons
     {
@@ -29,26 +29,50 @@ public sealed class CustomInteractionState
         }
     }
 
-    public ImmutableArray<PersistentIframeState> PersistentIframes
+    public ImmutableArray<IframeState> Iframes
     {
         get
         {
             lock (_lock)
             {
-                return _persistentIframes;
+                return _iframes;
             }
         }
     }
 
-    /// <summary>
-    /// Registers or updates a persistent iframe for the given route. The iframe is kept alive in the
-    /// DOM across page navigations so that its internal state (e.g. navigation within the iframe) is preserved.
-    /// </summary>
-    public void SetPersistentIframe(string route, string iframeUrl)
+    public void SetActiveIframe(string? route)
     {
         lock (_lock)
         {
-            var existing = _persistentIframes.FirstOrDefault(f => string.Equals(f.Route, route, StringComparison.OrdinalIgnoreCase));
+            var changed = false;
+            var builder = _iframes.ToBuilder();
+            for (var i = 0; i < builder.Count; i++)
+            {
+                var shouldBeActive = string.Equals(builder[i].Route, route, StringComparison.OrdinalIgnoreCase);
+                if (builder[i].IsActive != shouldBeActive)
+                {
+                    builder[i] = builder[i] with { IsActive = shouldBeActive };
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+            _iframes = builder.ToImmutable();
+        }
+        OnIframesChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Registers or updates an iframe for the given route.
+    /// </summary>
+    public void SetIframe(string route, string iframeUrl)
+    {
+        lock (_lock)
+        {
+            var existing = _iframes.FirstOrDefault(f => string.Equals(f.Route, route, StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
             {
                 // URL already registered — no change needed.
@@ -57,26 +81,26 @@ public sealed class CustomInteractionState
                     return;
                 }
 
-                _persistentIframes = _persistentIframes.Replace(existing, existing with { IframeUrl = iframeUrl });
+                _iframes = _iframes.Replace(existing, existing with { IframeUrl = iframeUrl });
             }
             else
             {
-                _persistentIframes = _persistentIframes.Add(new PersistentIframeState(route, iframeUrl));
+                _iframes = _iframes.Add(new IframeState(route, iframeUrl));
             }
         }
-        OnPersistentIframesChanged?.Invoke();
+        OnIframesChanged?.Invoke();
     }
 
     /// <summary>
-    /// Removes a persistent iframe when the page is unregistered.
+    /// Removes an iframe when the page is unregistered or the user navigates away from a non-persistent iframe page.
     /// </summary>
-    public void RemovePersistentIframe(string route)
+    public void RemoveIframe(string route)
     {
         lock (_lock)
         {
-            _persistentIframes = _persistentIframes.RemoveAll(f => string.Equals(f.Route, route, StringComparison.OrdinalIgnoreCase));
+            _iframes = _iframes.RemoveAll(f => string.Equals(f.Route, route, StringComparison.OrdinalIgnoreCase));
         }
-        OnPersistentIframesChanged?.Invoke();
+        OnIframesChanged?.Invoke();
     }
 
     public void AddMenuButton(int interactionId, string iconName, string text, string tooltip, string url)
@@ -112,4 +136,4 @@ public sealed record MenuButtonState(int InteractionId, string IconName, string 
 
 public sealed record PageContentUpdate(int InteractionId, string Route, string SessionId, string Content, string Title, IReadOnlyList<string> StyleIncludes, IReadOnlyList<string> ScriptIncludes, bool EnableHtml, string? IframeUrl, bool IframePersistent);
 
-public sealed record PersistentIframeState(string Route, string IframeUrl);
+public sealed record IframeState(string Route, string IframeUrl, bool IsActive = false);

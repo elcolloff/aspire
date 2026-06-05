@@ -85,6 +85,8 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         // and reset state so the new page gets a fresh interaction.
         if (_interactionStarted && !string.Equals(_currentRoute, Route, StringComparison.OrdinalIgnoreCase))
         {
+            RemoveIframeIfNotPersistent();
+            CustomInteractionState.SetActiveIframe(null);
             await CompletePageInteractionAsync().ConfigureAwait(false);
             _interactionStarted = false;
             _content = null;
@@ -185,10 +187,15 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             _iframeUrl = string.IsNullOrEmpty(update.IframeUrl) ? null : update.IframeUrl;
             _iframePersistent = update.IframePersistent;
 
-            // Register iframe as persistent so it survives navigating away and back.
-            if (_iframeUrl is not null && Route is not null && update.IframePersistent)
+            // Display iframe via the IframeContainer in the layout.
+            if (_iframeUrl is not null && Route is not null)
             {
-                CustomInteractionState.SetPersistentIframe(Route, _iframeUrl);
+                CustomInteractionState.SetIframe(Route, _iframeUrl);
+                CustomInteractionState.SetActiveIframe(Route);
+            }
+            else
+            {
+                CustomInteractionState.SetActiveIframe(null);
             }
 
             return true;
@@ -199,6 +206,8 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        RemoveIframeIfNotPersistent();
+        CustomInteractionState.SetActiveIframe(null);
         CustomInteractionState.OnPageContentUpdated -= OnPageContentUpdated;
         _interopReference?.Dispose();
 
@@ -208,6 +217,18 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         if (_interactionStarted)
         {
             await CompletePageInteractionAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Removes the iframe from the container if it is not persistent.
+    /// Non-persistent iframes are only displayed while the page is active.
+    /// </summary>
+    private void RemoveIframeIfNotPersistent()
+    {
+        if (!_iframePersistent && _iframeUrl is not null && Route is not null)
+        {
+            CustomInteractionState.RemoveIframe(Route);
         }
     }
 

@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting;
@@ -712,10 +713,56 @@ internal class InteractionService : IInteractionService
             var iframeUrl = iframePageOptions.IFrameUrl;
             if (iframeUrl is null && iframePageOptions.IFrameEndpoint is { } endpoint)
                 {
-                    iframeUrl = await EndpointHostHelpers.GetUrlWithTargetHostAsync(endpoint, pageInfo.Cts.Token).ConfigureAwait(false);
-                }
+                    var resourceNotificationService = (ResourceNotificationService)_serviceProvider.GetService(typeof(ResourceNotificationService))!;
 
-                if (!string.IsNullOrEmpty(iframeUrl))
+                    // Continuously monitor the resource health. When unhealthy, remove the iframe
+                    // and wait for it to become healthy again before re-displaying.
+                    while (!pageInfo.Cts.Token.IsCancellationRequested)
+                    {
+                        // Send a "waiting" message to the dashboard while the resource starts up.
+                        lock (pageInfo.Lock)
+                        {
+                            pageInfo.Content = $"Waiting for **{endpoint.Resource.Name}** to be ready...";
+                            pageInfo.IframeUrl = null;
+                        }
+                        UpdateInteraction(interactionState);
+
+                        // Wait for the resource behind the endpoint to be healthy before displaying
+                        // the iframe. This avoids showing a broken page while the resource starts up.
+                        await resourceNotificationService.WaitForResourceHealthyAsync(
+                            endpoint.Resource.Name, WaitBehavior.WaitOnResourceUnavailable, pageInfo.Cts.Token).ConfigureAwait(false);
+
+                        iframeUrl = await EndpointHostHelpers.GetUrlWithTargetHostAsync(endpoint, pageInfo.Cts.Token).ConfigureAwait(false);
+
+                        if (!string.IsNullOrEmpty(iframeUrl))
+                        {
+                            lock (pageInfo.Lock)
+                            {
+                                pageInfo.Content = string.Empty;
+                                pageInfo.IframeUrl = iframeUrl;
+                                pageInfo.IframePersistent = iframePageOptions.Persistent;
+                            }
+                            UpdateInteraction(interactionState);
+                        }
+
+                        // Watch for the resource to become unhealthy. When it does, loop back
+                        // to remove the iframe and wait for health again.
+                        await foreach (var resourceEvent in resourceNotificationService.WatchAsync(pageInfo.Cts.Token).ConfigureAwait(false))
+                        {
+                            if (!string.Equals(resourceEvent.Resource.Name, endpoint.Resource.Name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            if (resourceEvent.Snapshot.HealthStatus != HealthStatus.Healthy)
+                            {
+                                // Resource is no longer healthy — break out to re-enter the wait loop.
+                                break;
+                            }
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(iframeUrl))
                 {
                     lock (pageInfo.Lock)
                     {
@@ -729,6 +776,10 @@ internal class InteractionService : IInteractionService
             catch (OperationCanceledException)
             {
                 // Expected when visitor leaves or page is removed.
+            }
+            catch (DistributedApplicationException ex)
+            {
+                _logger.LogWarning(ex, "Resource failed to become healthy for iframe page session '{SessionId}'.", pageInfo.SessionId);
             }
             catch (Exception ex)
             {
