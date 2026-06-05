@@ -572,7 +572,16 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
             foreach (var property in dto.Properties)
             {
                 var fieldName = ToCamelCase(property.Name);
-                WriteLine($"        map.put(\"{property.Name}\", AspireClient.serializeValue({fieldName}));");
+                if (property.IsOptional)
+                {
+                    WriteLine($"        if ({fieldName} != null) {{");
+                    WriteLine($"            map.put(\"{property.Name}\", AspireClient.serializeValue({fieldName}));");
+                    WriteLine("        }");
+                }
+                else
+                {
+                    WriteLine($"        map.put(\"{property.Name}\", AspireClient.serializeValue({fieldName}));");
+                }
             }
             WriteLine("        return map;");
             WriteLine("    }");

@@ -29,7 +29,9 @@ public class AddContainerOptions implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("Image", AspireClient.serializeValue(image));
-        map.put("Tag", AspireClient.serializeValue(tag));
+        if (tag != null) {
+            map.put("Tag", AspireClient.serializeValue(tag));
+        }
         return map;
     }
 }
@@ -3314,7 +3316,9 @@ public class CertificateTrustExecutionConfigurationContext implements JsonSerial
         map.put("CertificateBundlePath", AspireClient.serializeValue(certificateBundlePath));
         map.put("CertificateDirectoriesPath", AspireClient.serializeValue(certificateDirectoriesPath));
         map.put("RootCertificatesPath", AspireClient.serializeValue(rootCertificatesPath));
-        map.put("IsContainer", AspireClient.serializeValue(isContainer));
+        if (isContainer != null) {
+            map.put("IsContainer", AspireClient.serializeValue(isContainer));
+        }
         return map;
     }
 }
@@ -3573,7 +3577,9 @@ public class CommandOptions implements JsonSerializable {
         map.put("Visibility", AspireClient.serializeValue(visibility));
         map.put("ConfirmationMessage", AspireClient.serializeValue(confirmationMessage));
         map.put("IconName", AspireClient.serializeValue(iconName));
-        map.put("IconVariant", AspireClient.serializeValue(iconVariant));
+        if (iconVariant != null) {
+            map.put("IconVariant", AspireClient.serializeValue(iconVariant));
+        }
         map.put("IsHighlighted", AspireClient.serializeValue(isHighlighted));
         map.put("UpdateState", AspireClient.serializeValue(updateState));
         return map;
@@ -3616,8 +3622,12 @@ public class CommandResultData implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("Value", AspireClient.serializeValue(value));
-        map.put("Format", AspireClient.serializeValue(format));
-        map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        if (format != null) {
+            map.put("Format", AspireClient.serializeValue(format));
+        }
+        if (displayImmediately != null) {
+            map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        }
         return map;
     }
 }
@@ -11218,10 +11228,18 @@ public class ExecuteCommandResult implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("Success", AspireClient.serializeValue(success));
-        map.put("Canceled", AspireClient.serializeValue(canceled));
-        map.put("ErrorMessage", AspireClient.serializeValue(errorMessage));
-        map.put("Message", AspireClient.serializeValue(message));
-        map.put("Data", AspireClient.serializeValue(data));
+        if (canceled != null) {
+            map.put("Canceled", AspireClient.serializeValue(canceled));
+        }
+        if (errorMessage != null) {
+            map.put("ErrorMessage", AspireClient.serializeValue(errorMessage));
+        }
+        if (message != null) {
+            map.put("Message", AspireClient.serializeValue(message));
+        }
+        if (data != null) {
+            map.put("Data", AspireClient.serializeValue(data));
+        }
         return map;
     }
 }
@@ -12215,7 +12233,7 @@ public class HealthCheckResult implements JsonSerializable {
     public static HealthCheckResult fromMap(Map<String, Object> map) {
         var value = new HealthCheckResult();
         var statusValue = map.get("Status");
-        value.setStatus(HealthStatus.fromValue((String) statusValue));
+        value.setStatus(statusValue == null ? null : HealthStatus.fromValue((String) statusValue));
         var descriptionValue = map.get("Description");
         value.setDescription(descriptionValue == null ? null : (String) descriptionValue);
         var dataValue = map.get("Data");
@@ -12225,9 +12243,15 @@ public class HealthCheckResult implements JsonSerializable {
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
-        map.put("Status", AspireClient.serializeValue(status));
-        map.put("Description", AspireClient.serializeValue(description));
-        map.put("Data", AspireClient.serializeValue(data));
+        if (status != null) {
+            map.put("Status", AspireClient.serializeValue(status));
+        }
+        if (description != null) {
+            map.put("Description", AspireClient.serializeValue(description));
+        }
+        if (data != null) {
+            map.put("Data", AspireClient.serializeValue(data));
+        }
         return map;
     }
 }
@@ -12330,7 +12354,9 @@ public class HttpCommandExportOptions implements JsonSerializable {
         map.put("Description", AspireClient.serializeValue(description));
         map.put("ConfirmationMessage", AspireClient.serializeValue(confirmationMessage));
         map.put("IconName", AspireClient.serializeValue(iconName));
-        map.put("IconVariant", AspireClient.serializeValue(iconVariant));
+        if (iconVariant != null) {
+            map.put("IconVariant", AspireClient.serializeValue(iconVariant));
+        }
         map.put("IsHighlighted", AspireClient.serializeValue(isHighlighted));
         map.put("CommandName", AspireClient.serializeValue(commandName));
         map.put("EndpointName", AspireClient.serializeValue(endpointName));
@@ -12469,12 +12495,16 @@ public class HttpsCertificateExecutionConfigurationExportData implements JsonSer
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("Subject", AspireClient.serializeValue(subject));
-        map.put("Thumbprint", AspireClient.serializeValue(thumbprint));
+        if (thumbprint != null) {
+            map.put("Thumbprint", AspireClient.serializeValue(thumbprint));
+        }
         map.put("KeyPathExpression", AspireClient.serializeValue(keyPathExpression));
         map.put("PfxPathExpression", AspireClient.serializeValue(pfxPathExpression));
         map.put("IsKeyPathReferenced", AspireClient.serializeValue(isKeyPathReferenced));
         map.put("IsPfxPathReferenced", AspireClient.serializeValue(isPfxPathReferenced));
-        map.put("Password", AspireClient.serializeValue(password));
+        if (password != null) {
+            map.put("Password", AspireClient.serializeValue(password));
+        }
         return map;
     }
 }
@@ -12516,7 +12546,9 @@ public class HttpsCertificateInfo implements JsonSerializable {
         Map<String, Object> map = new HashMap<>();
         map.put("Subject", AspireClient.serializeValue(subject));
         map.put("Issuer", AspireClient.serializeValue(issuer));
-        map.put("Thumbprint", AspireClient.serializeValue(thumbprint));
+        if (thumbprint != null) {
+            map.put("Thumbprint", AspireClient.serializeValue(thumbprint));
+        }
         return map;
     }
 }
@@ -14489,18 +14521,34 @@ public class InteractionInput implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("Name", AspireClient.serializeValue(name));
-        map.put("Label", AspireClient.serializeValue(label));
-        map.put("Description", AspireClient.serializeValue(description));
-        map.put("EnableDescriptionMarkdown", AspireClient.serializeValue(enableDescriptionMarkdown));
+        if (label != null) {
+            map.put("Label", AspireClient.serializeValue(label));
+        }
+        if (description != null) {
+            map.put("Description", AspireClient.serializeValue(description));
+        }
+        if (enableDescriptionMarkdown != null) {
+            map.put("EnableDescriptionMarkdown", AspireClient.serializeValue(enableDescriptionMarkdown));
+        }
         map.put("InputType", AspireClient.serializeValue(inputType));
-        map.put("Required", AspireClient.serializeValue(required));
+        if (required != null) {
+            map.put("Required", AspireClient.serializeValue(required));
+        }
         map.put("Options", AspireClient.serializeValue(options));
-        map.put("DynamicLoading", AspireClient.serializeValue(dynamicLoading));
+        if (dynamicLoading != null) {
+            map.put("DynamicLoading", AspireClient.serializeValue(dynamicLoading));
+        }
         map.put("Value", AspireClient.serializeValue(value));
-        map.put("Placeholder", AspireClient.serializeValue(placeholder));
-        map.put("AllowCustomChoice", AspireClient.serializeValue(allowCustomChoice));
+        if (placeholder != null) {
+            map.put("Placeholder", AspireClient.serializeValue(placeholder));
+        }
+        if (allowCustomChoice != null) {
+            map.put("AllowCustomChoice", AspireClient.serializeValue(allowCustomChoice));
+        }
         map.put("Disabled", AspireClient.serializeValue(disabled));
-        map.put("MaxLength", AspireClient.serializeValue(maxLength));
+        if (maxLength != null) {
+            map.put("MaxLength", AspireClient.serializeValue(maxLength));
+        }
         return map;
     }
 }
@@ -14694,16 +14742,26 @@ public class ParameterCustomInputOptions implements JsonSerializable {
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
-        map.put("InputType", AspireClient.serializeValue(inputType));
+        if (inputType != null) {
+            map.put("InputType", AspireClient.serializeValue(inputType));
+        }
         map.put("Label", AspireClient.serializeValue(label));
         map.put("Description", AspireClient.serializeValue(description));
-        map.put("EnableDescriptionMarkdown", AspireClient.serializeValue(enableDescriptionMarkdown));
+        if (enableDescriptionMarkdown != null) {
+            map.put("EnableDescriptionMarkdown", AspireClient.serializeValue(enableDescriptionMarkdown));
+        }
         map.put("Options", AspireClient.serializeValue(options));
         map.put("Value", AspireClient.serializeValue(value));
         map.put("Placeholder", AspireClient.serializeValue(placeholder));
-        map.put("AllowCustomChoice", AspireClient.serializeValue(allowCustomChoice));
-        map.put("Disabled", AspireClient.serializeValue(disabled));
-        map.put("MaxLength", AspireClient.serializeValue(maxLength));
+        if (allowCustomChoice != null) {
+            map.put("AllowCustomChoice", AspireClient.serializeValue(allowCustomChoice));
+        }
+        if (disabled != null) {
+            map.put("Disabled", AspireClient.serializeValue(disabled));
+        }
+        if (maxLength != null) {
+            map.put("MaxLength", AspireClient.serializeValue(maxLength));
+        }
         return map;
     }
 }
@@ -16008,12 +16066,20 @@ public class ProcessCommandExportOptions implements JsonSerializable {
         map.put("Arguments", AspireClient.serializeValue(arguments));
         map.put("WorkingDirectory", AspireClient.serializeValue(workingDirectory));
         map.put("EnvironmentVariables", AspireClient.serializeValue(environmentVariables));
-        map.put("InheritEnvironmentVariables", AspireClient.serializeValue(inheritEnvironmentVariables));
+        if (inheritEnvironmentVariables != null) {
+            map.put("InheritEnvironmentVariables", AspireClient.serializeValue(inheritEnvironmentVariables));
+        }
         map.put("StandardInputContent", AspireClient.serializeValue(standardInputContent));
-        map.put("KillEntireProcessTree", AspireClient.serializeValue(killEntireProcessTree));
+        if (killEntireProcessTree != null) {
+            map.put("KillEntireProcessTree", AspireClient.serializeValue(killEntireProcessTree));
+        }
         map.put("CommandOptions", AspireClient.serializeValue(commandOptions));
-        map.put("MaxOutputLineCount", AspireClient.serializeValue(maxOutputLineCount));
-        map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        if (maxOutputLineCount != null) {
+            map.put("MaxOutputLineCount", AspireClient.serializeValue(maxOutputLineCount));
+        }
+        if (displayImmediately != null) {
+            map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        }
         map.put("SuccessExitCodes", AspireClient.serializeValue(successExitCodes));
         return map;
     }
@@ -16060,8 +16126,12 @@ public class ProcessCommandResultExportOptions implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("CommandOptions", AspireClient.serializeValue(commandOptions));
-        map.put("MaxOutputLineCount", AspireClient.serializeValue(maxOutputLineCount));
-        map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        if (maxOutputLineCount != null) {
+            map.put("MaxOutputLineCount", AspireClient.serializeValue(maxOutputLineCount));
+        }
+        if (displayImmediately != null) {
+            map.put("DisplayImmediately", AspireClient.serializeValue(displayImmediately));
+        }
         map.put("SuccessExitCodes", AspireClient.serializeValue(successExitCodes));
         return map;
     }
@@ -16126,9 +16196,13 @@ public class ProcessCommandSpecExportData implements JsonSerializable {
         map.put("Arguments", AspireClient.serializeValue(arguments));
         map.put("WorkingDirectory", AspireClient.serializeValue(workingDirectory));
         map.put("EnvironmentVariables", AspireClient.serializeValue(environmentVariables));
-        map.put("InheritEnvironmentVariables", AspireClient.serializeValue(inheritEnvironmentVariables));
+        if (inheritEnvironmentVariables != null) {
+            map.put("InheritEnvironmentVariables", AspireClient.serializeValue(inheritEnvironmentVariables));
+        }
         map.put("StandardInputContent", AspireClient.serializeValue(standardInputContent));
-        map.put("KillEntireProcessTree", AspireClient.serializeValue(killEntireProcessTree));
+        if (killEntireProcessTree != null) {
+            map.put("KillEntireProcessTree", AspireClient.serializeValue(killEntireProcessTree));
+        }
         return map;
     }
 }
@@ -18330,10 +18404,18 @@ public class ResourceEventDto implements JsonSerializable {
         Map<String, Object> map = new HashMap<>();
         map.put("ResourceName", AspireClient.serializeValue(resourceName));
         map.put("ResourceId", AspireClient.serializeValue(resourceId));
-        map.put("State", AspireClient.serializeValue(state));
-        map.put("StateStyle", AspireClient.serializeValue(stateStyle));
-        map.put("HealthStatus", AspireClient.serializeValue(healthStatus));
-        map.put("ExitCode", AspireClient.serializeValue(exitCode));
+        if (state != null) {
+            map.put("State", AspireClient.serializeValue(state));
+        }
+        if (stateStyle != null) {
+            map.put("StateStyle", AspireClient.serializeValue(stateStyle));
+        }
+        if (healthStatus != null) {
+            map.put("HealthStatus", AspireClient.serializeValue(healthStatus));
+        }
+        if (exitCode != null) {
+            map.put("ExitCode", AspireClient.serializeValue(exitCode));
+        }
         return map;
     }
 }
@@ -18584,7 +18666,9 @@ public class ResourceUrlAnnotation implements JsonSerializable {
         Map<String, Object> map = new HashMap<>();
         map.put("Url", AspireClient.serializeValue(url));
         map.put("DisplayText", AspireClient.serializeValue(displayText));
-        map.put("Endpoint", AspireClient.serializeValue(endpoint));
+        if (endpoint != null) {
+            map.put("Endpoint", AspireClient.serializeValue(endpoint));
+        }
         map.put("DisplayLocation", AspireClient.serializeValue(displayLocation));
         return map;
     }
@@ -24936,10 +25020,18 @@ public class UpdateCommandStateResourceSnapshot implements JsonSerializable {
     public Map<String, Object> toMap() {
         Map<String, Object> map = new HashMap<>();
         map.put("ResourceType", AspireClient.serializeValue(resourceType));
-        map.put("State", AspireClient.serializeValue(state));
-        map.put("StateStyle", AspireClient.serializeValue(stateStyle));
-        map.put("HealthStatus", AspireClient.serializeValue(healthStatus));
-        map.put("ExitCode", AspireClient.serializeValue(exitCode));
+        if (state != null) {
+            map.put("State", AspireClient.serializeValue(state));
+        }
+        if (stateStyle != null) {
+            map.put("StateStyle", AspireClient.serializeValue(stateStyle));
+        }
+        if (healthStatus != null) {
+            map.put("HealthStatus", AspireClient.serializeValue(healthStatus));
+        }
+        if (exitCode != null) {
+            map.put("ExitCode", AspireClient.serializeValue(exitCode));
+        }
         return map;
     }
 }

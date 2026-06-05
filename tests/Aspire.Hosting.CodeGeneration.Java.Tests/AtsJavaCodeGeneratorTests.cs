@@ -341,6 +341,18 @@ public class AtsJavaCodeGeneratorTests
         Assert.Contains("public class TestConfigDto implements JsonSerializable", testConfigDtoJava);
     }
 
+    [Fact]
+    public void GeneratedDtoValues_OmitOptionalNullsFromMaps()
+    {
+        var atsContext = CreateContextFromBothAssemblies();
+
+        var files = _generator.GenerateDistributedApplication(atsContext);
+        var healthCheckResultJava = files["HealthCheckResult.java"];
+
+        Assert.Contains("if (status != null) {", healthCheckResultJava);
+        Assert.DoesNotContain("map.put(\"Status\", AspireClient.serializeValue(status));\n        map.put(\"Description\"", healthCheckResultJava);
+    }
+
     private static string JoinGeneratedFiles(Dictionary<string, string> files)
     {
         return string.Join(

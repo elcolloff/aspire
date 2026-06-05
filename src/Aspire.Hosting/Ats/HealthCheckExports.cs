@@ -27,8 +27,9 @@ internal static class HealthCheckExports
 
         builder.Services.AddHealthChecks().AddAsyncCheck(name, async () =>
         {
-            var result = await check().ConfigureAwait(false);
-            return result.ToExtensionsHealthCheckResult();
+            var result = await check().ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Custom health check '{name}' returned a null result.");
+            return result.ToExtensionsHealthCheckResult(name);
         });
     }
 }
@@ -39,10 +40,23 @@ internal static class HealthCheckExports
 [AspireDto]
 internal sealed class HealthCheckResult
 {
+    // JSON callbacks can return DTOs with omitted properties. Track the setter
+    // separately so an explicit Unhealthy value is not confused with a missing status.
+    private bool _hasStatus;
+    private HealthStatus _status;
+
     /// <summary>
     /// Gets the health status returned by the health check.
     /// </summary>
-    public required HealthStatus Status { get; init; }
+    public HealthStatus Status
+    {
+        get => _status;
+        init
+        {
+            _status = value;
+            _hasStatus = true;
+        }
+    }
 
     /// <summary>
     /// Gets an optional description for the health check result.
@@ -54,8 +68,13 @@ internal sealed class HealthCheckResult
     /// </summary>
     public IReadOnlyDictionary<string, string>? Data { get; init; }
 
-    internal ExtensionsHealthCheckResult ToExtensionsHealthCheckResult()
+    internal ExtensionsHealthCheckResult ToExtensionsHealthCheckResult(string name)
     {
+        if (!_hasStatus)
+        {
+            throw new InvalidOperationException($"Custom health check '{name}' returned a result without a status.");
+        }
+
         var data = Data?.ToDictionary(
             pair => pair.Key,
             pair => (object)pair.Value,

@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Aspire.Hosting.Ats;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -36,5 +38,31 @@ public class AtsHealthCheckExportsTests
         Assert.Equal(HealthStatus.Degraded, entry.Value.Status);
         Assert.Equal("custom description", entry.Value.Description);
         Assert.Equal("custom value", entry.Value.Data["custom key"]);
+    }
+
+    [Fact]
+    public async Task AddHealthCheck_ReportsMissingStatusAsInvalidCallbackResult()
+    {
+        var builder = DistributedApplication.CreateBuilder([]);
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var resultWithoutStatus = JsonSerializer.Deserialize<AtsHealthCheckResult>("{}", jsonOptions);
+
+        Assert.NotNull(resultWithoutStatus);
+        builder.AddHealthCheck("custom_check", () => Task.FromResult(resultWithoutStatus));
+
+        using var serviceProvider = builder.Services.BuildServiceProvider();
+        var healthCheckService = serviceProvider.GetRequiredService<HealthCheckService>();
+
+        var report = await healthCheckService.CheckHealthAsync(registration => registration.Name == "custom_check");
+        var entry = Assert.Single(report.Entries);
+        var exception = Assert.IsType<InvalidOperationException>(entry.Value.Exception);
+
+        Assert.Equal(HealthStatus.Unhealthy, entry.Value.Status);
+        Assert.Equal("Custom health check 'custom_check' returned a result without a status.", exception.Message);
     }
 }

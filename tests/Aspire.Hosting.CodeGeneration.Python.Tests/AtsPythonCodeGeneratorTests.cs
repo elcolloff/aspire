@@ -327,6 +327,15 @@ public class AtsPythonCodeGeneratorTests
         Assert.DoesNotContain("Version=", aspirePy);
     }
 
+    [Fact]
+    public void GeneratedCode_AppliesFalseyKwargOptionValues()
+    {
+        var files = _generator.GenerateDistributedApplication(CreateContextFromBothAssemblies());
+        var aspirePy = files["aspire_app.py"];
+
+        Assert.Contains("if (_endpoints_in_env := kwargs.pop(\"endpoints_in_env\", None)) is not None:", aspirePy);
+    }
+
     private static List<AtsCapabilityInfo> ScanCapabilitiesFromTestAssembly()
     {
         var testAssembly = LoadTestAssembly();

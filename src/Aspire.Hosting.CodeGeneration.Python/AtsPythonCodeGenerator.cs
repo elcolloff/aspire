@@ -2455,7 +2455,7 @@ internal sealed class AtsPythonCodeGenerator : ICodeGenerator
         {
             // This will be a big if/elif/else clause, so we start with if on the first type variation.
             clause = "if";
-            builder.AppendLine(CultureInfo.InvariantCulture, $"        if _{optionName} := kwargs.pop(\"{optionName}\", None):");
+            builder.AppendLine(CultureInfo.InvariantCulture, $"        if (_{optionName} := kwargs.pop(\"{optionName}\", None)) is not None:");
         }
 
         // Resolve the correct capability ID for this variation.

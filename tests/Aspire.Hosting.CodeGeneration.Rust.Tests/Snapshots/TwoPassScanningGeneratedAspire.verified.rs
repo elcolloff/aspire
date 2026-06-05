@@ -752,8 +752,8 @@ impl HttpsCertificateExecutionConfigurationExportData {
 /// HealthCheckResult
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HealthCheckResult {
-    #[serde(rename = "Status")]
-    pub status: HealthStatus,
+    #[serde(rename = "Status", skip_serializing_if = "Option::is_none")]
+    pub status: Option<HealthStatus>,
     #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(rename = "Data", skip_serializing_if = "Option::is_none")]
@@ -763,7 +763,9 @@ pub struct HealthCheckResult {
 impl HealthCheckResult {
     pub fn to_map(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
-        map.insert("Status".to_string(), serde_json::to_value(&self.status).unwrap_or(Value::Null));
+        if let Some(ref v) = self.status {
+            map.insert("Status".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.description {
             map.insert("Description".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
