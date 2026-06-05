@@ -110,13 +110,11 @@ internal static class ResourceSnapshotMapper
 
         // Include only API-visible enabled commands by default; the include-disabled stream
         // also surfaces UI-only commands for UI consumers. Hidden commands are never emitted.
-        // Capture each command's registration index (before filtering) and stamp it as
-        // RegistrationOrder so consumers can sort by (RegistrationOrder, Name); keys are sorted
-        // alphabetically only for a stable JSON shape.
+        // Capture each command's index (before filtering) and stamp it as SortOrder so consumers
+        // can sort by (SortOrder, Name).
         var commands = snapshot.Commands
             .Select((command, index) => (command, index))
             .Where(c => IsCommandVisibleForConsumer(c.command.Visibility, includeDisabledCommands) && IsCommandVisibleToConsumer(c.command.State, includeDisabledCommands))
-            .OrderBy(c => c.command.Name)
             .ToDistinctDictionary(
                 c => c.command.Name,
                 c => new ResourceCommandJson
@@ -125,7 +123,7 @@ internal static class ResourceSnapshotMapper
                     Description = c.command.Description,
                     Visibility = IsDefaultCommandVisibility(c.command.Visibility) ? null : c.command.Visibility,
                     State = c.command.State,
-                    RegistrationOrder = c.index,
+                    SortOrder = c.index,
                     ArgumentInputs = c.command.ArgumentInputs.Length > 0
                         ? c.command.ArgumentInputs.Select(MapCommandArgumentInput).ToArray()
                         : null
