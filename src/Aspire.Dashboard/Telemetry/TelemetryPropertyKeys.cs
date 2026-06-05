@@ -36,6 +36,7 @@ public static class TelemetryPropertyKeys
     public const string ResourceTypes = AspireDashboardPropertyPrefix + "Resource.Types";
     public const string ResourceType = AspireDashboardPropertyPrefix + "Resource.Type";
     public const string ResourceView = AspireDashboardPropertyPrefix + "Resource.View";
+    public const string ResourceGraphMode = AspireDashboardPropertyPrefix + "Resource.GraphMode";
 
     // Error properties
     public const string ErrorRequestId = AspireDashboardPropertyPrefix + "RequestId";

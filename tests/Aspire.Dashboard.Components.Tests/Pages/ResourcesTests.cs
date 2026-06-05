@@ -7,14 +7,21 @@ using Aspire.Dashboard.Components.Resize;
 using Aspire.Dashboard.Components.Tests.Shared;
 using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Model.BrowserStorage;
+using Aspire.Dashboard.Model.ResourceGraph;
+using Aspire.Dashboard.Otlp.Model;
+using Aspire.Dashboard.Otlp.Storage;
 using Aspire.Dashboard.Tests.Shared;
 using Aspire.Dashboard.Utils;
+using Aspire.Tests.Shared.Telemetry;
 using Bunit;
+using Google.Protobuf.Collections;
 using ProtobufValue = Google.Protobuf.WellKnownTypes.Value;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.FluentUI.AspNetCore.Components;
+using OpenTelemetry.Proto.Trace.V1;
 using Xunit;
 
 namespace Aspire.Dashboard.Components.Tests.Pages;
@@ -208,6 +215,140 @@ public partial class ResourcesTests : DashboardTestContext
 
         // Assert
         Assert.Single(initializeGraphInvocationHandler.Invocations);
+        Assert.DoesNotContain("resource-graph-telemetry", cut.Find("svg.resource-graph").ClassList);
+    }
+
+    [Fact]
+    public void GraphTelemetryMode_SubscribesToTraces()
+    {
+        var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);
+        var initialResources = new List<ResourceViewModel>
+        {
+            CreateResource(
+                "Resource1",
+                "Type1",
+                "Running",
+                ImmutableArray.Create(new HealthReportViewModel("Null", null, "Description1", null))),
+        };
+        var dashboardClient = new TestDashboardClient(isEnabled: true, initialResources: initialResources, resourceChannelProvider: Channel.CreateUnbounded<IReadOnlyList<ResourceViewModelChange>>);
+        ResourceSetupHelpers.SetupResourcesPage(
+            this,
+            viewport,
+            dashboardClient);
+
+        var resourceGraphModule = JSInterop.SetupModule("/js/app-resourcegraph.js");
+        resourceGraphModule.SetupVoid("initializeResourcesGraph", _ => true);
+        resourceGraphModule.SetupVoid("updateResourcesGraph", _ => true);
+        resourceGraphModule.SetupVoid("updateResourcesGraphSelected", _ => true);
+
+        var navigationManager = Services.GetRequiredService<NavigationManager>();
+        navigationManager.NavigateTo(DashboardUrls.ResourcesUrl(view: "Graph", graphMode: "Telemetry"));
+
+        var telemetryRepository = Services.GetRequiredService<TelemetryRepository>();
+        var cut = RenderComponent<Components.Pages.Resources>(builder =>
+        {
+            builder.AddCascadingValue(viewport);
+        });
+
+        Assert.Equal(Components.Pages.Resources.ResourceGraphMode.Telemetry, cut.Instance.PageViewModel.SelectedGraphMode);
+        Assert.Contains("resource-graph-telemetry", cut.Find("svg.resource-graph").ClassList);
+        Assert.Collection(telemetryRepository.TracesSubscriptions, t =>
+        {
+            Assert.Equal(nameof(TelemetryRepository.OnNewTraces), t.Name);
+        });
+
+        DisposeComponents();
+
+        Assert.Empty(telemetryRepository.TracesSubscriptions);
+    }
+
+    [Fact]
+    public async Task GraphTelemetryMode_HidesResourcesWithoutTelemetryFlow()
+    {
+        var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);
+        var initialResources = new List<ResourceViewModel>
+        {
+            CreateResource("frontend-abc", "Project", "Running", null, displayName: "frontend"),
+            CreateResource("api-def", "Project", "Running", null, displayName: "api"),
+            CreateResource("worker-ghi", "Project", "Running", null, displayName: "worker"),
+        };
+        var dashboardClient = new TestDashboardClient(isEnabled: true, initialResources: initialResources, resourceChannelProvider: Channel.CreateUnbounded<IReadOnlyList<ResourceViewModelChange>>);
+        ResourceSetupHelpers.SetupResourcesPage(
+            this,
+            viewport,
+            dashboardClient);
+
+        var resourceGraphModule = JSInterop.SetupModule("/js/app-resourcegraph.js");
+        var initializeGraphInvocationHandler = resourceGraphModule.SetupVoid("initializeResourcesGraph", _ => true);
+        initializeGraphInvocationHandler.SetVoidResult();
+        var updateGraphInvocationHandler = resourceGraphModule.SetupVoid("updateResourcesGraph", _ => true);
+        resourceGraphModule.SetupVoid("updateResourcesGraphSelected", _ => true);
+
+        var telemetryRepository = Services.GetRequiredService<TelemetryRepository>();
+        var addContext = new AddContext();
+        var testTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        telemetryRepository.AddTraces(addContext, new RepeatedField<ResourceSpans>
+        {
+            new ResourceSpans
+            {
+                Resource = TelemetryTestHelpers.CreateResource(name: "frontend", instanceId: "frontend-abc"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = TelemetryTestHelpers.CreateScope(),
+                        Spans =
+                        {
+                            TelemetryTestHelpers.CreateSpan(traceId: "1", spanId: "1-1", kind: Span.Types.SpanKind.Client, startTime: testTime.AddMinutes(1), endTime: testTime.AddMinutes(2))
+                        }
+                    }
+                }
+            },
+            new ResourceSpans
+            {
+                Resource = TelemetryTestHelpers.CreateResource(name: "api", instanceId: "api-def"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = TelemetryTestHelpers.CreateScope(),
+                        Spans =
+                        {
+                            TelemetryTestHelpers.CreateSpan(traceId: "1", spanId: "1-2", parentSpanId: "1-1", kind: Span.Types.SpanKind.Server, startTime: testTime.AddMinutes(1), endTime: testTime.AddMinutes(2))
+                        }
+                    }
+                }
+            }
+        });
+        Assert.Equal(0, addContext.FailureCount);
+
+        var navigationManager = Services.GetRequiredService<NavigationManager>();
+        navigationManager.NavigateTo(DashboardUrls.ResourcesUrl(view: "Graph", graphMode: "Telemetry"));
+
+        var cut = RenderComponent<Components.Pages.Resources>(builder =>
+        {
+            builder.AddCascadingValue(viewport);
+        });
+        Assert.Equal(Components.Pages.Resources.ResourceViewKind.Graph, cut.Instance.PageViewModel.SelectedViewKind);
+        Assert.Equal(Components.Pages.Resources.ResourceGraphMode.Telemetry, cut.Instance.PageViewModel.SelectedGraphMode);
+        cut.Render();
+
+        Assert.NotEmpty(initializeGraphInvocationHandler.Invocations);
+        await AsyncTestHelpers.AssertIsTrueRetryAsync(() => updateGraphInvocationHandler.Invocations.Count > 0, "Resource graph updated");
+
+        var graphResources = Assert.IsAssignableFrom<IEnumerable<ResourceDto>>(updateGraphInvocationHandler.Invocations.Last().Arguments[0]).OrderBy(r => r.Name).ToList();
+        Assert.Collection(graphResources,
+            r =>
+            {
+                Assert.Equal("api-def", r.Name);
+                Assert.Empty(r.ReferencedNames);
+            },
+            r =>
+            {
+                Assert.Equal("frontend-abc", r.Name);
+                var referencedName = Assert.Single(r.ReferencedNames);
+                Assert.Equal("api-def", referencedName);
+            });
     }
 
     [Fact]
@@ -362,7 +503,8 @@ public partial class ResourcesTests : DashboardTestContext
         bool isHidden = false,
         string? stateStyle = null,
         ImmutableDictionary<string, ResourcePropertyViewModel>? properties = null,
-        int? replicaIndex = null)
+        int? replicaIndex = null,
+        string? displayName = null)
     {
         return new ResourceViewModel
         {
@@ -370,7 +512,7 @@ public partial class ResourcesTests : DashboardTestContext
             ResourceType = type,
             State = state,
             KnownState = state is not null && Enum.TryParse<KnownResourceState>(state, out var knownState) ? knownState : null,
-            DisplayName = name,
+            DisplayName = displayName ?? name,
             Uid = name,
             ReplicaIndex = replicaIndex ?? 0,
             HealthReports = healthReports ?? [],

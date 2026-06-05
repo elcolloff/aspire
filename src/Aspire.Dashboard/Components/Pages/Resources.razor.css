@@ -102,7 +102,14 @@
     right: 30px;
     bottom: 30px;
     display: flex;
+    align-items: center;
     column-gap: 10px;
+}
+
+::deep .resource-graph-mode {
+    background-color: var(--neutral-layer-1);
+    border-radius: 4px;
+    padding: 4px 8px;
 }
 
 ::deep .resource-graph .texts {
@@ -176,6 +183,34 @@
     stroke: var(--neutral-stroke-rest);
     stroke-width: 1;
     marker-end: url(#arrow-normal);
+}
+
+::deep .resource-graph-telemetry .resource-link {
+    stroke: var(--accent-fill-rest);
+    stroke-linecap: round;
+    stroke-opacity: 0.75;
+    stroke-width: 1.5;
+    stroke-dasharray: 8 8;
+}
+
+::deep .resource-graph-telemetry .arrow-normal {
+    fill: var(--accent-fill-rest);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    ::deep .resource-graph-telemetry .resource-link {
+        animation: telemetry-flow-link 900ms linear infinite;
+    }
+}
+
+@keyframes telemetry-flow-link {
+    from {
+        stroke-dashoffset: 0;
+    }
+
+    to {
+        stroke-dashoffset: -16;
+    }
 }
 
 ::deep .arrow-normal {

@@ -212,6 +212,21 @@
         <target state="translated">필터 있음</target>
         <note />
       </trans-unit>
+      <trans-unit id="ResourcesGraphModeLabel">
+        <source>Graph mode</source>
+        <target state="new">Graph mode</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="ResourcesGraphModeRelationships">
+        <source>Relationships</source>
+        <target state="new">Relationships</target>
+        <note />
+      </trans-unit>
+      <trans-unit id="ResourcesGraphModeTelemetry">
+        <source>Telemetry flow</source>
+        <target state="new">Telemetry flow</target>
+        <note />
+      </trans-unit>
       <trans-unit id="ResourcesGraphResetButton">
         <source>Reset</source>
         <target state="translated">초기화</target>

@@ -94,6 +94,120 @@ public class TraceTests
     }
 
     [Fact]
+    public void GetTelemetryGraphEdges_InstrumentedChildServerSpan_AddsEdge()
+    {
+        var repository = CreateRepository();
+
+        AddInstrumentedCallTrace(repository);
+
+        var edge = Assert.Single(repository.GetTelemetryGraphEdges());
+        Assert.Equal(new ResourceKey("frontend", "frontend-abc"), edge.Key.Source);
+        Assert.Equal(new ResourceKey("api", "api-def"), edge.Key.Destination);
+        Assert.Equal(1, edge.Value);
+    }
+
+    [Fact]
+    public void GetTelemetryGraphEdges_MultipleChildServerSpansForSameResource_AddsSingleEdge()
+    {
+        var repository = CreateRepository();
+
+        var addContext = new AddContext();
+        repository.AddTraces(addContext, new RepeatedField<ResourceSpans>()
+        {
+            new ResourceSpans
+            {
+                Resource = CreateResource(name: "frontend", instanceId: "frontend-abc"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = CreateScope(),
+                        Spans =
+                        {
+                            CreateSpan(traceId: "1", spanId: "1-1", kind: Span.Types.SpanKind.Client, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2))
+                        }
+                    }
+                }
+            },
+            new ResourceSpans
+            {
+                Resource = CreateResource(name: "api", instanceId: "api-def"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = CreateScope(),
+                        Spans =
+                        {
+                            CreateSpan(traceId: "1", spanId: "1-2", parentSpanId: "1-1", kind: Span.Types.SpanKind.Server, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2)),
+                            CreateSpan(traceId: "1", spanId: "1-3", parentSpanId: "1-1", kind: Span.Types.SpanKind.Server, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2))
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.Equal(0, addContext.FailureCount);
+        var edge = Assert.Single(repository.GetTelemetryGraphEdges());
+        Assert.Equal(new ResourceKey("frontend", "frontend-abc"), edge.Key.Source);
+        Assert.Equal(new ResourceKey("api", "api-def"), edge.Key.Destination);
+        Assert.Equal(1, edge.Value);
+    }
+
+    [Fact]
+    public void GetTelemetryGraphEdges_UninstrumentedPeer_AddsEdge()
+    {
+        var peerResource = ModelTestHelpers.CreateResource("postgres", displayName: "postgres");
+        var peerResolver = new TestOutgoingPeerResolver(_ => ("postgres", peerResource));
+        var repository = CreateRepository(outgoingPeerResolvers: [peerResolver]);
+
+        var addContext = new AddContext();
+        repository.AddTraces(addContext, new RepeatedField<ResourceSpans>()
+        {
+            new ResourceSpans
+            {
+                Resource = CreateResource(name: "api", instanceId: "api-def"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = CreateScope(),
+                        Spans =
+                        {
+                            CreateSpan(
+                                traceId: "1",
+                                spanId: "1-1",
+                                kind: Span.Types.SpanKind.Client,
+                                startTime: s_testTime.AddMinutes(1),
+                                endTime: s_testTime.AddMinutes(2),
+                                attributes: [new KeyValuePair<string, string>("server.address", "localhost")])
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.Equal(0, addContext.FailureCount);
+        var edge = Assert.Single(repository.GetTelemetryGraphEdges());
+        Assert.Equal(new ResourceKey("api", "api-def"), edge.Key.Source);
+        Assert.Equal(new ResourceKey("postgres", null), edge.Key.Destination);
+        Assert.Equal(1, edge.Value);
+    }
+
+    [Fact]
+    public void GetTelemetryGraphEdges_ClearTraces_RemovesEdges()
+    {
+        var repository = CreateRepository();
+        AddInstrumentedCallTrace(repository);
+
+        Assert.NotEmpty(repository.GetTelemetryGraphEdges());
+
+        repository.ClearTraces();
+
+        Assert.Empty(repository.GetTelemetryGraphEdges());
+    }
+
+    [Fact]
     public void AddTraces_SelfParent_Reject()
     {
         // Arrange
@@ -985,6 +1099,46 @@ public class TraceTests
                             {
                                 link1
                             })
+                        }
+                    }
+                }
+            }
+        });
+
+        Assert.Equal(0, addContext.FailureCount);
+    }
+
+    private static void AddInstrumentedCallTrace(TelemetryRepository repository)
+    {
+        var addContext = new AddContext();
+        repository.AddTraces(addContext, new RepeatedField<ResourceSpans>()
+        {
+            new ResourceSpans
+            {
+                Resource = CreateResource(name: "frontend", instanceId: "frontend-abc"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = CreateScope(),
+                        Spans =
+                        {
+                            CreateSpan(traceId: "1", spanId: "1-1", kind: Span.Types.SpanKind.Client, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2))
+                        }
+                    }
+                }
+            },
+            new ResourceSpans
+            {
+                Resource = CreateResource(name: "api", instanceId: "api-def"),
+                ScopeSpans =
+                {
+                    new ScopeSpans
+                    {
+                        Scope = CreateScope(),
+                        Spans =
+                        {
+                            CreateSpan(traceId: "1", spanId: "1-2", parentSpanId: "1-1", kind: Span.Types.SpanKind.Server, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2))
                         }
                     }
                 }
@@ -2209,6 +2363,7 @@ public class TraceTests
                 AssertId("1-2", s.SpanId);
                 Assert.Null(s.UninstrumentedPeer);
             });
+        Assert.Empty(repository.GetTelemetryGraphEdges());
 
         matchPeer = true;
         await outgoingPeerResolver.InvokePeerChanges();
@@ -2251,6 +2406,11 @@ public class TraceTests
                 Assert.NotNull(s.UninstrumentedPeer);
                 Assert.Equal("TestPeer", s.UninstrumentedPeer.ResourceName);
             });
+
+        var edge = Assert.Single(repository.GetTelemetryGraphEdges());
+        Assert.Equal(new ResourceKey("TestService", "TestId"), edge.Key.Source);
+        Assert.Equal(new ResourceKey("TestPeer", null), edge.Key.Destination);
+        Assert.Equal(1, edge.Value);
     }
 
     [Fact]

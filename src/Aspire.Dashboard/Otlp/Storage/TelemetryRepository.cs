@@ -69,6 +69,8 @@ public sealed partial class TelemetryRepository : IDisposable
     // Not explicitly capped per add — bounded only by the sum of span links across in-buffer traces.
     // Cleaned up on trace eviction and clear, so growth is limited by the circular buffer capacity.
     private readonly List<OtlpSpanLink> _spanLinks = new();
+    private readonly Dictionary<TelemetryGraphEdge, int> _telemetryGraphEdges = new();
+    private readonly Dictionary<OtlpTrace, Dictionary<TelemetryGraphEdge, int>> _telemetryGraphEdgesByTrace = new();
     private readonly List<IDisposable> _peerResolverSubscriptions = new();
     internal readonly OtlpContext _otlpContext;
 
@@ -104,6 +106,8 @@ public sealed partial class TelemetryRepository : IDisposable
 
     private void TracesItemRemovedForCapacity(OtlpTrace trace)
     {
+        RemoveTraceTelemetryGraphEdges(trace);
+
         // Remove links from central collection when the span is removed.
         foreach (var span in trace.Spans)
         {
@@ -111,6 +115,20 @@ public sealed partial class TelemetryRepository : IDisposable
             {
                 _spanLinks.Remove(link);
             }
+        }
+    }
+
+    internal Dictionary<TelemetryGraphEdge, int> GetTelemetryGraphEdges()
+    {
+        _tracesLock.EnterReadLock();
+
+        try
+        {
+            return _telemetryGraphEdges.ToDictionary();
+        }
+        finally
+        {
+            _tracesLock.ExitReadLock();
         }
     }
 
@@ -1334,6 +1352,8 @@ public sealed partial class TelemetryRepository : IDisposable
                 _traceScopes.Clear();
                 _tracePropertyKeys.Clear();
                 _spanLinks.Clear();
+                _telemetryGraphEdges.Clear();
+                _telemetryGraphEdgesByTrace.Clear();
 
                 foreach (var resource in _resources.Values)
                 {
@@ -1348,6 +1368,8 @@ public sealed partial class TelemetryRepository : IDisposable
                     // Remove trace if any span matches one of the resources. This matches filter behavior.
                     if (MatchResources(trace, resources))
                     {
+                        RemoveTraceTelemetryGraphEdges(trace);
+
                         // Remove span links for the removed trace.
                         foreach (var span in trace.Spans)
                         {
@@ -1823,6 +1845,7 @@ public sealed partial class TelemetryRepository : IDisposable
                 foreach (var (_, updatedTrace) in updatedTraces)
                 {
                     CalculateTraceUninstrumentedPeers(updatedTrace);
+                    UpdateTraceTelemetryGraphEdges(updatedTrace);
                 }
             }
         }
@@ -1906,6 +1929,100 @@ public sealed partial class TelemetryRepository : IDisposable
             else
             {
                 trace.SetSpanUninstrumentedPeer(span, null);
+            }
+        }
+    }
+
+    private void UpdateTraceTelemetryGraphEdges(OtlpTrace trace)
+    {
+        RemoveTraceTelemetryGraphEdges(trace);
+
+        var edges = CalculateTraceTelemetryGraphEdges(trace);
+        if (edges.Count == 0)
+        {
+            return;
+        }
+
+        _telemetryGraphEdgesByTrace.Add(trace, edges);
+        foreach (var (edge, count) in edges)
+        {
+            CollectionsMarshal.GetValueRefOrAddDefault(_telemetryGraphEdges, edge, out _) += count;
+        }
+    }
+
+    private void RemoveTraceTelemetryGraphEdges(OtlpTrace trace)
+    {
+        if (!_telemetryGraphEdgesByTrace.Remove(trace, out var edges))
+        {
+            return;
+        }
+
+        foreach (var (edge, count) in edges)
+        {
+            if (!_telemetryGraphEdges.TryGetValue(edge, out var currentCount))
+            {
+                Debug.Fail("Expected telemetry graph edge to exist.");
+                continue;
+            }
+
+            var updatedCount = currentCount - count;
+            if (updatedCount <= 0)
+            {
+                _telemetryGraphEdges.Remove(edge);
+            }
+            else
+            {
+                _telemetryGraphEdges[edge] = updatedCount;
+            }
+        }
+    }
+
+    private static Dictionary<TelemetryGraphEdge, int> CalculateTraceTelemetryGraphEdges(OtlpTrace trace)
+    {
+        var edges = new Dictionary<TelemetryGraphEdge, int>();
+
+        foreach (var span in trace.Spans)
+        {
+            if (span.Kind is not (OtlpSpanKind.Client or OtlpSpanKind.Producer))
+            {
+                continue;
+            }
+
+            var source = span.Source.ResourceKey;
+            foreach (var destination in GetTelemetryGraphDestinations(span))
+            {
+                if (destination == source)
+                {
+                    continue;
+                }
+
+                CollectionsMarshal.GetValueRefOrAddDefault(edges, new TelemetryGraphEdge(source, destination), out _)++;
+            }
+        }
+
+        return edges;
+
+        static IEnumerable<ResourceKey> GetTelemetryGraphDestinations(OtlpSpan span)
+        {
+            if (span.UninstrumentedPeer is { } peer)
+            {
+                yield return peer.ResourceKey;
+                yield break;
+            }
+
+            HashSet<ResourceKey>? destinations = null;
+            foreach (var childSpan in span.GetChildSpans())
+            {
+                if (childSpan.Source.ResourceKey == span.Source.ResourceKey || childSpan.Kind is not (OtlpSpanKind.Server or OtlpSpanKind.Consumer))
+                {
+                    continue;
+                }
+
+                destinations ??= [];
+                if (destinations.Add(childSpan.Source.ResourceKey))
+                {
+                    yield return childSpan.Source.ResourceKey;
+                }
             }
         }
     }
@@ -2130,6 +2247,7 @@ public sealed partial class TelemetryRepository : IDisposable
                 try
                 {
                     CalculateTraceUninstrumentedPeers(trace);
+                    UpdateTraceTelemetryGraphEdges(trace);
                 }
                 catch (Exception ex)
                 {
@@ -2141,6 +2259,8 @@ public sealed partial class TelemetryRepository : IDisposable
         {
             _tracesLock.ExitWriteLock();
         }
+
+        RaiseSubscriptionChanged(_tracesSubscriptions);
 
         return Task.CompletedTask;
     }

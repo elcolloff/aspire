@@ -446,6 +446,33 @@ namespace Aspire.Dashboard.Resources {
                 return ResourceManager.GetString("ResourcesGraphResetButton", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Graph mode.
+        /// </summary>
+        public static string ResourcesGraphModeLabel {
+            get {
+                return ResourceManager.GetString("ResourcesGraphModeLabel", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Relationships.
+        /// </summary>
+        public static string ResourcesGraphModeRelationships {
+            get {
+                return ResourceManager.GetString("ResourcesGraphModeRelationships", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Telemetry flow.
+        /// </summary>
+        public static string ResourcesGraphModeTelemetry {
+            get {
+                return ResourceManager.GetString("ResourcesGraphModeTelemetry", resourceCulture);
+            }
+        }
         
         /// <summary>
         ///   Looks up a localized string similar to Zoom in.

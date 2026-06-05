@@ -12,25 +12,9 @@ namespace Aspire.Dashboard.Model.ResourceGraph;
 
 public static class ResourceGraphMapper
 {
-    public static ResourceDto MapResource(ResourceViewModel r, IDictionary<string, ResourceViewModel> resourcesByName, IStringLocalizer<Columns> columnsLoc, bool showHiddenResources, IconResolver iconResolver)
+    public static ResourceDto MapResource(ResourceViewModel r, IDictionary<string, ResourceViewModel> resourcesByName, IStringLocalizer<Columns> columnsLoc, bool showHiddenResources, IconResolver iconResolver, IEnumerable<string>? referencedNames = null)
     {
-        var resolvedNames = new List<string>();
-
-        // Remove relationships back to the current resource. The graph doesn't display self referential relationships.
-        var filteredRelationships = r.Relationships.Where(relationship => relationship.ResourceName != r.DisplayName);
-
-        foreach (var resourceRelationships in filteredRelationships.GroupBy(r => r.ResourceName, StringComparers.ResourceName))
-        {
-            var matches = resourcesByName.Values
-                .Where(r => string.Equals(r.DisplayName, resourceRelationships.Key, StringComparisons.ResourceName))
-                .Where(r => !r.IsResourceHidden(showHiddenResources))
-                .ToList();
-
-            foreach (var match in matches)
-            {
-                resolvedNames.Add(match.Name);
-            }
-        }
+        var resolvedNames = referencedNames?.ToList() ?? ResolveRelationshipNames(r, resourcesByName, showHiddenResources);
 
         var endpoint = ResourceUrlHelpers.GetUrls(r, includeInternalUrls: false, includeNonEndpointUrls: false).FirstOrDefault()
             ?? ResourceUrlHelpers.GetUrls(r, includeInternalUrls: false, includeNonEndpointUrls: true).FirstOrDefault();
@@ -66,6 +50,29 @@ public static class ResourceGraphMapper
         };
 
         return dto;
+    }
+
+    private static List<string> ResolveRelationshipNames(ResourceViewModel r, IDictionary<string, ResourceViewModel> resourcesByName, bool showHiddenResources)
+    {
+        var resolvedNames = new List<string>();
+
+        // Remove relationships back to the current resource. The graph doesn't display self referential relationships.
+        var filteredRelationships = r.Relationships.Where(relationship => relationship.ResourceName != r.DisplayName);
+
+        foreach (var resourceRelationships in filteredRelationships.GroupBy(r => r.ResourceName, StringComparers.ResourceName))
+        {
+            var matches = resourcesByName.Values
+                .Where(r => string.Equals(r.DisplayName, resourceRelationships.Key, StringComparisons.ResourceName))
+                .Where(r => !r.IsResourceHidden(showHiddenResources))
+                .ToList();
+
+            foreach (var match in matches)
+            {
+                resolvedNames.Add(match.Name);
+            }
+        }
+
+        return resolvedNames;
     }
 
     private static string ResolvedEndpointText(DisplayedUrl? endpoint)

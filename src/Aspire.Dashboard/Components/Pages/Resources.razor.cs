@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Aspire.Dashboard.Components.Layout;
 using Aspire.Dashboard.Configuration;
@@ -38,6 +39,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     private const string ActionsColumn = nameof(ActionsColumn);
 
     private Subscription? _logsSubscription;
+    private Subscription? _graphTracesSubscription;
     private IList<GridColumn>? _gridColumns;
     private EventCallback _onToggleCollapseAllCallback;
     private EventCallback _onToggleResourceTypeCallback;
@@ -87,6 +89,10 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     [Parameter]
     [SupplyParameterFromQuery(Name = "view")]
     public string? ViewKindName { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "graphMode")]
+    public string? GraphModeName { get; set; }
 
     [Parameter]
     [SupplyParameterFromQuery(Name = "showHiddenResources")]
@@ -288,6 +294,8 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
             }
         });
 
+        UpdateGraphTracesSubscription();
+
         _loadingTcs.SetResult();
 
         async Task SubscribeResourcesAsync()
@@ -423,8 +431,71 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         }
 
         var activeResources = _resourceByName.Values.Where(Filter).OrderBy(e => e.ResourceType).ThenBy(e => e.Name).ToList();
-        var resources = activeResources.Select(r => ResourceGraphMapper.MapResource(r, _resourceByName, ColumnsLoc, _showHiddenResources, IconResolver)).ToList();
+        var telemetryReferencedNames = PageViewModel.SelectedGraphMode == ResourceGraphMode.Telemetry
+            ? GetTelemetryReferencedNames(activeResources)
+            : null;
+        if (telemetryReferencedNames is not null)
+        {
+            var telemetryResourceNames = GetTelemetryResourceNames(telemetryReferencedNames);
+            activeResources = activeResources.Where(r => telemetryResourceNames.Contains(r.Name)).ToList();
+        }
+
+        var resources = activeResources.Select(r =>
+        {
+            List<string>? referencedNames = null;
+            telemetryReferencedNames?.TryGetValue(r.Name, out referencedNames);
+            return ResourceGraphMapper.MapResource(r, _resourceByName, ColumnsLoc, _showHiddenResources, IconResolver, referencedNames);
+        }).ToList();
         await _jsModule.InvokeVoidAsync("updateResourcesGraph", resources);
+    }
+
+    private Dictionary<string, List<string>> GetTelemetryReferencedNames(List<ResourceViewModel> activeResources)
+    {
+        var activeResourceNameByResourceKey = new Dictionary<ResourceKey, string>();
+        var activeResourceNames = activeResources.Select(r => r.Name).ToHashSet(StringComparers.ResourceName);
+        foreach (var resource in activeResources)
+        {
+            activeResourceNameByResourceKey[ResourceKey.Create(resource.DisplayName, resource.Name)] = resource.Name;
+            activeResourceNameByResourceKey[new ResourceKey(resource.DisplayName, resource.Name)] = resource.Name;
+        }
+
+        var referencedNames = new Dictionary<string, List<string>>(StringComparers.ResourceName);
+        foreach (var edge in TelemetryRepository.GetTelemetryGraphEdges().Keys)
+        {
+            if (!activeResourceNameByResourceKey.TryGetValue(edge.Source, out var sourceName) ||
+                !activeResourceNameByResourceKey.TryGetValue(edge.Destination, out var destinationName) ||
+                !activeResourceNames.Contains(sourceName) ||
+                !activeResourceNames.Contains(destinationName) ||
+                string.Equals(sourceName, destinationName, StringComparisons.ResourceName))
+            {
+                continue;
+            }
+
+            ref var names = ref CollectionsMarshal.GetValueRefOrAddDefault(referencedNames, sourceName, out _);
+            names ??= [];
+            if (!names.Contains(destinationName, StringComparers.ResourceName))
+            {
+                names.Add(destinationName);
+            }
+        }
+
+        foreach (var names in referencedNames.Values)
+        {
+            names.Sort(StringComparers.ResourceName);
+        }
+
+        return referencedNames;
+    }
+
+    private static HashSet<string> GetTelemetryResourceNames(Dictionary<string, List<string>> referencedNames)
+    {
+        var resourceNames = new HashSet<string>(referencedNames.Keys, StringComparers.ResourceName);
+        foreach (var names in referencedNames.Values)
+        {
+            resourceNames.UnionWith(names);
+        }
+
+        return resourceNames;
     }
 
     private class ResourcesInterop(Resources resources)
@@ -585,6 +656,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
             return;
         }
 
+        UpdateGraphTracesSubscription();
         UpdateMaxHighlightedCount();
 
         // Wait until the initial data is loaded. This is required so there isn't a race between data loading and using resources here.
@@ -894,10 +966,18 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         return OnViewChangedAsync(viewKind);
     }
 
+    private async Task OnGraphModeChangedAsync()
+    {
+        await this.AfterViewModelChangedAsync(_contentLayout, waitToApplyMobileChange: false);
+        UpdateGraphTracesSubscription();
+        await UpdateResourceGraphResourcesAsync();
+    }
+
     private async Task OnViewChangedAsync(ResourceViewKind newView)
     {
         PageViewModel.SelectedViewKind = newView;
         await this.AfterViewModelChangedAsync(_contentLayout, waitToApplyMobileChange: true);
+        UpdateGraphTracesSubscription();
 
         if (newView == ResourceViewKind.Graph)
         {
@@ -924,6 +1004,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     public sealed class ResourcesViewModel
     {
         public required ResourceViewKind SelectedViewKind { get; set; }
+        public ResourceGraphMode SelectedGraphMode { get; set; } = ResourceGraphMode.Relationships;
         public ConcurrentDictionary<string, bool> ResourceTypesToVisibility { get; } = new(StringComparers.ResourceName);
         public ConcurrentDictionary<string, bool> ResourceStatesToVisibility { get; } = new(StringComparers.ResourceState);
         public ConcurrentDictionary<string, bool> ResourceHealthStatusesToVisibility { get; } = new(StringComparer.Ordinal);
@@ -932,6 +1013,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     public class ResourcesPageState
     {
         public required string? ViewKind { get; set; }
+        public string? GraphMode { get; set; }
         public required IDictionary<string, bool> ResourceTypesToVisibility { get; set; }
         public required IDictionary<string, bool> ResourceStatesToVisibility { get; set; }
         public required IDictionary<string, bool> ResourceHealthStatusesToVisibility { get; set; }
@@ -944,12 +1026,24 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         Graph
     }
 
+    public enum ResourceGraphMode
+    {
+        Relationships,
+        Telemetry
+    }
+
     public Task UpdateViewModelFromQueryAsync(ResourcesViewModel viewModel)
     {
         // Don't allow the view to be updated from the query string if the resource graph is disabled.
         if (!_hideResourceGraph && Enum.TryParse(typeof(ResourceViewKind), ViewKindName, out var view) && view is ResourceViewKind vk)
         {
             viewModel.SelectedViewKind = vk;
+        }
+        if (viewModel.SelectedViewKind == ResourceViewKind.Graph &&
+            Enum.TryParse(typeof(ResourceGraphMode), GraphModeName, out var graphMode) &&
+            graphMode is ResourceGraphMode gm)
+        {
+            viewModel.SelectedGraphMode = gm;
         }
 
         return Task.CompletedTask;
@@ -959,6 +1053,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     {
         return DashboardUrls.ResourcesUrl(
             view: serializable.ViewKind,
+            graphMode: serializable.ViewKind == ResourceViewKind.Graph.ToString() ? serializable.GraphMode : null,
             // add resource?
             hiddenTypes: SerializeFiltersToString(serializable.ResourceTypesToVisibility),
             hiddenStates: SerializeFiltersToString(serializable.ResourceStatesToVisibility),
@@ -976,10 +1071,33 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         return new ResourcesPageState
         {
             ViewKind = PageViewModel.SelectedViewKind != ResourceViewKind.Table ? PageViewModel.SelectedViewKind.ToString() : null,
+            GraphMode = PageViewModel.SelectedViewKind == ResourceViewKind.Graph && PageViewModel.SelectedGraphMode != ResourceGraphMode.Relationships ? PageViewModel.SelectedGraphMode.ToString() : null,
             ResourceTypesToVisibility = PageViewModel.ResourceTypesToVisibility,
             ResourceStatesToVisibility = PageViewModel.ResourceStatesToVisibility,
             ResourceHealthStatusesToVisibility = PageViewModel.ResourceHealthStatusesToVisibility
         };
+    }
+
+    private void UpdateGraphTracesSubscription()
+    {
+        if (PageViewModel.SelectedViewKind == ResourceViewKind.Graph && PageViewModel.SelectedGraphMode == ResourceGraphMode.Telemetry)
+        {
+            _graphTracesSubscription ??= TelemetryRepository.OnNewTraces(null, SubscriptionType.Other, async () =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (PageViewModel.SelectedViewKind == ResourceViewKind.Graph && PageViewModel.SelectedGraphMode == ResourceGraphMode.Telemetry)
+                    {
+                        await UpdateResourceGraphResourcesAsync();
+                    }
+                });
+            });
+        }
+        else
+        {
+            _graphTracesSubscription?.Dispose();
+            _graphTracesSubscription = null;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -989,6 +1107,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         _resourcesInteropReference?.Dispose();
         _cts.Cancel();
         _logsSubscription?.Dispose();
+        _graphTracesSubscription?.Dispose();
         TelemetryContext.Dispose();
         await JSInteropHelpers.SafeDisposeAsync(_jsModule);
 
@@ -1014,6 +1133,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         var properties = new List<ComponentTelemetryProperty>
         {
             new(TelemetryPropertyKeys.ResourceView, new AspireTelemetryProperty(PageViewModel.SelectedViewKind.ToString(), AspireTelemetryPropertyType.UserSetting)),
+            new(TelemetryPropertyKeys.ResourceGraphMode, new AspireTelemetryProperty(PageViewModel.SelectedGraphMode.ToString(), AspireTelemetryPropertyType.UserSetting)),
             new(TelemetryPropertyKeys.ResourceTypes, new AspireTelemetryProperty(_resourceByName.Values.Select(r => TelemetryPropertyValues.GetResourceTypeTelemetryValue(r.ResourceType, r.SupportsDetailedTelemetry)).OrderBy(t => t).ToList()))
         };
 

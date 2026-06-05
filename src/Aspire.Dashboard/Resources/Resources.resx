@@ -296,6 +296,15 @@
   <data name="ResourcesGraphResetButton" xml:space="preserve">
     <value>Reset</value>
   </data>
+  <data name="ResourcesGraphModeLabel" xml:space="preserve">
+    <value>Graph mode</value>
+  </data>
+  <data name="ResourcesGraphModeRelationships" xml:space="preserve">
+    <value>Relationships</value>
+  </data>
+  <data name="ResourcesGraphModeTelemetry" xml:space="preserve">
+    <value>Telemetry flow</value>
+  </data>
   <data name="ResourcesHideTypes" xml:space="preserve">
     <value>Hide resource types</value>
   </data>
