@@ -748,6 +748,40 @@ await container.withCommand("restart", "Restart", async (ctx) => {
         cancellationToken
     });
 });
+// Test bench for the polyglot IInteractionService API: prompts for a region, then dynamically
+// loads the available zones for that region into a second choice input. Reached via the command's
+// service provider (serviceProvider().getInteractionService()), which only prompts when the
+// interaction service is available (the interactive dashboard path).
+await container.withCommand("pick-zone", "Pick Zone", async (ctx) => {
+    const interactionService = await ctx.serviceProvider().getInteractionService();
+
+    if (!(await interactionService.isAvailable())) {
+        return { success: true, message: "Interaction service is not available." };
+    }
+
+    const regionInput = await interactionService.createChoiceInput("region", {
+        choices: { "us": "United States", "eu": "Europe" }
+    });
+
+    const zoneInput = await interactionService
+        .createChoiceInput("zone")
+        .withDynamicLoading(async (loadContext) => {
+            const region = await loadContext.getInputValue("region");
+
+            const zones = region === "eu"
+                ? { "eu-west": "EU West", "eu-north": "EU North" }
+                : { "us-east": "US East", "us-west": "US West" };
+
+            await loadContext.setChoiceOptions(zones);
+        });
+
+    const result = await interactionService.promptInputs(
+        "Pick a zone",
+        "Choose a region, then pick a zone from the dynamically loaded options.",
+        [regionInput, zoneInput]);
+
+    return { success: !result.canceled, canceled: result.canceled };
+});
 
 // withProcessCommand
 await container.withProcessCommand("dotnet-version", "Show .NET version", {

@@ -268,6 +268,41 @@ void main() throws Exception {
                     .arguments(Map.of("message", "hello"))
                     .cancellationToken(cancellationToken));
         });
+        // Test bench for the polyglot IInteractionService API: prompts for a region, then dynamically
+        // loads the available zones for that region into a second choice input. Reached via the command's
+        // service provider (serviceProvider().getInteractionService()), which only prompts when the
+        // interaction service is available (the interactive dashboard path).
+        container.withCommand("pick-zone", "Pick Zone", (ctx) -> {
+            var interactionService = ctx.serviceProvider().getInteractionService();
+            if (!interactionService.isAvailable()) {
+                var unavailable = new ExecuteCommandResult();
+                unavailable.setSuccess(true);
+                unavailable.setMessage("Interaction service is not available.");
+                return unavailable;
+            }
+
+            var regionInput = interactionService.createChoiceInput(
+                "region",
+                new CreateChoiceInputOptions().choices(Map.of("us", "United States", "eu", "Europe")));
+
+            var zoneInput = interactionService.createChoiceInput("zone").withDynamicLoading((loadContext) -> {
+                var region = loadContext.getInputValue("region");
+                Map<String, String> zones = "eu".equals(region)
+                    ? Map.of("eu-west", "EU West", "eu-north", "EU North")
+                    : Map.of("us-east", "US East", "us-west", "US West");
+                loadContext.setChoiceOptions(zones);
+            });
+
+            var result = interactionService.promptInputs(
+                "Pick a zone",
+                "Choose a region, then pick a zone from the dynamically loaded options.",
+                new InteractionInputBuilder[] { regionInput, zoneInput });
+
+            var commandResult = new ExecuteCommandResult();
+            commandResult.setSuccess(!result.getCanceled());
+            commandResult.setCanceled(result.getCanceled());
+            return commandResult;
+        });
         container.withHttpCommand("/health", "Health Check");
         var httpCmdOptions = new HttpCommandExportOptions();
         httpCmdOptions.setMethodName("POST");

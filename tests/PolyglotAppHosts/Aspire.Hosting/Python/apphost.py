@@ -437,6 +437,37 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
         command_options={"Arguments": [{"Name": "message", "InputType": "Text", "Required": True}]}
     )
     container.with_command("restart", "Restart", restart_command)
+    # Test bench for the polyglot IInteractionService API: prompts for a region, then dynamically
+    # loads the available zones for that region into a second choice input. Reached via the command's
+    # service provider (service_provider.get_interaction_service()), which only prompts when the
+    # interaction service is available (the interactive dashboard path).
+    def pick_zone_command(ctx):
+        interaction_service = ctx.service_provider.get_interaction_service()
+        if not interaction_service.is_available():
+            return {"success": True, "message": "Interaction service is not available."}
+
+        region_input = interaction_service.create_choice_input(
+            "region",
+            choices={"us": "United States", "eu": "Europe"}
+        )
+
+        def load_zones(load_context):
+            region = load_context.get_input_value("region")
+            zones = ({"eu-west": "EU West", "eu-north": "EU North"}
+                     if region == "eu"
+                     else {"us-east": "US East", "us-west": "US West"})
+            load_context.set_choice_options(zones)
+
+        zone_input = interaction_service.create_choice_input("zone").with_dynamic_loading(load_zones)
+
+        result = interaction_service.prompt_inputs(
+            "Pick a zone",
+            "Choose a region, then pick a zone from the dynamically loaded options.",
+            [region_input, zone_input]
+        )
+        return {"success": not result.get("Canceled", False), "canceled": result.get("Canceled", False)}
+
+    container.with_command("pick-zone", "Pick Zone", pick_zone_command)
     # withHttpCommand
     container.with_http_command("/health", "Health Check")
     container.with_http_command("/api/reset", "Reset", options={"MethodName": "POST", "ConfirmationMessage": "Are you sure?"})

@@ -585,6 +585,42 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		return result
 	})
 
+	// Test bench for the polyglot IInteractionService API: prompts for a region, then dynamically
+	// loads the available zones for that region into a second choice input. Reached via the command's
+	// service provider (ServiceProvider().GetInteractionService()), which only prompts when the
+	// interaction service is available (the interactive dashboard path).
+	_ = container.WithCommand("pick-zone", "Pick Zone", func(ctx aspire.ExecuteCommandContext) *aspire.ExecuteCommandResult {
+		interactionService := ctx.ServiceProvider().GetInteractionService()
+
+		available, err := interactionService.IsAvailable()
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+		if !available {
+			return &aspire.ExecuteCommandResult{Success: true, Message: aspire.StringPtr("Interaction service is not available.")}
+		}
+
+		regionInput := interactionService.CreateChoiceInput("region", &aspire.CreateChoiceInputOptions{
+			Choices: map[string]string{"us": "United States", "eu": "Europe"},
+		})
+
+		zoneInput := interactionService.CreateChoiceInput("zone").WithDynamicLoading(func(loadContext aspire.InteractionInputLoadContext) {
+			region, _ := loadContext.GetInputValue("region")
+			zones := map[string]string{"us-east": "US East", "us-west": "US West"}
+			if region == "eu" {
+				zones = map[string]string{"eu-west": "EU West", "eu-north": "EU North"}
+			}
+			_ = loadContext.SetChoiceOptions(zones)
+		})
+
+		result, err := interactionService.PromptInputs("Pick a zone", "Choose a region, then pick a zone from the dynamically loaded options.", []aspire.InteractionInputBuilder{regionInput, zoneInput})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		return &aspire.ExecuteCommandResult{Success: !result.Canceled, Canceled: aspire.BoolPtr(result.Canceled)}
+	})
+
 	app, err := builder.Build()
 	if err != nil {
 		log.Fatalf(aspire.FormatError(err))

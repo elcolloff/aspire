@@ -309,6 +309,18 @@ type UpdateCommandStateContextHandle = Handle<'Aspire.Hosting/Aspire.Hosting.App
 /** Context passed to ATS-friendly eventing subscriber registrations. */
 type EventingSubscriberRegistrationContextHandle = Handle<'Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegistrationContext'>;
 
+/**
+ * An opaque, server-side builder for an `InteractionInput` used by polyglot app hosts.
+ *
+ * The builder owns the live `InteractionInput` instance. Dynamic-loading callbacks mutate this same
+ * instance through `InteractionInputLoadContext`, which is why the input is modeled as a handle here
+ * instead of the by-value `InteractionInput` DTO.
+ */
+type InteractionInputBuilderHandle = Handle<'Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder'>;
+
+/** The context passed to a polyglot dynamic-loading callback. Exposes the loading input and the other inputs in the prompt, and provides guarded setters to update the loading input. */
+type InteractionInputLoadContextHandle = Handle<'Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext'>;
+
 /** Represents a distributed application that implements the {@link IHost} and {@link IAsyncDisposable} interfaces. */
 type DistributedApplicationHandle = Handle<'Aspire.Hosting/Aspire.Hosting.DistributedApplication'>;
 
@@ -326,6 +338,9 @@ type ExternalServiceResourceHandle = Handle<'Aspire.Hosting/Aspire.Hosting.Exter
 
 /** A builder for creating instances of {@link DistributedApplication}. */
 type IDistributedApplicationBuilderHandle = Handle<'Aspire.Hosting/Aspire.Hosting.IDistributedApplicationBuilder'>;
+
+/** A service to interact with the current development environment. */
+type IInteractionServiceHandle = Handle<'Aspire.Hosting/Aspire.Hosting.IInteractionService'>;
 
 /** Represents the context for validating inputs in an inputs dialog interaction. */
 type InputsDialogValidationContextHandle = Handle<'Aspire.Hosting/Aspire.Hosting.InputsDialogValidationContext'>;
@@ -530,6 +545,22 @@ export enum ImagePullPolicy {
     Never = "Never",
 }
 
+/** Specifies the intent or purpose of a message in an interaction. */
+export enum MessageIntent {
+    /** No specific intent. */
+    None = "None",
+    /** Indicates a successful operation. */
+    Success = "Success",
+    /** Indicates a warning. */
+    Warning = "Warning",
+    /** Indicates an error. */
+    Error = "Error",
+    /** Provides informational content. */
+    Information = "Information",
+    /** Requests confirmation from the user. */
+    Confirmation = "Confirmation",
+}
+
 /** Protocols available for OTLP exporters. */
 export enum OtlpProtocol {
     /** A gRPC-based OTLP exporter. */
@@ -646,6 +677,14 @@ export interface AddContainerOptions {
     tag?: string | null;
 }
 
+/** The result of a boolean interaction prompt. */
+export interface BoolInteractionResult {
+    /** Gets a value indicating whether the interaction was canceled by the user. */
+    canceled?: boolean;
+    /** Gets the value returned from the interaction. Not meaningful when `Canceled` is `true`. */
+    value?: boolean;
+}
+
 /** Context for configuring certificate trust configuration properties. */
 export interface CertificateTrustExecutionConfigurationContext {
     /** The path to the PEM certificate bundle file in the resource context (e.g., container filesystem). */
@@ -752,6 +791,36 @@ export interface CreateBuilderOptions {
     enableResourceLogging?: boolean;
     /** When false, pre-flush rejected promises are not re-thrown by build(). Default: true. */
     throwOnPendingRejections?: boolean;
+}
+
+/** Optional configuration shared by interaction input factory capabilities. */
+export interface CreateInteractionInputOptions {
+    /** Gets or sets the label for the input. Defaults to the input name when not specified. */
+    label?: string | null;
+    /** Gets or sets the description for the input. */
+    description?: string | null;
+    /** Gets or sets a value indicating whether the description is rendered as Markdown. */
+    enableDescriptionMarkdown?: boolean | null;
+    /** Gets or sets a value indicating whether the input is required. */
+    required?: boolean | null;
+    /** Gets or sets the placeholder text for the input. */
+    placeholder?: string | null;
+    /** Gets or sets the initial value of the input. */
+    value?: string | null;
+    /** Gets or sets a value indicating whether a custom choice is allowed. Only used by choice inputs. */
+    allowCustomChoice?: boolean | null;
+    /** Gets or sets a value indicating whether the input is disabled. */
+    disabled?: boolean | null;
+    /** Gets or sets the maximum length for text inputs. */
+    maxLength?: number | null;
+}
+
+/** Options controlling when a dynamic-loading callback runs. */
+export interface DynamicLoadingOptions {
+    /** Gets or sets a value indicating whether the callback always runs at the start of the prompt. */
+    alwaysLoadOnStart?: boolean | null;
+    /** Gets or sets the names of inputs this input depends on. The callback runs when any of them change. */
+    dependsOnInputs?: string[];
 }
 
 /** The result of executing a command. Returned from `ExecuteCommand`. */
@@ -873,6 +942,72 @@ export interface HttpsCertificateInfo {
     issuer?: string;
     /** The certificate thumbprint. */
     thumbprint?: string | null;
+}
+
+/** The result of a single-input interaction prompt. */
+export interface InputInteractionResult {
+    /** Gets a value indicating whether the interaction was canceled by the user. */
+    canceled?: boolean;
+    /** Gets the input returned from the interaction. Not present when `Canceled` is `true`. */
+    input?: InteractionInput;
+}
+
+/** The result of a multi-input interaction prompt. */
+export interface InputsInteractionResult {
+    /** Gets a value indicating whether the interaction was canceled by the user. */
+    canceled?: boolean;
+    /** Gets the inputs returned from the interaction. Empty when `Canceled` is `true`. */
+    inputs?: InteractionInput[];
+}
+
+/** Options for inputs dialog prompts. */
+export interface InteractionInputsDialogOptions {
+    /** Gets or sets the primary button text. */
+    primaryButtonText?: string | null;
+    /** Gets or sets the secondary button text. */
+    secondaryButtonText?: string | null;
+    /** Gets or sets a value indicating whether the secondary button is shown. */
+    showSecondaryButton?: boolean | null;
+    /** Gets or sets a value indicating whether the dismiss button is shown. */
+    showDismiss?: boolean | null;
+    /** Gets or sets a value indicating whether Markdown in the message is rendered. */
+    enableMessageMarkdown?: boolean | null;
+}
+
+/** Options for message box and confirmation prompts. */
+export interface InteractionMessageBoxOptions {
+    /** Gets or sets the primary button text. */
+    primaryButtonText?: string | null;
+    /** Gets or sets the secondary button text. */
+    secondaryButtonText?: string | null;
+    /** Gets or sets a value indicating whether the secondary button is shown. */
+    showSecondaryButton?: boolean | null;
+    /** Gets or sets a value indicating whether the dismiss button is shown. */
+    showDismiss?: boolean | null;
+    /** Gets or sets a value indicating whether Markdown in the message is rendered. */
+    enableMessageMarkdown?: boolean | null;
+    /** Gets or sets the intent of the message box. */
+    intent?: MessageIntent | null;
+}
+
+/** Options for notification prompts. */
+export interface InteractionNotificationOptions {
+    /** Gets or sets the primary button text. */
+    primaryButtonText?: string | null;
+    /** Gets or sets the secondary button text. */
+    secondaryButtonText?: string | null;
+    /** Gets or sets a value indicating whether the secondary button is shown. */
+    showSecondaryButton?: boolean | null;
+    /** Gets or sets a value indicating whether the dismiss button is shown. */
+    showDismiss?: boolean | null;
+    /** Gets or sets a value indicating whether Markdown in the message is rendered. */
+    enableMessageMarkdown?: boolean | null;
+    /** Gets or sets the intent of the notification. */
+    intent?: MessageIntent | null;
+    /** Gets or sets the text for a link in the notification. */
+    linkText?: string | null;
+    /** Gets or sets the URL for the link in the notification. */
+    linkUrl?: string | null;
 }
 
 /** Options for customizing parameter inputs from polyglot app hosts. */
@@ -1255,6 +1390,13 @@ export interface CopyOptions {
     chown?: string;
 }
 
+export interface CreateChoiceInputOptions {
+    /** The available choices, keyed by submitted value. */
+    choices?: Record<string, string>;
+    /** Optional configuration for the input. */
+    options?: CreateInteractionInputOptions;
+}
+
 export interface CreateMarkdownTaskOptions {
     cancellationToken?: AbortSignal | CancellationToken;
 }
@@ -1280,6 +1422,31 @@ export interface GetStatusAsyncOptions {
 
 export interface GetValueAsyncOptions {
     /** The cancellation token. */
+    cancellationToken?: AbortSignal | CancellationToken;
+}
+
+export interface PromptConfirmationOptions {
+    options?: InteractionMessageBoxOptions;
+    cancellationToken?: AbortSignal | CancellationToken;
+}
+
+export interface PromptInputOptions {
+    options?: InteractionInputsDialogOptions;
+    cancellationToken?: AbortSignal | CancellationToken;
+}
+
+export interface PromptInputsOptions {
+    options?: InteractionInputsDialogOptions;
+    cancellationToken?: AbortSignal | CancellationToken;
+}
+
+export interface PromptMessageBoxOptions {
+    options?: InteractionMessageBoxOptions;
+    cancellationToken?: AbortSignal | CancellationToken;
+}
+
+export interface PromptNotificationOptions {
+    options?: InteractionNotificationOptions;
     cancellationToken?: AbortSignal | CancellationToken;
 }
 
@@ -4932,6 +5099,13 @@ class EventingSubscriberRegistrationContextPromiseImpl implements EventingSubscr
 /** Context for {@link ResourceCommandAnnotation.ExecuteCommand}. */
 export interface ExecuteCommandContext {
     toJSON(): MarshalledHandle;
+    /**
+     * The service provider.
+     *
+     * Polyglot command callbacks use this handle to resolve app host services, such as the interaction service via
+     * `serviceProvider().getInteractionService()`, so they can prompt the user while the command executes.
+     */
+    serviceProvider(): ServiceProviderPromise;
     /** The resource name. */
     resourceName(): Promise<string>;
     /** The cancellation token. */
@@ -4949,6 +5123,13 @@ export interface ExecuteCommandContext {
 }
 
 export interface ExecuteCommandContextPromise extends PromiseLike<ExecuteCommandContext> {
+    /**
+     * The service provider.
+     *
+     * Polyglot command callbacks use this handle to resolve app host services, such as the interaction service via
+     * `serviceProvider().getInteractionService()`, so they can prompt the user while the command executes.
+     */
+    serviceProvider(): ServiceProviderPromise;
     /** The resource name. */
     resourceName(): Promise<string>;
     /** The cancellation token. */
@@ -4975,6 +5156,17 @@ class ExecuteCommandContextImpl implements ExecuteCommandContext {
 
     /** Serialize for JSON-RPC transport */
     toJSON(): MarshalledHandle { return this._handle.toJSON(); }
+
+    serviceProvider(): ServiceProviderPromise {
+        const promise = (async () => {
+            const handle = await this._client.invokeCapability<IServiceProviderHandle>(
+                'Aspire.Hosting.ApplicationModel/ExecuteCommandContext.serviceProvider',
+                { context: this._handle }
+            );
+            return new ServiceProviderImpl(handle, this._client);
+        })();
+        return new ServiceProviderPromiseImpl(promise, this._client, false);
+    }
 
     async resourceName(): Promise<string> {
         return await this._client.invokeCapability<string>(
@@ -5024,6 +5216,10 @@ class ExecuteCommandContextPromiseImpl implements ExecuteCommandContextPromise {
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
     ): PromiseLike<TResult1 | TResult2> {
         return this._promise.then(onfulfilled, onrejected);
+    }
+
+    serviceProvider(): ServiceProviderPromise {
+        return new ServiceProviderPromiseImpl(this._promise.then(obj => obj.serviceProvider()), this._client, false);
     }
 
     resourceName(): Promise<string> {
@@ -5295,6 +5491,335 @@ class InputsDialogValidationContextPromiseImpl implements InputsDialogValidation
 
     addValidationError(inputName: string, errorMessage: string): InputsDialogValidationContextPromise {
         return new InputsDialogValidationContextPromiseImpl(this._promise.then(obj => obj.addValidationError(inputName, errorMessage)), this._client);
+    }
+
+}
+
+// ============================================================================
+// InteractionInputBuilder
+// ============================================================================
+
+/**
+ * An opaque, server-side builder for an `InteractionInput` used by polyglot app hosts.
+ *
+ * The builder owns the live `InteractionInput` instance. Dynamic-loading callbacks mutate this same
+ * instance through `InteractionInputLoadContext`, which is why the input is modeled as a handle here
+ * instead of the by-value `InteractionInput` DTO.
+ */
+export interface InteractionInputBuilder {
+    toJSON(): MarshalledHandle;
+    /**
+     * Sets the choice options for the input.
+     * @param choices The available choices, keyed by submitted value.
+     * @returns The same builder handle.
+     */
+    withChoiceOptions(choices: Record<string, string>): InteractionInputBuilderPromise;
+    /**
+     * Sets the value of the input.
+     * @param value The value to assign.
+     * @returns The same builder handle.
+     */
+    withValue(value: string): InteractionInputBuilderPromise;
+    /**
+     * Attaches a callback that dynamically loads or updates the input after the prompt starts.
+     * @param callback The callback invoked to load the input. Use the supplied context to read other inputs and update this input.
+     * @param options Additional options.
+     * @returns The same builder handle.
+     */
+    withDynamicLoading(callback: (arg: InteractionInputLoadContext) => Promise<void>, options?: DynamicLoadingOptions): InteractionInputBuilderPromise;
+}
+
+export interface InteractionInputBuilderPromise extends PromiseLike<InteractionInputBuilder> {
+    /**
+     * Sets the choice options for the input.
+     * @param choices The available choices, keyed by submitted value.
+     * @returns The same builder handle.
+     */
+    withChoiceOptions(choices: Record<string, string>): InteractionInputBuilderPromise;
+    /**
+     * Sets the value of the input.
+     * @param value The value to assign.
+     * @returns The same builder handle.
+     */
+    withValue(value: string): InteractionInputBuilderPromise;
+    /**
+     * Attaches a callback that dynamically loads or updates the input after the prompt starts.
+     * @param callback The callback invoked to load the input. Use the supplied context to read other inputs and update this input.
+     * @param options Additional options.
+     * @returns The same builder handle.
+     */
+    withDynamicLoading(callback: (arg: InteractionInputLoadContext) => Promise<void>, options?: DynamicLoadingOptions): InteractionInputBuilderPromise;
+}
+
+// ============================================================================
+// InteractionInputBuilderImpl
+// ============================================================================
+
+/**
+ * An opaque, server-side builder for an `InteractionInput` used by polyglot app hosts.
+ *
+ * The builder owns the live `InteractionInput` instance. Dynamic-loading callbacks mutate this same
+ * instance through `InteractionInputLoadContext`, which is why the input is modeled as a handle here
+ * instead of the by-value `InteractionInput` DTO.
+ */
+class InteractionInputBuilderImpl implements InteractionInputBuilder {
+    constructor(private _handle: InteractionInputBuilderHandle, private _client: AspireClientRpc) {}
+
+    /** Serialize for JSON-RPC transport */
+    toJSON(): MarshalledHandle { return this._handle.toJSON(); }
+
+    /** @internal */
+    async _withChoiceOptionsInternal(choices: Record<string, string>): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle, choices };
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting.Ats/withChoiceOptions',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Sets the choice options for the input.
+     * @param choices The available choices, keyed by submitted value.
+     * @returns The same builder handle.
+     */
+    withChoiceOptions(choices: Record<string, string>): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._withChoiceOptionsInternal(choices), this._client);
+    }
+
+    /** @internal */
+    async _withValueInternal(value: string): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle, value };
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting.Ats/withValue',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Sets the value of the input.
+     * @param value The value to assign.
+     * @returns The same builder handle.
+     */
+    withValue(value: string): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._withValueInternal(value), this._client);
+    }
+
+    /** @internal */
+    async _withDynamicLoadingInternal(callback: (arg: InteractionInputLoadContext) => Promise<void>, options?: DynamicLoadingOptions): Promise<InteractionInputBuilder> {
+        const callbackId = registerCallback(async (argData: unknown) => {
+            const argHandle = wrapIfHandle(argData) as InteractionInputLoadContextHandle;
+            const arg = new InteractionInputLoadContextImpl(argHandle, this._client);
+            await callback(arg);
+        });
+        const rpcArgs: Record<string, unknown> = { context: this._handle, callback: callbackId };
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting.Ats/withDynamicLoading',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Attaches a callback that dynamically loads or updates the input after the prompt starts.
+     * @param callback The callback invoked to load the input. Use the supplied context to read other inputs and update this input.
+     * @param options Additional options.
+     * @returns The same builder handle.
+     */
+    withDynamicLoading(callback: (arg: InteractionInputLoadContext) => Promise<void>, options?: DynamicLoadingOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._withDynamicLoadingInternal(callback, options), this._client);
+    }
+
+}
+
+/**
+ * Thenable wrapper for InteractionInputBuilder that enables fluent chaining.
+ */
+class InteractionInputBuilderPromiseImpl implements InteractionInputBuilderPromise {
+    constructor(private _promise: Promise<InteractionInputBuilder>, private _client: AspireClientRpc, track = true) {
+        if (track) { _client.trackPromise(_promise); }
+    }
+
+    then<TResult1 = InteractionInputBuilder, TResult2 = never>(
+        onfulfilled?: ((value: InteractionInputBuilder) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): PromiseLike<TResult1 | TResult2> {
+        return this._promise.then(onfulfilled, onrejected);
+    }
+
+    withChoiceOptions(choices: Record<string, string>): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.withChoiceOptions(choices)), this._client);
+    }
+
+    withValue(value: string): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.withValue(value)), this._client);
+    }
+
+    withDynamicLoading(callback: (arg: InteractionInputLoadContext) => Promise<void>, options?: DynamicLoadingOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.withDynamicLoading(callback, options)), this._client);
+    }
+
+}
+
+// ============================================================================
+// InteractionInputLoadContext
+// ============================================================================
+
+/** The context passed to a polyglot dynamic-loading callback. Exposes the loading input and the other inputs in the prompt, and provides guarded setters to update the loading input. */
+export interface InteractionInputLoadContext {
+    toJSON(): MarshalledHandle;
+    /**
+     * Gets the name of the input that is loading.
+     * @returns The input name.
+     */
+    getInputName(): Promise<string>;
+    /**
+     * Gets the current value of an input in the prompt by name.
+     * @param inputName The name of the input to read.
+     * @returns The input value, or `null` when the input has no value or does not exist.
+     */
+    getInputValue(inputName: string): Promise<string>;
+    /**
+     * Sets the choice options for the loading input.
+     * @param choices The available choices, keyed by submitted value.
+     */
+    setChoiceOptions(choices: Record<string, string>): InteractionInputLoadContextPromise;
+    /**
+     * Sets the value of the loading input.
+     * @param value The value to assign.
+     */
+    setValue(value: string): InteractionInputLoadContextPromise;
+}
+
+export interface InteractionInputLoadContextPromise extends PromiseLike<InteractionInputLoadContext> {
+    /**
+     * Gets the name of the input that is loading.
+     * @returns The input name.
+     */
+    getInputName(): Promise<string>;
+    /**
+     * Gets the current value of an input in the prompt by name.
+     * @param inputName The name of the input to read.
+     * @returns The input value, or `null` when the input has no value or does not exist.
+     */
+    getInputValue(inputName: string): Promise<string>;
+    /**
+     * Sets the choice options for the loading input.
+     * @param choices The available choices, keyed by submitted value.
+     */
+    setChoiceOptions(choices: Record<string, string>): InteractionInputLoadContextPromise;
+    /**
+     * Sets the value of the loading input.
+     * @param value The value to assign.
+     */
+    setValue(value: string): InteractionInputLoadContextPromise;
+}
+
+// ============================================================================
+// InteractionInputLoadContextImpl
+// ============================================================================
+
+/** The context passed to a polyglot dynamic-loading callback. Exposes the loading input and the other inputs in the prompt, and provides guarded setters to update the loading input. */
+class InteractionInputLoadContextImpl implements InteractionInputLoadContext {
+    constructor(private _handle: InteractionInputLoadContextHandle, private _client: AspireClientRpc) {}
+
+    /** Serialize for JSON-RPC transport */
+    toJSON(): MarshalledHandle { return this._handle.toJSON(); }
+
+    /**
+     * Gets the name of the input that is loading.
+     * @returns The input name.
+     */
+    async getInputName(): Promise<string> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle };
+        return await this._client.invokeCapability<string>(
+            'Aspire.Hosting.Ats/getInputName',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Gets the current value of an input in the prompt by name.
+     * @param inputName The name of the input to read.
+     * @returns The input value, or `null` when the input has no value or does not exist.
+     */
+    async getInputValue(inputName: string): Promise<string> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle, inputName };
+        return await this._client.invokeCapability<string>(
+            'Aspire.Hosting.Ats/getInputValue',
+            rpcArgs
+        );
+    }
+
+    /** @internal */
+    async _setChoiceOptionsInternal(choices: Record<string, string>): Promise<InteractionInputLoadContext> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle, choices };
+        await this._client.invokeCapability<void>(
+            'Aspire.Hosting.Ats/setChoiceOptions',
+            rpcArgs
+        );
+        return this;
+    }
+
+    /**
+     * Sets the choice options for the loading input.
+     * @param choices The available choices, keyed by submitted value.
+     */
+    setChoiceOptions(choices: Record<string, string>): InteractionInputLoadContextPromise {
+        return new InteractionInputLoadContextPromiseImpl(this._setChoiceOptionsInternal(choices), this._client);
+    }
+
+    /** @internal */
+    async _setValueInternal(value: string): Promise<InteractionInputLoadContext> {
+        const rpcArgs: Record<string, unknown> = { context: this._handle, value };
+        await this._client.invokeCapability<void>(
+            'Aspire.Hosting.Ats/setValue',
+            rpcArgs
+        );
+        return this;
+    }
+
+    /**
+     * Sets the value of the loading input.
+     * @param value The value to assign.
+     */
+    setValue(value: string): InteractionInputLoadContextPromise {
+        return new InteractionInputLoadContextPromiseImpl(this._setValueInternal(value), this._client);
+    }
+
+}
+
+/**
+ * Thenable wrapper for InteractionInputLoadContext that enables fluent chaining.
+ */
+class InteractionInputLoadContextPromiseImpl implements InteractionInputLoadContextPromise {
+    constructor(private _promise: Promise<InteractionInputLoadContext>, private _client: AspireClientRpc, track = true) {
+        if (track) { _client.trackPromise(_promise); }
+    }
+
+    then<TResult1 = InteractionInputLoadContext, TResult2 = never>(
+        onfulfilled?: ((value: InteractionInputLoadContext) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): PromiseLike<TResult1 | TResult2> {
+        return this._promise.then(onfulfilled, onrejected);
+    }
+
+    getInputName(): Promise<string> {
+        return this._promise.then(obj => obj.getInputName());
+    }
+
+    getInputValue(inputName: string): Promise<string> {
+        return this._promise.then(obj => obj.getInputValue(inputName));
+    }
+
+    setChoiceOptions(choices: Record<string, string>): InteractionInputLoadContextPromise {
+        return new InteractionInputLoadContextPromiseImpl(this._promise.then(obj => obj.setChoiceOptions(choices)), this._client);
+    }
+
+    setValue(value: string): InteractionInputLoadContextPromise {
+        return new InteractionInputLoadContextPromiseImpl(this._promise.then(obj => obj.setValue(value)), this._client);
     }
 
 }
@@ -10533,6 +11058,396 @@ class HostEnvironmentPromiseImpl implements HostEnvironmentPromise {
 }
 
 // ============================================================================
+// InteractionService
+// ============================================================================
+
+/** A service to interact with the current development environment. */
+export interface InteractionService {
+    toJSON(): MarshalledHandle;
+    /**
+     * Gets a value indicating whether the interaction service is available to prompt the user.
+     * @returns `true` when the service can prompt the user; otherwise `false`.
+     */
+    isAvailable(): Promise<boolean>;
+    /**
+     * Prompts the user for confirmation with an OK/Cancel dialog.
+     * @param options Additional options.
+     */
+    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user with a message box dialog.
+     * @param options Additional options.
+     */
+    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user with a notification.
+     * @param options Additional options.
+     */
+    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user for a single input.
+     * @param options Additional options.
+     */
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult>;
+    /**
+     * Prompts the user for multiple inputs.
+     * @param options Additional options.
+     */
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): Promise<InputsInteractionResult>;
+    /**
+     * Creates a single-line text input.
+     * @param options Additional options.
+     */
+    createTextInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a secret (masked) text input.
+     * @param options Additional options.
+     */
+    createSecretInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a boolean (checkbox) input.
+     * @param options Additional options.
+     */
+    createBooleanInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a numeric input.
+     * @param options Additional options.
+     */
+    createNumberInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a choice input that selects from a list of options.
+     * @param name The name of the input.
+     * @param options Additional options.
+     */
+    createChoiceInput(name: string, options?: CreateChoiceInputOptions): InteractionInputBuilderPromise;
+}
+
+export interface InteractionServicePromise extends PromiseLike<InteractionService> {
+    /**
+     * Gets a value indicating whether the interaction service is available to prompt the user.
+     * @returns `true` when the service can prompt the user; otherwise `false`.
+     */
+    isAvailable(): Promise<boolean>;
+    /**
+     * Prompts the user for confirmation with an OK/Cancel dialog.
+     * @param options Additional options.
+     */
+    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user with a message box dialog.
+     * @param options Additional options.
+     */
+    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user with a notification.
+     * @param options Additional options.
+     */
+    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult>;
+    /**
+     * Prompts the user for a single input.
+     * @param options Additional options.
+     */
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult>;
+    /**
+     * Prompts the user for multiple inputs.
+     * @param options Additional options.
+     */
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): Promise<InputsInteractionResult>;
+    /**
+     * Creates a single-line text input.
+     * @param options Additional options.
+     */
+    createTextInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a secret (masked) text input.
+     * @param options Additional options.
+     */
+    createSecretInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a boolean (checkbox) input.
+     * @param options Additional options.
+     */
+    createBooleanInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a numeric input.
+     * @param options Additional options.
+     */
+    createNumberInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise;
+    /**
+     * Creates a choice input that selects from a list of options.
+     * @param name The name of the input.
+     * @param options Additional options.
+     */
+    createChoiceInput(name: string, options?: CreateChoiceInputOptions): InteractionInputBuilderPromise;
+}
+
+// ============================================================================
+// InteractionServiceImpl
+// ============================================================================
+
+/** A service to interact with the current development environment. */
+class InteractionServiceImpl implements InteractionService {
+    constructor(private _handle: IInteractionServiceHandle, private _client: AspireClientRpc) {}
+
+    /** Serialize for JSON-RPC transport */
+    toJSON(): MarshalledHandle { return this._handle.toJSON(); }
+
+    /**
+     * Gets a value indicating whether the interaction service is available to prompt the user.
+     * @returns `true` when the service can prompt the user; otherwise `false`.
+     */
+    async isAvailable(): Promise<boolean> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle };
+        return await this._client.invokeCapability<boolean>(
+            'Aspire.Hosting/isAvailable',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Prompts the user for confirmation with an OK/Cancel dialog.
+     * @param optionsBag Additional options.
+     */
+    async promptConfirmation(title: string, message: string, optionsBag?: PromptConfirmationOptions): Promise<BoolInteractionResult> {
+        const options = optionsBag?.options;
+        const cancellationToken = optionsBag?.cancellationToken;
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
+        if (options !== undefined) rpcArgs.options = options;
+        if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
+        return await this._client.invokeCapability<BoolInteractionResult>(
+            'Aspire.Hosting/promptConfirmation',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Prompts the user with a message box dialog.
+     * @param optionsBag Additional options.
+     */
+    async promptMessageBox(title: string, message: string, optionsBag?: PromptMessageBoxOptions): Promise<BoolInteractionResult> {
+        const options = optionsBag?.options;
+        const cancellationToken = optionsBag?.cancellationToken;
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
+        if (options !== undefined) rpcArgs.options = options;
+        if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
+        return await this._client.invokeCapability<BoolInteractionResult>(
+            'Aspire.Hosting/promptMessageBox',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Prompts the user with a notification.
+     * @param optionsBag Additional options.
+     */
+    async promptNotification(title: string, message: string, optionsBag?: PromptNotificationOptions): Promise<BoolInteractionResult> {
+        const options = optionsBag?.options;
+        const cancellationToken = optionsBag?.cancellationToken;
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
+        if (options !== undefined) rpcArgs.options = options;
+        if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
+        return await this._client.invokeCapability<BoolInteractionResult>(
+            'Aspire.Hosting/promptNotification',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Prompts the user for a single input.
+     * @param optionsBag Additional options.
+     */
+    async promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, optionsBag?: PromptInputOptions): Promise<InputInteractionResult> {
+        const options = optionsBag?.options;
+        const cancellationToken = optionsBag?.cancellationToken;
+        input = isPromiseLike(input) ? await input : input;
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message, input };
+        if (options !== undefined) rpcArgs.options = options;
+        if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
+        return await this._client.invokeCapability<InputInteractionResult>(
+            'Aspire.Hosting/promptInput',
+            rpcArgs
+        );
+    }
+
+    /**
+     * Prompts the user for multiple inputs.
+     * @param optionsBag Additional options.
+     */
+    async promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], optionsBag?: PromptInputsOptions): Promise<InputsInteractionResult> {
+        const options = optionsBag?.options;
+        const cancellationToken = optionsBag?.cancellationToken;
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message, inputs };
+        if (options !== undefined) rpcArgs.options = options;
+        if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
+        return await this._client.invokeCapability<InputsInteractionResult>(
+            'Aspire.Hosting/promptInputs',
+            rpcArgs
+        );
+    }
+
+    /** @internal */
+    async _createTextInputInternal(name: string, options?: CreateInteractionInputOptions): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, name };
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting/createTextInput',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Creates a single-line text input.
+     * @param options Additional options.
+     */
+    createTextInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._createTextInputInternal(name, options), this._client);
+    }
+
+    /** @internal */
+    async _createSecretInputInternal(name: string, options?: CreateInteractionInputOptions): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, name };
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting/createSecretInput',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Creates a secret (masked) text input.
+     * @param options Additional options.
+     */
+    createSecretInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._createSecretInputInternal(name, options), this._client);
+    }
+
+    /** @internal */
+    async _createBooleanInputInternal(name: string, options?: CreateInteractionInputOptions): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, name };
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting/createBooleanInput',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Creates a boolean (checkbox) input.
+     * @param options Additional options.
+     */
+    createBooleanInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._createBooleanInputInternal(name, options), this._client);
+    }
+
+    /** @internal */
+    async _createNumberInputInternal(name: string, options?: CreateInteractionInputOptions): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, name };
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting/createNumberInput',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Creates a numeric input.
+     * @param options Additional options.
+     */
+    createNumberInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._createNumberInputInternal(name, options), this._client);
+    }
+
+    /** @internal */
+    async _createChoiceInputInternal(name: string, choices?: Record<string, string>, options?: CreateInteractionInputOptions): Promise<InteractionInputBuilder> {
+        const rpcArgs: Record<string, unknown> = { interactionService: this._handle, name };
+        if (choices !== undefined) rpcArgs.choices = choices;
+        if (options !== undefined) rpcArgs.options = options;
+        const result = await this._client.invokeCapability<InteractionInputBuilderHandle>(
+            'Aspire.Hosting/createChoiceInput',
+            rpcArgs
+        );
+        return new InteractionInputBuilderImpl(result, this._client);
+    }
+
+    /**
+     * Creates a choice input that selects from a list of options.
+     * @param name The name of the input.
+     * @param optionsBag Additional options.
+     */
+    createChoiceInput(name: string, optionsBag?: CreateChoiceInputOptions): InteractionInputBuilderPromise {
+        const choices = optionsBag?.choices;
+        const options = optionsBag?.options;
+        return new InteractionInputBuilderPromiseImpl(this._createChoiceInputInternal(name, choices, options), this._client);
+    }
+
+}
+
+/**
+ * Thenable wrapper for InteractionService that enables fluent chaining.
+ */
+class InteractionServicePromiseImpl implements InteractionServicePromise {
+    constructor(private _promise: Promise<InteractionService>, private _client: AspireClientRpc, track = true) {
+        if (track) { _client.trackPromise(_promise); }
+    }
+
+    then<TResult1 = InteractionService, TResult2 = never>(
+        onfulfilled?: ((value: InteractionService) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): PromiseLike<TResult1 | TResult2> {
+        return this._promise.then(onfulfilled, onrejected);
+    }
+
+    isAvailable(): Promise<boolean> {
+        return this._promise.then(obj => obj.isAvailable());
+    }
+
+    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptConfirmation(title, message, options));
+    }
+
+    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptMessageBox(title, message, options));
+    }
+
+    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptNotification(title, message, options));
+    }
+
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult> {
+        return this._promise.then(obj => obj.promptInput(title, message, input, options));
+    }
+
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): Promise<InputsInteractionResult> {
+        return this._promise.then(obj => obj.promptInputs(title, message, inputs, options));
+    }
+
+    createTextInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.createTextInput(name, options)), this._client);
+    }
+
+    createSecretInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.createSecretInput(name, options)), this._client);
+    }
+
+    createBooleanInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.createBooleanInput(name, options)), this._client);
+    }
+
+    createNumberInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.createNumberInput(name, options)), this._client);
+    }
+
+    createChoiceInput(name: string, options?: CreateChoiceInputOptions): InteractionInputBuilderPromise {
+        return new InteractionInputBuilderPromiseImpl(this._promise.then(obj => obj.createChoiceInput(name, options)), this._client);
+    }
+
+}
+
+// ============================================================================
 // Logger
 // ============================================================================
 
@@ -11188,6 +12103,11 @@ export interface ServiceProvider {
      */
     getEventing(): DistributedApplicationEventingPromise;
     /**
+     * Gets the interaction service from the service provider.
+     * @returns An interaction service handle.
+     */
+    getInteractionService(): InteractionServicePromise;
+    /**
      * Gets the logger factory from the service provider.
      * @returns A logger factory handle.
      */
@@ -11230,6 +12150,11 @@ export interface ServiceProviderPromise extends PromiseLike<ServiceProvider> {
      * @returns The distributed application eventing handle.
      */
     getEventing(): DistributedApplicationEventingPromise;
+    /**
+     * Gets the interaction service from the service provider.
+     * @returns An interaction service handle.
+     */
+    getInteractionService(): InteractionServicePromise;
     /**
      * Gets the logger factory from the service provider.
      * @returns A logger factory handle.
@@ -11294,6 +12219,24 @@ class ServiceProviderImpl implements ServiceProvider {
      */
     getEventing(): DistributedApplicationEventingPromise {
         return new DistributedApplicationEventingPromiseImpl(this._getEventingInternal(), this._client);
+    }
+
+    /** @internal */
+    async _getInteractionServiceInternal(): Promise<InteractionService> {
+        const rpcArgs: Record<string, unknown> = { serviceProvider: this._handle };
+        const result = await this._client.invokeCapability<IInteractionServiceHandle>(
+            'Aspire.Hosting/getInteractionService',
+            rpcArgs
+        );
+        return new InteractionServiceImpl(result, this._client);
+    }
+
+    /**
+     * Gets the interaction service from the service provider.
+     * @returns An interaction service handle.
+     */
+    getInteractionService(): InteractionServicePromise {
+        return new InteractionServicePromiseImpl(this._getInteractionServiceInternal(), this._client);
     }
 
     /** @internal */
@@ -11441,6 +12384,10 @@ class ServiceProviderPromiseImpl implements ServiceProviderPromise {
 
     getEventing(): DistributedApplicationEventingPromise {
         return new DistributedApplicationEventingPromiseImpl(this._promise.then(obj => obj.getEventing()), this._client);
+    }
+
+    getInteractionService(): InteractionServicePromise {
+        return new InteractionServicePromiseImpl(this._promise.then(obj => obj.getInteractionService()), this._client);
     }
 
     getLoggerFactory(): LoggerFactoryPromise {
@@ -53766,6 +54713,8 @@ registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegis
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.ExecuteCommandContext', (handle, client) => new ExecuteCommandContextImpl(handle as ExecuteCommandContextHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.InitializeResourceEvent', (handle, client) => new InitializeResourceEventImpl(handle as InitializeResourceEventHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.InputsDialogValidationContext', (handle, client) => new InputsDialogValidationContextImpl(handle as InputsDialogValidationContextHandle, client));
+registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder', (handle, client) => new InteractionInputBuilderImpl(handle as InteractionInputBuilderHandle, client));
+registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext', (handle, client) => new InteractionInputLoadContextImpl(handle as InteractionInputLoadContextHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.LogFacade', (handle, client) => new LogFacadeImpl(handle as LogFacadeHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Pipelines.PipelineConfigurationContext', (handle, client) => new PipelineConfigurationContextImpl(handle as PipelineConfigurationContextHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Pipelines.PipelineContext', (handle, client) => new PipelineContextImpl(handle as PipelineContextHandle, client));
@@ -53799,6 +54748,7 @@ registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Pipelines.IDistributedAppli
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExecutionConfigurationBuilder', (handle, client) => new ExecutionConfigurationBuilderImpl(handle as IExecutionConfigurationBuilderHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExecutionConfigurationResult', (handle, client) => new ExecutionConfigurationResultImpl(handle as IExecutionConfigurationResultHandle, client));
 registerHandleWrapper('Microsoft.Extensions.Hosting.Abstractions/Microsoft.Extensions.Hosting.IHostEnvironment', (handle, client) => new HostEnvironmentImpl(handle as IHostEnvironmentHandle, client));
+registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.IInteractionService', (handle, client) => new InteractionServiceImpl(handle as IInteractionServiceHandle, client));
 registerHandleWrapper('Microsoft.Extensions.Logging.Abstractions/Microsoft.Extensions.Logging.ILogger', (handle, client) => new LoggerImpl(handle as ILoggerHandle, client));
 registerHandleWrapper('Microsoft.Extensions.Logging.Abstractions/Microsoft.Extensions.Logging.ILoggerFactory', (handle, client) => new LoggerFactoryImpl(handle as ILoggerFactoryHandle, client));
 registerHandleWrapper('Aspire.Hosting/Aspire.Hosting.Pipelines.IReportingStep', (handle, client) => new ReportingStepImpl(handle as IReportingStepHandle, client));

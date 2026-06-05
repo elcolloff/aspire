@@ -1343,6 +1343,7 @@ public class AspireRegistrations {
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ResourceNotificationService", (h, c) -> new ResourceNotificationService(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ResourceLoggerService", (h, c) -> new ResourceLoggerService(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ResourceCommandService", (h, c) -> new ResourceCommandService(h, c));
+        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.IInteractionService", (h, c) -> new IInteractionService(h, c));
         AspireClient.registerHandleWrapper("Microsoft.Extensions.Configuration.Abstractions/Microsoft.Extensions.Configuration.IConfiguration", (h, c) -> new IConfiguration(h, c));
         AspireClient.registerHandleWrapper("Microsoft.Extensions.Configuration.Abstractions/Microsoft.Extensions.Configuration.IConfigurationSection", (h, c) -> new IConfigurationSection(h, c));
         AspireClient.registerHandleWrapper("Microsoft.Extensions.Hosting.Abstractions/Microsoft.Extensions.Hosting.IHostEnvironment", (h, c) -> new IHostEnvironment(h, c));
@@ -1370,6 +1371,8 @@ public class AspireRegistrations {
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationEvent", (h, c) -> new IDistributedApplicationEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationResourceEvent", (h, c) -> new IDistributedApplicationResourceEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Eventing.IDistributedApplicationEventing", (h, c) -> new IDistributedApplicationEventing(h, c));
+        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", (h, c) -> new InteractionInputBuilder(h, c));
+        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext", (h, c) -> new InteractionInputLoadContext(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegistrationContext", (h, c) -> new EventingSubscriberRegistrationContext(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.AfterResourcesCreatedEvent", (h, c) -> new AfterResourcesCreatedEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeResourceStartedEvent", (h, c) -> new BeforeResourceStartedEvent(h, c));
@@ -1593,6 +1596,42 @@ public class BeforeStartEvent extends HandleWrapperBase {
         return (DistributedApplicationModel) result;
     }
 
+}
+
+// ===== BoolInteractionResult.java =====
+// BoolInteractionResult.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** BoolInteractionResult DTO. */
+public class BoolInteractionResult implements JsonSerializable {
+    private boolean canceled;
+    private Boolean value;
+
+    public boolean getCanceled() { return canceled; }
+    public void setCanceled(boolean value) { this.canceled = value; }
+    public Boolean getValue() { return value; }
+    public void setValue(Boolean value) { this.value = value; }
+
+    @SuppressWarnings("unchecked")
+    public static BoolInteractionResult fromMap(Map<String, Object> map) {
+        var value = new BoolInteractionResult();
+        var canceledValue = map.get("Canceled");
+        value.setCanceled((Boolean) canceledValue);
+        var valueValue = map.get("Value");
+        value.setValue(valueValue == null ? null : (Boolean) valueValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("Canceled", AspireClient.serializeValue(canceled));
+        map.put("Value", AspireClient.serializeValue(value));
+        return map;
+    }
 }
 
 // ===== BuildOptions.java =====
@@ -6777,6 +6816,111 @@ public class CreateBuilderOptions implements JsonSerializable {
     }
 }
 
+// ===== CreateChoiceInputOptions.java =====
+// CreateChoiceInputOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for CreateChoiceInput. */
+public final class CreateChoiceInputOptions {
+    private Map<String, String> choices;
+    private CreateInteractionInputOptions options;
+
+    public Map<String, String> getChoices() { return choices; }
+    public CreateChoiceInputOptions choices(Map<String, String> value) {
+        this.choices = value;
+        return this;
+    }
+
+    public CreateInteractionInputOptions getOptions() { return options; }
+    public CreateChoiceInputOptions options(CreateInteractionInputOptions value) {
+        this.options = value;
+        return this;
+    }
+
+}
+
+// ===== CreateInteractionInputOptions.java =====
+// CreateInteractionInputOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** CreateInteractionInputOptions DTO. */
+public class CreateInteractionInputOptions implements JsonSerializable {
+    private String label;
+    private String description;
+    private Boolean enableDescriptionMarkdown;
+    private Boolean required;
+    private String placeholder;
+    private String value;
+    private Boolean allowCustomChoice;
+    private Boolean disabled;
+    private Double maxLength;
+
+    public String getLabel() { return label; }
+    public void setLabel(String value) { this.label = value; }
+    public String getDescription() { return description; }
+    public void setDescription(String value) { this.description = value; }
+    public Boolean getEnableDescriptionMarkdown() { return enableDescriptionMarkdown; }
+    public void setEnableDescriptionMarkdown(Boolean value) { this.enableDescriptionMarkdown = value; }
+    public Boolean getRequired() { return required; }
+    public void setRequired(Boolean value) { this.required = value; }
+    public String getPlaceholder() { return placeholder; }
+    public void setPlaceholder(String value) { this.placeholder = value; }
+    public String getValue() { return value; }
+    public void setValue(String value) { this.value = value; }
+    public Boolean getAllowCustomChoice() { return allowCustomChoice; }
+    public void setAllowCustomChoice(Boolean value) { this.allowCustomChoice = value; }
+    public Boolean getDisabled() { return disabled; }
+    public void setDisabled(Boolean value) { this.disabled = value; }
+    public Double getMaxLength() { return maxLength; }
+    public void setMaxLength(Double value) { this.maxLength = value; }
+
+    @SuppressWarnings("unchecked")
+    public static CreateInteractionInputOptions fromMap(Map<String, Object> map) {
+        var value = new CreateInteractionInputOptions();
+        var labelValue = map.get("Label");
+        value.setLabel(labelValue == null ? null : (String) labelValue);
+        var descriptionValue = map.get("Description");
+        value.setDescription(descriptionValue == null ? null : (String) descriptionValue);
+        var enableDescriptionMarkdownValue = map.get("EnableDescriptionMarkdown");
+        value.setEnableDescriptionMarkdown(enableDescriptionMarkdownValue == null ? null : (Boolean) enableDescriptionMarkdownValue);
+        var requiredValue = map.get("Required");
+        value.setRequired(requiredValue == null ? null : (Boolean) requiredValue);
+        var placeholderValue = map.get("Placeholder");
+        value.setPlaceholder(placeholderValue == null ? null : (String) placeholderValue);
+        var valueValue = map.get("Value");
+        value.setValue(valueValue == null ? null : (String) valueValue);
+        var allowCustomChoiceValue = map.get("AllowCustomChoice");
+        value.setAllowCustomChoice(allowCustomChoiceValue == null ? null : (Boolean) allowCustomChoiceValue);
+        var disabledValue = map.get("Disabled");
+        value.setDisabled(disabledValue == null ? null : (Boolean) disabledValue);
+        var maxLengthValue = map.get("MaxLength");
+        value.setMaxLength(maxLengthValue == null ? null : ((Number) maxLengthValue).doubleValue());
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("Label", AspireClient.serializeValue(label));
+        map.put("Description", AspireClient.serializeValue(description));
+        map.put("EnableDescriptionMarkdown", AspireClient.serializeValue(enableDescriptionMarkdown));
+        map.put("Required", AspireClient.serializeValue(required));
+        map.put("Placeholder", AspireClient.serializeValue(placeholder));
+        map.put("Value", AspireClient.serializeValue(value));
+        map.put("AllowCustomChoice", AspireClient.serializeValue(allowCustomChoice));
+        map.put("Disabled", AspireClient.serializeValue(disabled));
+        map.put("MaxLength", AspireClient.serializeValue(maxLength));
+        return map;
+    }
+}
+
 // ===== DistributedApplication.java =====
 // DistributedApplication.java - GENERATED CODE - DO NOT EDIT
 
@@ -8949,6 +9093,42 @@ public class DotnetToolResource extends ExecutableResource {
         return this;
     }
 
+}
+
+// ===== DynamicLoadingOptions.java =====
+// DynamicLoadingOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** DynamicLoadingOptions DTO. */
+public class DynamicLoadingOptions implements JsonSerializable {
+    private Boolean alwaysLoadOnStart;
+    private String[] dependsOnInputs;
+
+    public Boolean getAlwaysLoadOnStart() { return alwaysLoadOnStart; }
+    public void setAlwaysLoadOnStart(Boolean value) { this.alwaysLoadOnStart = value; }
+    public String[] getDependsOnInputs() { return dependsOnInputs; }
+    public void setDependsOnInputs(String[] value) { this.dependsOnInputs = value; }
+
+    @SuppressWarnings("unchecked")
+    public static DynamicLoadingOptions fromMap(Map<String, Object> map) {
+        var value = new DynamicLoadingOptions();
+        var alwaysLoadOnStartValue = map.get("AlwaysLoadOnStart");
+        value.setAlwaysLoadOnStart(alwaysLoadOnStartValue == null ? null : (Boolean) alwaysLoadOnStartValue);
+        var dependsOnInputsValue = map.get("DependsOnInputs");
+        value.setDependsOnInputs((String[]) dependsOnInputsValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("AlwaysLoadOnStart", AspireClient.serializeValue(alwaysLoadOnStart));
+        map.put("DependsOnInputs", AspireClient.serializeValue(dependsOnInputs));
+        return map;
+    }
 }
 
 // ===== EndpointProperty.java =====
@@ -11186,6 +11366,14 @@ import java.util.function.*;
 public class ExecuteCommandContext extends HandleWrapperBase {
     ExecuteCommandContext(Handle handle, AspireClient client) {
         super(handle, client);
+    }
+
+    /** The service provider. */
+    public IServiceProvider serviceProvider() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting.ApplicationModel/ExecuteCommandContext.serviceProvider", reqArgs);
+        return (IServiceProvider) result;
     }
 
     /** The resource name. */
@@ -13590,6 +13778,265 @@ public class IHostEnvironment extends HandleWrapperBase {
 
 }
 
+// ===== IInteractionService.java =====
+// IInteractionService.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Wrapper for Aspire.Hosting/Aspire.Hosting.IInteractionService. */
+public class IInteractionService extends HandleWrapperBase {
+    IInteractionService(Handle handle, AspireClient client) {
+        super(handle, client);
+    }
+
+    /** Gets a value indicating whether the interaction service is available to prompt the user. */
+    public boolean isAvailable() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting/isAvailable", reqArgs);
+        return (Boolean) result;
+    }
+
+    /** Prompts the user for confirmation with an OK/Cancel dialog. */
+    public BoolInteractionResult promptConfirmation(String title, String message, PromptConfirmationOptions options) {
+        var options = options == null ? null : options.getOptions();
+        var cancellationToken = options == null ? null : options.getCancellationToken();
+        return promptConfirmationImpl(title, message, options, cancellationToken);
+    }
+
+    public BoolInteractionResult promptConfirmation(String title, String message) {
+        return promptConfirmation(title, message, null);
+    }
+
+    /** Prompts the user for confirmation with an OK/Cancel dialog. */
+    private BoolInteractionResult promptConfirmationImpl(String title, String message, InteractionMessageBoxOptions options, CancellationToken cancellationToken) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("title", AspireClient.serializeValue(title));
+        reqArgs.put("message", AspireClient.serializeValue(message));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        if (cancellationToken != null) {
+            reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/promptConfirmation", reqArgs);
+        return BoolInteractionResult.fromMap((Map<String, Object>) result);
+    }
+
+    /** Prompts the user with a message box dialog. */
+    public BoolInteractionResult promptMessageBox(String title, String message, PromptMessageBoxOptions options) {
+        var options = options == null ? null : options.getOptions();
+        var cancellationToken = options == null ? null : options.getCancellationToken();
+        return promptMessageBoxImpl(title, message, options, cancellationToken);
+    }
+
+    public BoolInteractionResult promptMessageBox(String title, String message) {
+        return promptMessageBox(title, message, null);
+    }
+
+    /** Prompts the user with a message box dialog. */
+    private BoolInteractionResult promptMessageBoxImpl(String title, String message, InteractionMessageBoxOptions options, CancellationToken cancellationToken) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("title", AspireClient.serializeValue(title));
+        reqArgs.put("message", AspireClient.serializeValue(message));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        if (cancellationToken != null) {
+            reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/promptMessageBox", reqArgs);
+        return BoolInteractionResult.fromMap((Map<String, Object>) result);
+    }
+
+    /** Prompts the user with a notification. */
+    public BoolInteractionResult promptNotification(String title, String message, PromptNotificationOptions options) {
+        var options = options == null ? null : options.getOptions();
+        var cancellationToken = options == null ? null : options.getCancellationToken();
+        return promptNotificationImpl(title, message, options, cancellationToken);
+    }
+
+    public BoolInteractionResult promptNotification(String title, String message) {
+        return promptNotification(title, message, null);
+    }
+
+    /** Prompts the user with a notification. */
+    private BoolInteractionResult promptNotificationImpl(String title, String message, InteractionNotificationOptions options, CancellationToken cancellationToken) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("title", AspireClient.serializeValue(title));
+        reqArgs.put("message", AspireClient.serializeValue(message));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        if (cancellationToken != null) {
+            reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/promptNotification", reqArgs);
+        return BoolInteractionResult.fromMap((Map<String, Object>) result);
+    }
+
+    /** Prompts the user for a single input. */
+    public InputInteractionResult promptInput(String title, String message, InteractionInputBuilder input, PromptInputOptions options) {
+        var options = options == null ? null : options.getOptions();
+        var cancellationToken = options == null ? null : options.getCancellationToken();
+        return promptInputImpl(title, message, input, options, cancellationToken);
+    }
+
+    public InputInteractionResult promptInput(String title, String message, HandleWrapperBase input, PromptInputOptions options) {
+        return promptInput(title, message, new InteractionInputBuilder(input.getHandle(), input.getClient()), options);
+    }
+
+    public InputInteractionResult promptInput(String title, String message, InteractionInputBuilder input) {
+        return promptInput(title, message, input, null);
+    }
+
+    public InputInteractionResult promptInput(String title, String message, HandleWrapperBase input) {
+        return promptInput(title, message, new InteractionInputBuilder(input.getHandle(), input.getClient()));
+    }
+
+    /** Prompts the user for a single input. */
+    private InputInteractionResult promptInputImpl(String title, String message, InteractionInputBuilder input, InteractionInputsDialogOptions options, CancellationToken cancellationToken) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("title", AspireClient.serializeValue(title));
+        reqArgs.put("message", AspireClient.serializeValue(message));
+        reqArgs.put("input", AspireClient.serializeValue(input));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        if (cancellationToken != null) {
+            reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/promptInput", reqArgs);
+        return InputInteractionResult.fromMap((Map<String, Object>) result);
+    }
+
+    /** Prompts the user for multiple inputs. */
+    public InputsInteractionResult promptInputs(String title, String message, InteractionInputBuilder[] inputs, PromptInputsOptions options) {
+        var options = options == null ? null : options.getOptions();
+        var cancellationToken = options == null ? null : options.getCancellationToken();
+        return promptInputsImpl(title, message, inputs, options, cancellationToken);
+    }
+
+    public InputsInteractionResult promptInputs(String title, String message, InteractionInputBuilder[] inputs) {
+        return promptInputs(title, message, inputs, null);
+    }
+
+    /** Prompts the user for multiple inputs. */
+    private InputsInteractionResult promptInputsImpl(String title, String message, InteractionInputBuilder[] inputs, InteractionInputsDialogOptions options, CancellationToken cancellationToken) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("title", AspireClient.serializeValue(title));
+        reqArgs.put("message", AspireClient.serializeValue(message));
+        reqArgs.put("inputs", AspireClient.serializeValue(inputs));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        if (cancellationToken != null) {
+            reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/promptInputs", reqArgs);
+        return InputsInteractionResult.fromMap((Map<String, Object>) result);
+    }
+
+    public InteractionInputBuilder createTextInput(String name) {
+        return createTextInput(name, null);
+    }
+
+    /** Creates a single-line text input. */
+    public InteractionInputBuilder createTextInput(String name, CreateInteractionInputOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/createTextInput", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    public InteractionInputBuilder createSecretInput(String name) {
+        return createSecretInput(name, null);
+    }
+
+    /** Creates a secret (masked) text input. */
+    public InteractionInputBuilder createSecretInput(String name, CreateInteractionInputOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/createSecretInput", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    public InteractionInputBuilder createBooleanInput(String name) {
+        return createBooleanInput(name, null);
+    }
+
+    /** Creates a boolean (checkbox) input. */
+    public InteractionInputBuilder createBooleanInput(String name, CreateInteractionInputOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/createBooleanInput", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    public InteractionInputBuilder createNumberInput(String name) {
+        return createNumberInput(name, null);
+    }
+
+    /** Creates a numeric input. */
+    public InteractionInputBuilder createNumberInput(String name, CreateInteractionInputOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/createNumberInput", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    /** Creates a choice input that selects from a list of options. */
+    public InteractionInputBuilder createChoiceInput(String name, CreateChoiceInputOptions options) {
+        var choices = options == null ? null : options.getChoices();
+        var options = options == null ? null : options.getOptions();
+        return createChoiceInputImpl(name, choices, options);
+    }
+
+    public InteractionInputBuilder createChoiceInput(String name) {
+        return createChoiceInput(name, null);
+    }
+
+    /** Creates a choice input that selects from a list of options. */
+    private InteractionInputBuilder createChoiceInputImpl(String name, Map<String, String> choices, CreateInteractionInputOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("interactionService", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("name", AspireClient.serializeValue(name));
+        if (choices != null) {
+            reqArgs.put("choices", AspireClient.serializeValue(choices));
+        }
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting/createChoiceInput", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+}
+
 // ===== ILogger.java =====
 // ILogger.java - GENERATED CODE - DO NOT EDIT
 
@@ -14054,6 +14501,14 @@ public class IServiceProvider extends HandleWrapperBase {
         return (IDistributedApplicationEventing) result;
     }
 
+    /** Gets the interaction service from the service provider. */
+    public IInteractionService getInteractionService() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("serviceProvider", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting/getInteractionService", reqArgs);
+        return (IInteractionService) result;
+    }
+
     /** Gets the logger factory from the service provider. */
     public ILoggerFactory getLoggerFactory() {
         Map<String, Object> reqArgs = new HashMap<>();
@@ -14324,6 +14779,42 @@ public class InitializeResourceEvent extends HandleWrapperBase {
 
 }
 
+// ===== InputInteractionResult.java =====
+// InputInteractionResult.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** InputInteractionResult DTO. */
+public class InputInteractionResult implements JsonSerializable {
+    private boolean canceled;
+    private InteractionInput input;
+
+    public boolean getCanceled() { return canceled; }
+    public void setCanceled(boolean value) { this.canceled = value; }
+    public InteractionInput getInput() { return input; }
+    public void setInput(InteractionInput value) { this.input = value; }
+
+    @SuppressWarnings("unchecked")
+    public static InputInteractionResult fromMap(Map<String, Object> map) {
+        var value = new InputInteractionResult();
+        var canceledValue = map.get("Canceled");
+        value.setCanceled((Boolean) canceledValue);
+        var inputValue = map.get("Input");
+        value.setInput(inputValue == null ? null : InteractionInput.fromMap((Map<String, Object>) inputValue));
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("Canceled", AspireClient.serializeValue(canceled));
+        map.put("Input", AspireClient.serializeValue(input));
+        return map;
+    }
+}
+
 // ===== InputType.java =====
 // InputType.java - GENERATED CODE - DO NOT EDIT
 
@@ -14395,6 +14886,42 @@ public class InputsDialogValidationContext extends HandleWrapperBase {
         getClient().invokeCapability("Aspire.Hosting/InputsDialogValidationContext.addValidationError", reqArgs);
     }
 
+}
+
+// ===== InputsInteractionResult.java =====
+// InputsInteractionResult.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** InputsInteractionResult DTO. */
+public class InputsInteractionResult implements JsonSerializable {
+    private boolean canceled;
+    private InteractionInput[] inputs;
+
+    public boolean getCanceled() { return canceled; }
+    public void setCanceled(boolean value) { this.canceled = value; }
+    public InteractionInput[] getInputs() { return inputs; }
+    public void setInputs(InteractionInput[] value) { this.inputs = value; }
+
+    @SuppressWarnings("unchecked")
+    public static InputsInteractionResult fromMap(Map<String, Object> map) {
+        var value = new InputsInteractionResult();
+        var canceledValue = map.get("Canceled");
+        value.setCanceled((Boolean) canceledValue);
+        var inputsValue = map.get("Inputs");
+        value.setInputs((InteractionInput[]) inputsValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("Canceled", AspireClient.serializeValue(canceled));
+        map.put("Inputs", AspireClient.serializeValue(inputs));
+        return map;
+    }
 }
 
 // ===== InteractionInput.java =====
@@ -14499,6 +15026,63 @@ public class InteractionInput implements JsonSerializable {
     }
 }
 
+// ===== InteractionInputBuilder.java =====
+// InteractionInputBuilder.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Wrapper for Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder. */
+public class InteractionInputBuilder extends HandleWrapperBase {
+    InteractionInputBuilder(Handle handle, AspireClient client) {
+        super(handle, client);
+    }
+
+    /** Sets the choice options for the input. */
+    public InteractionInputBuilder withChoiceOptions(Map<String, String> choices) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("choices", AspireClient.serializeValue(choices));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/withChoiceOptions", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    /** Sets the value of the input. */
+    public InteractionInputBuilder withValue(String value) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("value", AspireClient.serializeValue(value));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/withValue", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+    public InteractionInputBuilder withDynamicLoading(AspireAction1<InteractionInputLoadContext> callback) {
+        return withDynamicLoading(callback, null);
+    }
+
+    /** Attaches a callback that dynamically loads or updates the input after the prompt starts. */
+    public InteractionInputBuilder withDynamicLoading(AspireAction1<InteractionInputLoadContext> callback, DynamicLoadingOptions options) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        var callbackId = getClient().registerCallback(args -> {
+            var arg = (InteractionInputLoadContext) args[0];
+            callback.invoke(arg);
+            return null;
+        });
+        if (callbackId != null) {
+            reqArgs.put("callback", callbackId);
+        }
+        if (options != null) {
+            reqArgs.put("options", AspireClient.serializeValue(options));
+        }
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/withDynamicLoading", reqArgs);
+        return (InteractionInputBuilder) result;
+    }
+
+}
+
 // ===== InteractionInputCollection.java =====
 // InteractionInputCollection.java - GENERATED CODE - DO NOT EDIT
 
@@ -14521,6 +15105,241 @@ public class InteractionInputCollection extends HandleWrapperBase {
         return (InteractionInput[]) result;
     }
 
+}
+
+// ===== InteractionInputLoadContext.java =====
+// InteractionInputLoadContext.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Wrapper for Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext. */
+public class InteractionInputLoadContext extends HandleWrapperBase {
+    InteractionInputLoadContext(Handle handle, AspireClient client) {
+        super(handle, client);
+    }
+
+    /** Gets the name of the input that is loading. */
+    public String getInputName() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/getInputName", reqArgs);
+        return (String) result;
+    }
+
+    /** Gets the current value of an input in the prompt by name. */
+    public String getInputValue(String inputName) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("inputName", AspireClient.serializeValue(inputName));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/getInputValue", reqArgs);
+        return (String) result;
+    }
+
+    /** Sets the choice options for the loading input. */
+    public void setChoiceOptions(Map<String, String> choices) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("choices", AspireClient.serializeValue(choices));
+        getClient().invokeCapability("Aspire.Hosting.Ats/setChoiceOptions", reqArgs);
+    }
+
+    /** Sets the value of the loading input. */
+    public void setValue(String value) {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        reqArgs.put("value", AspireClient.serializeValue(value));
+        getClient().invokeCapability("Aspire.Hosting.Ats/setValue", reqArgs);
+    }
+
+}
+
+// ===== InteractionInputsDialogOptions.java =====
+// InteractionInputsDialogOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** InteractionInputsDialogOptions DTO. */
+public class InteractionInputsDialogOptions implements JsonSerializable {
+    private String primaryButtonText;
+    private String secondaryButtonText;
+    private Boolean showSecondaryButton;
+    private Boolean showDismiss;
+    private Boolean enableMessageMarkdown;
+
+    public String getPrimaryButtonText() { return primaryButtonText; }
+    public void setPrimaryButtonText(String value) { this.primaryButtonText = value; }
+    public String getSecondaryButtonText() { return secondaryButtonText; }
+    public void setSecondaryButtonText(String value) { this.secondaryButtonText = value; }
+    public Boolean getShowSecondaryButton() { return showSecondaryButton; }
+    public void setShowSecondaryButton(Boolean value) { this.showSecondaryButton = value; }
+    public Boolean getShowDismiss() { return showDismiss; }
+    public void setShowDismiss(Boolean value) { this.showDismiss = value; }
+    public Boolean getEnableMessageMarkdown() { return enableMessageMarkdown; }
+    public void setEnableMessageMarkdown(Boolean value) { this.enableMessageMarkdown = value; }
+
+    @SuppressWarnings("unchecked")
+    public static InteractionInputsDialogOptions fromMap(Map<String, Object> map) {
+        var value = new InteractionInputsDialogOptions();
+        var primaryButtonTextValue = map.get("PrimaryButtonText");
+        value.setPrimaryButtonText(primaryButtonTextValue == null ? null : (String) primaryButtonTextValue);
+        var secondaryButtonTextValue = map.get("SecondaryButtonText");
+        value.setSecondaryButtonText(secondaryButtonTextValue == null ? null : (String) secondaryButtonTextValue);
+        var showSecondaryButtonValue = map.get("ShowSecondaryButton");
+        value.setShowSecondaryButton(showSecondaryButtonValue == null ? null : (Boolean) showSecondaryButtonValue);
+        var showDismissValue = map.get("ShowDismiss");
+        value.setShowDismiss(showDismissValue == null ? null : (Boolean) showDismissValue);
+        var enableMessageMarkdownValue = map.get("EnableMessageMarkdown");
+        value.setEnableMessageMarkdown(enableMessageMarkdownValue == null ? null : (Boolean) enableMessageMarkdownValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("PrimaryButtonText", AspireClient.serializeValue(primaryButtonText));
+        map.put("SecondaryButtonText", AspireClient.serializeValue(secondaryButtonText));
+        map.put("ShowSecondaryButton", AspireClient.serializeValue(showSecondaryButton));
+        map.put("ShowDismiss", AspireClient.serializeValue(showDismiss));
+        map.put("EnableMessageMarkdown", AspireClient.serializeValue(enableMessageMarkdown));
+        return map;
+    }
+}
+
+// ===== InteractionMessageBoxOptions.java =====
+// InteractionMessageBoxOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** InteractionMessageBoxOptions DTO. */
+public class InteractionMessageBoxOptions implements JsonSerializable {
+    private String primaryButtonText;
+    private String secondaryButtonText;
+    private Boolean showSecondaryButton;
+    private Boolean showDismiss;
+    private Boolean enableMessageMarkdown;
+    private MessageIntent intent;
+
+    public String getPrimaryButtonText() { return primaryButtonText; }
+    public void setPrimaryButtonText(String value) { this.primaryButtonText = value; }
+    public String getSecondaryButtonText() { return secondaryButtonText; }
+    public void setSecondaryButtonText(String value) { this.secondaryButtonText = value; }
+    public Boolean getShowSecondaryButton() { return showSecondaryButton; }
+    public void setShowSecondaryButton(Boolean value) { this.showSecondaryButton = value; }
+    public Boolean getShowDismiss() { return showDismiss; }
+    public void setShowDismiss(Boolean value) { this.showDismiss = value; }
+    public Boolean getEnableMessageMarkdown() { return enableMessageMarkdown; }
+    public void setEnableMessageMarkdown(Boolean value) { this.enableMessageMarkdown = value; }
+    public MessageIntent getIntent() { return intent; }
+    public void setIntent(MessageIntent value) { this.intent = value; }
+
+    @SuppressWarnings("unchecked")
+    public static InteractionMessageBoxOptions fromMap(Map<String, Object> map) {
+        var value = new InteractionMessageBoxOptions();
+        var primaryButtonTextValue = map.get("PrimaryButtonText");
+        value.setPrimaryButtonText(primaryButtonTextValue == null ? null : (String) primaryButtonTextValue);
+        var secondaryButtonTextValue = map.get("SecondaryButtonText");
+        value.setSecondaryButtonText(secondaryButtonTextValue == null ? null : (String) secondaryButtonTextValue);
+        var showSecondaryButtonValue = map.get("ShowSecondaryButton");
+        value.setShowSecondaryButton(showSecondaryButtonValue == null ? null : (Boolean) showSecondaryButtonValue);
+        var showDismissValue = map.get("ShowDismiss");
+        value.setShowDismiss(showDismissValue == null ? null : (Boolean) showDismissValue);
+        var enableMessageMarkdownValue = map.get("EnableMessageMarkdown");
+        value.setEnableMessageMarkdown(enableMessageMarkdownValue == null ? null : (Boolean) enableMessageMarkdownValue);
+        var intentValue = map.get("Intent");
+        value.setIntent(intentValue == null ? null : MessageIntent.fromValue((String) intentValue));
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("PrimaryButtonText", AspireClient.serializeValue(primaryButtonText));
+        map.put("SecondaryButtonText", AspireClient.serializeValue(secondaryButtonText));
+        map.put("ShowSecondaryButton", AspireClient.serializeValue(showSecondaryButton));
+        map.put("ShowDismiss", AspireClient.serializeValue(showDismiss));
+        map.put("EnableMessageMarkdown", AspireClient.serializeValue(enableMessageMarkdown));
+        map.put("Intent", AspireClient.serializeValue(intent));
+        return map;
+    }
+}
+
+// ===== InteractionNotificationOptions.java =====
+// InteractionNotificationOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** InteractionNotificationOptions DTO. */
+public class InteractionNotificationOptions implements JsonSerializable {
+    private String primaryButtonText;
+    private String secondaryButtonText;
+    private Boolean showSecondaryButton;
+    private Boolean showDismiss;
+    private Boolean enableMessageMarkdown;
+    private MessageIntent intent;
+    private String linkText;
+    private String linkUrl;
+
+    public String getPrimaryButtonText() { return primaryButtonText; }
+    public void setPrimaryButtonText(String value) { this.primaryButtonText = value; }
+    public String getSecondaryButtonText() { return secondaryButtonText; }
+    public void setSecondaryButtonText(String value) { this.secondaryButtonText = value; }
+    public Boolean getShowSecondaryButton() { return showSecondaryButton; }
+    public void setShowSecondaryButton(Boolean value) { this.showSecondaryButton = value; }
+    public Boolean getShowDismiss() { return showDismiss; }
+    public void setShowDismiss(Boolean value) { this.showDismiss = value; }
+    public Boolean getEnableMessageMarkdown() { return enableMessageMarkdown; }
+    public void setEnableMessageMarkdown(Boolean value) { this.enableMessageMarkdown = value; }
+    public MessageIntent getIntent() { return intent; }
+    public void setIntent(MessageIntent value) { this.intent = value; }
+    public String getLinkText() { return linkText; }
+    public void setLinkText(String value) { this.linkText = value; }
+    public String getLinkUrl() { return linkUrl; }
+    public void setLinkUrl(String value) { this.linkUrl = value; }
+
+    @SuppressWarnings("unchecked")
+    public static InteractionNotificationOptions fromMap(Map<String, Object> map) {
+        var value = new InteractionNotificationOptions();
+        var primaryButtonTextValue = map.get("PrimaryButtonText");
+        value.setPrimaryButtonText(primaryButtonTextValue == null ? null : (String) primaryButtonTextValue);
+        var secondaryButtonTextValue = map.get("SecondaryButtonText");
+        value.setSecondaryButtonText(secondaryButtonTextValue == null ? null : (String) secondaryButtonTextValue);
+        var showSecondaryButtonValue = map.get("ShowSecondaryButton");
+        value.setShowSecondaryButton(showSecondaryButtonValue == null ? null : (Boolean) showSecondaryButtonValue);
+        var showDismissValue = map.get("ShowDismiss");
+        value.setShowDismiss(showDismissValue == null ? null : (Boolean) showDismissValue);
+        var enableMessageMarkdownValue = map.get("EnableMessageMarkdown");
+        value.setEnableMessageMarkdown(enableMessageMarkdownValue == null ? null : (Boolean) enableMessageMarkdownValue);
+        var intentValue = map.get("Intent");
+        value.setIntent(intentValue == null ? null : MessageIntent.fromValue((String) intentValue));
+        var linkTextValue = map.get("LinkText");
+        value.setLinkText(linkTextValue == null ? null : (String) linkTextValue);
+        var linkUrlValue = map.get("LinkUrl");
+        value.setLinkUrl(linkUrlValue == null ? null : (String) linkUrlValue);
+        return value;
+    }
+
+    public Map<String, Object> toMap() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("PrimaryButtonText", AspireClient.serializeValue(primaryButtonText));
+        map.put("SecondaryButtonText", AspireClient.serializeValue(secondaryButtonText));
+        map.put("ShowSecondaryButton", AspireClient.serializeValue(showSecondaryButton));
+        map.put("ShowDismiss", AspireClient.serializeValue(showDismiss));
+        map.put("EnableMessageMarkdown", AspireClient.serializeValue(enableMessageMarkdown));
+        map.put("Intent", AspireClient.serializeValue(intent));
+        map.put("LinkText", AspireClient.serializeValue(linkText));
+        map.put("LinkUrl", AspireClient.serializeValue(linkUrl));
+        return map;
+    }
 }
 
 // ===== JsonSerializable.java =====
@@ -14586,6 +15405,39 @@ public class LogFacade extends HandleWrapperBase {
         getClient().invokeCapability("Aspire.Hosting.ApplicationModel/debug", reqArgs);
     }
 
+}
+
+// ===== MessageIntent.java =====
+// MessageIntent.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** MessageIntent enum. */
+public enum MessageIntent implements WireValueEnum {
+    NONE("None"),
+    SUCCESS("Success"),
+    WARNING("Warning"),
+    ERROR("Error"),
+    INFORMATION("Information"),
+    CONFIRMATION("Confirmation");
+
+    private final String value;
+
+    MessageIntent(String value) {
+        this.value = value;
+    }
+
+    public String getValue() { return value; }
+
+    public static MessageIntent fromValue(String value) {
+        for (MessageIntent e : values()) {
+            if (e.value.equals(value)) return e;
+        }
+        throw new IllegalArgumentException("Unknown value: " + value);
+    }
 }
 
 // ===== OtlpProtocol.java =====
@@ -17763,6 +18615,141 @@ public class ProjectResourceOptions extends HandleWrapperBase {
         reqArgs.put("value", AspireClient.serializeValue(value));
         var result = getClient().invokeCapability("Aspire.Hosting/ProjectResourceOptions.setExcludeKestrelEndpoints", reqArgs);
         return (ProjectResourceOptions) result;
+    }
+
+}
+
+// ===== PromptConfirmationOptions.java =====
+// PromptConfirmationOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for PromptConfirmation. */
+public final class PromptConfirmationOptions {
+    private InteractionMessageBoxOptions options;
+    private CancellationToken cancellationToken;
+
+    public InteractionMessageBoxOptions getOptions() { return options; }
+    public PromptConfirmationOptions options(InteractionMessageBoxOptions value) {
+        this.options = value;
+        return this;
+    }
+
+    public CancellationToken getCancellationToken() { return cancellationToken; }
+    public PromptConfirmationOptions cancellationToken(CancellationToken value) {
+        this.cancellationToken = value;
+        return this;
+    }
+
+}
+
+// ===== PromptInputOptions.java =====
+// PromptInputOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for PromptInput. */
+public final class PromptInputOptions {
+    private InteractionInputsDialogOptions options;
+    private CancellationToken cancellationToken;
+
+    public InteractionInputsDialogOptions getOptions() { return options; }
+    public PromptInputOptions options(InteractionInputsDialogOptions value) {
+        this.options = value;
+        return this;
+    }
+
+    public CancellationToken getCancellationToken() { return cancellationToken; }
+    public PromptInputOptions cancellationToken(CancellationToken value) {
+        this.cancellationToken = value;
+        return this;
+    }
+
+}
+
+// ===== PromptInputsOptions.java =====
+// PromptInputsOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for PromptInputs. */
+public final class PromptInputsOptions {
+    private InteractionInputsDialogOptions options;
+    private CancellationToken cancellationToken;
+
+    public InteractionInputsDialogOptions getOptions() { return options; }
+    public PromptInputsOptions options(InteractionInputsDialogOptions value) {
+        this.options = value;
+        return this;
+    }
+
+    public CancellationToken getCancellationToken() { return cancellationToken; }
+    public PromptInputsOptions cancellationToken(CancellationToken value) {
+        this.cancellationToken = value;
+        return this;
+    }
+
+}
+
+// ===== PromptMessageBoxOptions.java =====
+// PromptMessageBoxOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for PromptMessageBox. */
+public final class PromptMessageBoxOptions {
+    private InteractionMessageBoxOptions options;
+    private CancellationToken cancellationToken;
+
+    public InteractionMessageBoxOptions getOptions() { return options; }
+    public PromptMessageBoxOptions options(InteractionMessageBoxOptions value) {
+        this.options = value;
+        return this;
+    }
+
+    public CancellationToken getCancellationToken() { return cancellationToken; }
+    public PromptMessageBoxOptions cancellationToken(CancellationToken value) {
+        this.cancellationToken = value;
+        return this;
+    }
+
+}
+
+// ===== PromptNotificationOptions.java =====
+// PromptNotificationOptions.java - GENERATED CODE - DO NOT EDIT
+
+package aspire;
+
+import java.util.*;
+import java.util.function.*;
+
+/** Options for PromptNotification. */
+public final class PromptNotificationOptions {
+    private InteractionNotificationOptions options;
+    private CancellationToken cancellationToken;
+
+    public InteractionNotificationOptions getOptions() { return options; }
+    public PromptNotificationOptions options(InteractionNotificationOptions value) {
+        this.options = value;
+        return this;
+    }
+
+    public CancellationToken getCancellationToken() { return cancellationToken; }
+    public PromptNotificationOptions cancellationToken(CancellationToken value) {
+        this.cancellationToken = value;
+        return this;
     }
 
 }
@@ -25830,6 +26817,7 @@ public final class WithVolumeOptions {
 .aspire/modules/BeforePublishEvent.java
 .aspire/modules/BeforeResourceStartedEvent.java
 .aspire/modules/BeforeStartEvent.java
+.aspire/modules/BoolInteractionResult.java
 .aspire/modules/BuildOptions.java
 .aspire/modules/CSharpAppResource.java
 .aspire/modules/CancellationToken.java
@@ -25858,6 +26846,8 @@ public final class WithVolumeOptions {
 .aspire/modules/ContainerRegistryResource.java
 .aspire/modules/ContainerResource.java
 .aspire/modules/CreateBuilderOptions.java
+.aspire/modules/CreateChoiceInputOptions.java
+.aspire/modules/CreateInteractionInputOptions.java
 .aspire/modules/DistributedApplication.java
 .aspire/modules/DistributedApplicationEventSubscription.java
 .aspire/modules/DistributedApplicationExecutionContext.java
@@ -25870,6 +26860,7 @@ public final class WithVolumeOptions {
 .aspire/modules/DockerfileFactoryContext.java
 .aspire/modules/DockerfileStage.java
 .aspire/modules/DotnetToolResource.java
+.aspire/modules/DynamicLoadingOptions.java
 .aspire/modules/EndpointProperty.java
 .aspire/modules/EndpointReference.java
 .aspire/modules/EndpointReferenceExpression.java
@@ -25906,6 +26897,7 @@ public final class WithVolumeOptions {
 .aspire/modules/IExecutionConfigurationResult.java
 .aspire/modules/IExpressionValue.java
 .aspire/modules/IHostEnvironment.java
+.aspire/modules/IInteractionService.java
 .aspire/modules/ILogger.java
 .aspire/modules/ILoggerFactory.java
 .aspire/modules/IReportingStep.java
@@ -25924,12 +26916,20 @@ public final class WithVolumeOptions {
 .aspire/modules/IconVariant.java
 .aspire/modules/ImagePullPolicy.java
 .aspire/modules/InitializeResourceEvent.java
+.aspire/modules/InputInteractionResult.java
 .aspire/modules/InputType.java
 .aspire/modules/InputsDialogValidationContext.java
+.aspire/modules/InputsInteractionResult.java
 .aspire/modules/InteractionInput.java
+.aspire/modules/InteractionInputBuilder.java
 .aspire/modules/InteractionInputCollection.java
+.aspire/modules/InteractionInputLoadContext.java
+.aspire/modules/InteractionInputsDialogOptions.java
+.aspire/modules/InteractionMessageBoxOptions.java
+.aspire/modules/InteractionNotificationOptions.java
 .aspire/modules/JsonSerializable.java
 .aspire/modules/LogFacade.java
+.aspire/modules/MessageIntent.java
 .aspire/modules/OtlpProtocol.java
 .aspire/modules/ParameterCustomInputOptions.java
 .aspire/modules/ParameterResource.java
@@ -25946,6 +26946,11 @@ public final class WithVolumeOptions {
 .aspire/modules/ProcessCommandSpecExportData.java
 .aspire/modules/ProjectResource.java
 .aspire/modules/ProjectResourceOptions.java
+.aspire/modules/PromptConfirmationOptions.java
+.aspire/modules/PromptInputOptions.java
+.aspire/modules/PromptInputsOptions.java
+.aspire/modules/PromptMessageBoxOptions.java
+.aspire/modules/PromptNotificationOptions.java
 .aspire/modules/ProtocolType.java
 .aspire/modules/PublishResourceUpdateOptions.java
 .aspire/modules/ReferenceEnvironmentInjectionOptions.java

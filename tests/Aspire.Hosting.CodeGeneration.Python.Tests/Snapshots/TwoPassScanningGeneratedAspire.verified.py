@@ -1526,6 +1526,8 @@ ImagePullPolicy = typing.Literal["Default", "Always", "Missing", "Never"]
 
 InputType = typing.Literal["Text", "SecretText", "Choice", "Boolean", "Number"]
 
+MessageIntent = typing.Literal["None", "Success", "Warning", "Error", "Information", "Confirmation"]
+
 OtlpProtocol = typing.Literal["Grpc", "HttpProtobuf", "HttpJson"]
 
 ProbeType = typing.Literal["Startup", "Readiness", "Liveness"]
@@ -1743,6 +1745,10 @@ class AddContainerOptions(typing.TypedDict, total=False):
     Image: str
     Tag: str | None
 
+class BoolInteractionResult(typing.TypedDict, total=False):
+    Canceled: bool
+    Value: bool
+
 class CertificateTrustExecutionConfigurationContext(typing.TypedDict, total=False):
     CertificateBundlePath: ReferenceExpression
     CertificateDirectoriesPath: ReferenceExpression
@@ -1785,6 +1791,21 @@ class CreateBuilderOptions(typing.TypedDict, total=False):
     DashboardApplicationName: str | None
     AllowUnsecuredTransport: bool
     EnableResourceLogging: bool
+
+class CreateInteractionInputOptions(typing.TypedDict, total=False):
+    Label: str | None
+    Description: str | None
+    EnableDescriptionMarkdown: bool | None
+    Required: bool | None
+    Placeholder: str | None
+    Value: str | None
+    AllowCustomChoice: bool | None
+    Disabled: bool | None
+    MaxLength: int | None
+
+class DynamicLoadingOptions(typing.TypedDict, total=False):
+    AlwaysLoadOnStart: bool | None
+    DependsOnInputs: typing.Iterable[str]
 
 class ExecuteCommandResult(typing.TypedDict, total=False):
     Success: bool
@@ -1834,6 +1855,14 @@ class HttpsCertificateInfo(typing.TypedDict, total=False):
     Issuer: str
     Thumbprint: str | None
 
+class InputInteractionResult(typing.TypedDict, total=False):
+    Canceled: bool
+    Input: InteractionInput
+
+class InputsInteractionResult(typing.TypedDict, total=False):
+    Canceled: bool
+    Inputs: typing.Iterable[InteractionInput]
+
 class InteractionInput(typing.TypedDict, total=False):
     Name: str
     Label: str | None
@@ -1848,6 +1877,31 @@ class InteractionInput(typing.TypedDict, total=False):
     AllowCustomChoice: bool
     Disabled: bool
     MaxLength: int | None
+
+class InteractionInputsDialogOptions(typing.TypedDict, total=False):
+    PrimaryButtonText: str | None
+    SecondaryButtonText: str | None
+    ShowSecondaryButton: bool | None
+    ShowDismiss: bool | None
+    EnableMessageMarkdown: bool | None
+
+class InteractionMessageBoxOptions(typing.TypedDict, total=False):
+    PrimaryButtonText: str | None
+    SecondaryButtonText: str | None
+    ShowSecondaryButton: bool | None
+    ShowDismiss: bool | None
+    EnableMessageMarkdown: bool | None
+    Intent: MessageIntent | None
+
+class InteractionNotificationOptions(typing.TypedDict, total=False):
+    PrimaryButtonText: str | None
+    SecondaryButtonText: str | None
+    ShowSecondaryButton: bool | None
+    ShowDismiss: bool | None
+    EnableMessageMarkdown: bool | None
+    Intent: MessageIntent | None
+    LinkText: str | None
+    LinkUrl: str | None
 
 class ParameterCustomInputOptions(typing.TypedDict, total=False):
     InputType: InputType | None
@@ -2828,6 +2882,170 @@ class AbstractHostEnvironment:
         return result
 
 
+class AbstractInteractionService:
+    """Type class for AbstractInteractionService."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"AbstractInteractionService(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    def is_available(self) -> bool:
+        """Gets a value indicating whether the interaction service is available to prompt the user."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/isAvailable',
+            rpc_args,
+        )
+        return result
+
+    def prompt_confirmation(self, title: str, message: str, *, options: InteractionMessageBoxOptions | None = None, timeout: int | None = None) -> BoolInteractionResult:
+        """Prompts the user for confirmation with an OK/Cancel dialog."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['title'] = title
+        rpc_args['message'] = message
+        if options is not None:
+            rpc_args['options'] = options
+        if timeout is not None:
+            rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/promptConfirmation',
+            rpc_args,
+        )
+        return typing.cast(BoolInteractionResult, result)
+
+    def prompt_message_box(self, title: str, message: str, *, options: InteractionMessageBoxOptions | None = None, timeout: int | None = None) -> BoolInteractionResult:
+        """Prompts the user with a message box dialog."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['title'] = title
+        rpc_args['message'] = message
+        if options is not None:
+            rpc_args['options'] = options
+        if timeout is not None:
+            rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/promptMessageBox',
+            rpc_args,
+        )
+        return typing.cast(BoolInteractionResult, result)
+
+    def prompt_notification(self, title: str, message: str, *, options: InteractionNotificationOptions | None = None, timeout: int | None = None) -> BoolInteractionResult:
+        """Prompts the user with a notification."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['title'] = title
+        rpc_args['message'] = message
+        if options is not None:
+            rpc_args['options'] = options
+        if timeout is not None:
+            rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/promptNotification',
+            rpc_args,
+        )
+        return typing.cast(BoolInteractionResult, result)
+
+    def prompt_input(self, title: str, message: str, input: InteractionInputBuilder, *, options: InteractionInputsDialogOptions | None = None, timeout: int | None = None) -> InputInteractionResult:
+        """Prompts the user for a single input."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['title'] = title
+        rpc_args['message'] = message
+        rpc_args['input'] = input
+        if options is not None:
+            rpc_args['options'] = options
+        if timeout is not None:
+            rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/promptInput',
+            rpc_args,
+        )
+        return typing.cast(InputInteractionResult, result)
+
+    def prompt_inputs(self, title: str, message: str, inputs: typing.Iterable[InteractionInputBuilder], *, options: InteractionInputsDialogOptions | None = None, timeout: int | None = None) -> InputsInteractionResult:
+        """Prompts the user for multiple inputs."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['title'] = title
+        rpc_args['message'] = message
+        rpc_args['inputs'] = inputs
+        if options is not None:
+            rpc_args['options'] = options
+        if timeout is not None:
+            rpc_args['cancellationToken'] = self._client.register_cancellation_token(timeout)
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/promptInputs',
+            rpc_args,
+        )
+        return typing.cast(InputsInteractionResult, result)
+
+    def create_text_input(self, name: str, *, options: CreateInteractionInputOptions | None = None) -> InteractionInputBuilder:
+        """Creates a single-line text input."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['name'] = name
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/createTextInput',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def create_secret_input(self, name: str, *, options: CreateInteractionInputOptions | None = None) -> InteractionInputBuilder:
+        """Creates a secret (masked) text input."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['name'] = name
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/createSecretInput',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def create_boolean_input(self, name: str, *, options: CreateInteractionInputOptions | None = None) -> InteractionInputBuilder:
+        """Creates a boolean (checkbox) input."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['name'] = name
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/createBooleanInput',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def create_number_input(self, name: str, *, options: CreateInteractionInputOptions | None = None) -> InteractionInputBuilder:
+        """Creates a numeric input."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['name'] = name
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/createNumberInput',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def create_choice_input(self, name: str, *, choices: typing.Mapping[str, str] | None = None, options: CreateInteractionInputOptions | None = None) -> InteractionInputBuilder:
+        """Creates a choice input that selects from a list of options."""
+        rpc_args: dict[str, typing.Any] = {'interactionService': self._handle}
+        rpc_args['name'] = name
+        if choices is not None:
+            rpc_args['choices'] = choices
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/createChoiceInput',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+
 class AbstractLogger:
     """Type class for AbstractLogger."""
 
@@ -3102,6 +3320,15 @@ class AbstractServiceProvider:
             rpc_args,
         )
         return typing.cast(AbstractDistributedApplicationEventing, result)
+
+    def get_interaction_service(self) -> AbstractInteractionService:
+        """Gets the interaction service from the service provider."""
+        rpc_args: dict[str, typing.Any] = {'serviceProvider': self._handle}
+        result = self._client.invoke_capability(
+            'Aspire.Hosting/getInteractionService',
+            rpc_args,
+        )
+        return typing.cast(AbstractInteractionService, result)
 
     def get_logger_factory(self) -> AbstractLoggerFactory:
         """Gets the logger factory from the service provider."""
@@ -4768,6 +4995,15 @@ class ExecuteCommandContext:
         return self._handle
 
     @_cached_property
+    def service_provider(self) -> AbstractServiceProvider:
+        """The service provider."""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.ApplicationModel/ExecuteCommandContext.serviceProvider',
+            {'context': self._handle}
+        )
+        return typing.cast(AbstractServiceProvider, result)
+
+    @_cached_property
     def resource_name(self) -> str:
         """The resource name."""
         result = self._client.invoke_capability(
@@ -4907,6 +5143,54 @@ class InputsDialogValidationContext:
         )
 
 
+class InteractionInputBuilder:
+    """Type class for InteractionInputBuilder."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"InteractionInputBuilder(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    def with_choice_options(self, choices: typing.Mapping[str, str]) -> InteractionInputBuilder:
+        """Sets the choice options for the input."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['choices'] = choices
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/withChoiceOptions',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def with_value(self, value: str) -> InteractionInputBuilder:
+        """Sets the value of the input."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['value'] = value
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/withValue',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+    def with_dynamic_loading(self, callback: typing.Callable[[InteractionInputLoadContext], None], *, options: DynamicLoadingOptions | None = None) -> InteractionInputBuilder:
+        """Attaches a callback that dynamically loads or updates the input after the prompt starts."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['callback'] = self._client.register_callback(callback)
+        if options is not None:
+            rpc_args['options'] = options
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/withDynamicLoading',
+            rpc_args,
+        )
+        return typing.cast(InteractionInputBuilder, result)
+
+
 class InteractionInputCollection:
     """Type class for InteractionInputCollection."""
 
@@ -4930,6 +5214,59 @@ class InteractionInputCollection:
             rpc_args,
         )
         return result
+
+
+class InteractionInputLoadContext:
+    """Type class for InteractionInputLoadContext."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"InteractionInputLoadContext(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    def get_input_name(self) -> str:
+        """Gets the name of the input that is loading."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/getInputName',
+            rpc_args,
+        )
+        return result
+
+    def get_input_value(self, input_name: str) -> str:
+        """Gets the current value of an input in the prompt by name."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['inputName'] = input_name
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/getInputValue',
+            rpc_args,
+        )
+        return result
+
+    def set_choice_options(self, choices: typing.Mapping[str, str]) -> None:
+        """Sets the choice options for the loading input."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['choices'] = choices
+        self._client.invoke_capability(
+            'Aspire.Hosting.Ats/setChoiceOptions',
+            rpc_args
+        )
+
+    def set_value(self, value: str) -> None:
+        """Sets the value of the loading input."""
+        rpc_args: dict[str, typing.Any] = {'context': self._handle}
+        rpc_args['value'] = value
+        self._client.invoke_capability(
+            'Aspire.Hosting.Ats/setValue',
+            rpc_args
+        )
 
 
 class LogFacade:
@@ -11500,6 +11837,7 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.IDistributedAp
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExecutionConfigurationBuilder", AbstractExecutionConfigurationBuilder)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.IExecutionConfigurationResult", AbstractExecutionConfigurationResult)
 _register_handle_wrapper("Microsoft.Extensions.Hosting.Abstractions/Microsoft.Extensions.Hosting.IHostEnvironment", AbstractHostEnvironment)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.IInteractionService", AbstractInteractionService)
 _register_handle_wrapper("Microsoft.Extensions.Logging.Abstractions/Microsoft.Extensions.Logging.ILogger", AbstractLogger)
 _register_handle_wrapper("Microsoft.Extensions.Logging.Abstractions/Microsoft.Extensions.Logging.ILoggerFactory", AbstractLoggerFactory)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.IReportingStep", AbstractReportingStep)
@@ -11536,7 +11874,9 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRe
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.ExecuteCommandContext", ExecuteCommandContext)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.InitializeResourceEvent", InitializeResourceEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.InputsDialogValidationContext", InputsDialogValidationContext)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", InteractionInputBuilder)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.InteractionInputCollection", InteractionInputCollection)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext", InteractionInputLoadContext)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.LogFacade", LogFacade)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.PipelineConfigurationContext", PipelineConfigurationContext)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Pipelines.PipelineContext", PipelineContext)
