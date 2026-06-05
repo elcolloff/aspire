@@ -623,6 +623,10 @@ internal sealed class AzureProvisioningController(
         }
 
         await ProvisionAzureResourcesAsync(azureResources, parentChildLookup, cancellationToken).ConfigureAwait(false);
+
+        // AfterProvisionAsync is responsible for publishing each resource's terminal state.
+        // Wait for those observers before publishing the aggregate environment state, but
+        // inspect the per-resource TCSs below so one failed observer does not hide others.
         await Task.WhenAll(afterProvisionTasks).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -802,6 +806,9 @@ internal sealed class AzureProvisioningController(
             new(TaskCreationOptions.RunContinuationsAsynchronously),
             cancellationToken);
 
+        // All dashboard, CLI, and background Azure operations enter through this queue.
+        // Running them inline would reintroduce re-entrancy between command handlers and
+        // provisioning callbacks; the single reader below is the synchronization boundary.
         await _operationChannel.Writer.WriteAsync(queuedOperation, cancellationToken).ConfigureAwait(false);
         return await queuedOperation.Completion.Task.ConfigureAwait(false);
     }
@@ -924,6 +931,8 @@ internal sealed class AzureProvisioningController(
             }
             else
             {
+                // Drift detection is a background probe. It must serialize with commands, but it
+                // should not make dashboard commands flicker disabled while it checks ARM state.
                 CompleteDriftCheck();
             }
         }
@@ -1180,6 +1189,10 @@ internal sealed class AzureProvisioningController(
     private async Task<CommandResultData> CreateAzureResourceInfoCommandResultDataAsync(DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken)
     {
         var targetResources = GetTargetAzureResources(model, resourceName);
+
+        // Targeting a parent Azure resource can include children and role assignments that must
+        // be reprovisioned together. The info command, however, reports the resource the user
+        // named so agents can map the command output back to the visible dashboard resource.
         var targetResource = targetResources[0];
         var json = await CreateCommandResultJsonAsync(GetAzureResourceCommandName, resourceName, cancellationToken).ConfigureAwait(false);
         json["resourceCount"] = targetResources.Count;
@@ -1260,12 +1273,16 @@ internal sealed class AzureProvisioningController(
         }
         catch (CredentialUnavailableException ex)
         {
+            // get-azure-resource is a diagnostic command. Return a machine-readable reason instead
+            // of failing the command so local runs without Azure auth still expose cached state.
             _logger.LogDebug(ex, "Unable to query live Azure resource state for {ResourceId} because no Azure credential is available.", resourceId);
             json["reason"] = "credential-unavailable";
             json["message"] = ex.Message;
         }
         catch (RequestFailedException ex)
         {
+            // Surface ARM failures as structured JSON so agents can distinguish "missing",
+            // authorization failures, and transient request errors without scraping logs.
             _logger.LogDebug(ex, "Unable to query live Azure resource state for {ResourceId}.", resourceId);
             json["reason"] = "request-failed";
             json["status"] = ex.Status;
@@ -1285,6 +1302,10 @@ internal sealed class AzureProvisioningController(
 
         try
         {
+            // Deployment state stores JSON payloads as strings, for example:
+            //   Outputs = { "id": { "type": "String", "value": "/subscriptions/..." } }
+            // Keep parse failures in the command payload instead of throwing so a diagnostic
+            // command can still show the rest of the cached state.
             return JsonNode.Parse(json);
         }
         catch (JsonException ex)
@@ -1705,6 +1726,9 @@ internal sealed class AzureProvisioningController(
             await notificationService.PublishUpdateAsync(targetResource, stateFactory).ConfigureAwait(false);
         }
 
+        // Some model resources are represented by a surrogate AzureBicepResource during
+        // provisioning. Publish to both so CLI wait/dashboard state stays consistent whether
+        // callers address the visible resource or the Azure resource used by the provisioner.
         await PublishAsync(resource.AzureResource).ConfigureAwait(false);
 
         if (resource.Resource != resource.AzureResource)
@@ -1738,6 +1762,9 @@ internal sealed class AzureProvisioningController(
         {
             await resource.AzureResource.ProvisioningTaskCompletionSource!.Task.ConfigureAwait(false);
 
+            // ARM deployment completion only means the resources exist. Role assignment
+            // propagation can lag, so do not mark the resource Running until the assigned
+            // principals can actually use the provisioned resource.
             var rolesFailed = await WaitForRoleAssignmentsAsync(resource, parentChildLookup).ConfigureAwait(false);
             if (!rolesFailed)
             {
