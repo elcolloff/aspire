@@ -287,6 +287,57 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public async Task AzureDevComputeClientListsSandboxResourcesWithLabelSelector()
+    {
+        var requestCount = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            requestCount++;
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal("management.westus3.azuredevcompute.io", request.RequestUri?.Host);
+            Assert.Contains("Page=1", request.RequestUri?.Query, StringComparison.Ordinal);
+            Assert.Contains("PageSize=100", request.RequestUri?.Query, StringComparison.Ordinal);
+            Assert.Contains("labels=aspire-resource%3Dsite-container", request.RequestUri?.Query, StringComparison.Ordinal);
+            Assert.Contains("api-version=2026-02-01-preview", request.RequestUri?.Query, StringComparison.Ordinal);
+
+            if (request.RequestUri?.AbsolutePath.EndsWith("/sandboxes", StringComparison.Ordinal) == true)
+            {
+                return Task.FromResult(JsonResponse(
+                    """
+                    [
+                      {
+                        "id": "sandbox-1",
+                        "labels": { "aspire-resource": "site-container" },
+                        "ports": []
+                      }
+                    ]
+                    """));
+            }
+
+            Assert.EndsWith("/diskimages", request.RequestUri?.AbsolutePath);
+            return Task.FromResult(JsonResponse(
+                """
+                [
+                  {
+                    "id": "disk-1",
+                    "labels": { "aspire-resource": "site-container" },
+                    "status": { "state": "Ready" }
+                  }
+                ]
+                """));
+        });
+        var client = new AzureDevComputeClient(new HttpClient(handler), new RecordingTokenCredential(), NullLogger.Instance);
+        var scope = new AzureDevComputeResourceScope("sub", "rg", "sg", "westus3");
+
+        var sandboxes = await client.ListSandboxesAsync(scope, "aspire-resource=site-container", CancellationToken.None);
+        var diskImages = await client.ListDiskImagesAsync(scope, "aspire-resource=site-container", CancellationToken.None);
+
+        Assert.Equal("sandbox-1", Assert.Single(sandboxes).Id);
+        Assert.Equal("disk-1", Assert.Single(diskImages).Id);
+        Assert.Equal(2, requestCount);
+    }
+
+    [Fact]
     public async Task AzureDevComputeClientRetriesForbiddenResponses()
     {
         var attempts = 0;
@@ -740,8 +791,9 @@ public class AzureSandboxesTests
         Assert.Contains(WellKnownPipelineSteps.DestroyPrereq, destroyStep.DependsOnSteps);
         Assert.Contains(WellKnownPipelineSteps.Destroy, destroyStep.RequiredBySteps);
 
-        var environmentSteps = await CreateStepsAsync(app, sandboxGroup.Resource);
-        var staleCleanupStep = Assert.Single(environmentSteps, step => step.Name == "destroy-stale-azure-sandboxes-sandboxes");
+        var cleanupResource = Assert.Single(model.Resources, resource => resource.Name == "azure-sandbox-cleanup");
+        var cleanupSteps = await CreateStepsAsync(app, cleanupResource);
+        var staleCleanupStep = Assert.Single(cleanupSteps, step => step.Name == "destroy-stale-azure-sandboxes");
         Assert.Contains(WellKnownPipelineSteps.DestroyPrereq, staleCleanupStep.DependsOnSteps);
         Assert.Contains(WellKnownPipelineSteps.Destroy, staleCleanupStep.RequiredBySteps);
 
@@ -750,6 +802,7 @@ public class AzureSandboxesTests
             Name = "destroy-azure-sandboxes",
             Action = _ => Task.CompletedTask
         };
+        var environmentSteps = cleanupSteps;
         environmentSteps.Add(azureDestroyStep);
 
         var configurationContext = new PipelineConfigurationContext
@@ -759,13 +812,29 @@ public class AzureSandboxesTests
             Model = model
         };
 
-        foreach (var annotation in sandboxGroup.Resource.Annotations.OfType<PipelineConfigurationAnnotation>())
+        foreach (var annotation in sandboxGroup.Resource.Annotations.OfType<PipelineConfigurationAnnotation>()
+            .Concat(cleanupResource.Annotations.OfType<PipelineConfigurationAnnotation>()))
         {
             await annotation.Callback(configurationContext);
         }
 
         Assert.Contains(destroyStep.Name, azureDestroyStep.DependsOnSteps);
         Assert.Contains(staleCleanupStep.Name, azureDestroyStep.DependsOnSteps);
+    }
+
+    [Fact]
+    public void AddAzureSandboxGroupAddsSingleCleanupResource()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path);
+
+        builder.AddAzureSandboxGroup("sandboxes");
+        builder.AddAzureSandboxGroup("othersandboxes");
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+
+        Assert.Single(model.Resources, resource => resource.Name == "azure-sandbox-cleanup");
     }
 
     [Fact]

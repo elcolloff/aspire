@@ -56,12 +56,12 @@ internal static class AzureSandboxContainerDeployment
         ];
     }
 
-    internal static PipelineStep CreateStaleCleanupPipelineStep(AzureSandboxGroupResource resource, IReadOnlySet<string> activeStateSectionNames)
+    internal static PipelineStep CreateStaleCleanupPipelineStep(IResource resource, IReadOnlySet<string> activeStateSectionNames)
     {
         return new PipelineStep
         {
-            Name = GetStaleCleanupStepName(resource),
-            Description = $"Deletes stale ACA sandbox deployments for Azure sandbox group '{resource.Name}'.",
+            Name = GetStaleCleanupStepName(),
+            Description = "Deletes stale ACA sandbox deployments.",
             Action = context => DestroyStaleDeploymentsAsync(context, activeStateSectionNames),
             DependsOnSteps = [WellKnownPipelineSteps.DestroyPrereq],
             RequiredBySteps = [WellKnownPipelineSteps.Destroy],
@@ -92,9 +92,9 @@ internal static class AzureSandboxContainerDeployment
         return activeStateSectionNames;
     }
 
-    internal static void ConfigureStaleCleanupDestroyOrdering(PipelineConfigurationContext context, AzureSandboxGroupResource resource)
+    internal static void ConfigureStaleCleanupDestroyOrdering(PipelineConfigurationContext context)
     {
-        var cleanupStepName = GetStaleCleanupStepName(resource);
+        var cleanupStepName = GetStaleCleanupStepName();
 
         foreach (var step in context.Steps.Where(static step => step.Name.StartsWith("destroy-azure-", StringComparison.Ordinal)))
         {
@@ -132,10 +132,7 @@ internal static class AzureSandboxContainerDeployment
         var client = CreateAzureDevComputeClient(context);
 
         var stateSection = await deploymentStateManager.AcquireSectionAsync(GetStateSectionName(resource), context.CancellationToken).ConfigureAwait(false);
-
-        await DeleteExistingDeploymentAsync(context, client, dataPlaneScope, stateSection, throwOnError: false).ConfigureAwait(false);
-        await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
-        stateSection = await deploymentStateManager.AcquireSectionAsync(GetStateSectionName(resource), context.CancellationToken).ConfigureAwait(false);
+        var previousStateSection = CloneStateSection(stateSection);
 
         var deployId = Guid.NewGuid().ToString("N");
         var diskImageId = string.Empty;
@@ -222,8 +219,14 @@ internal static class AzureSandboxContainerDeployment
             stateSection.Data["ResourceGroup"] = dataPlaneScope.ResourceGroupName;
             stateSection.Data["Location"] = azureState.Location;
             stateSection.Data["SandboxGroup"] = dataPlaneScope.SandboxGroupName;
+            stateSection.Data["ResourceName"] = resource.Name;
+            stateSection.Data["SourceResourceName"] = targetResource.Name;
+            stateSection.Data["DeployId"] = deployId;
             stateSection.Data["Ports"] = portStates;
             await deploymentStateManager.SaveSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
+
+            await DeleteExistingDeploymentAsync(context, client, dataPlaneScope, previousStateSection, throwOnError: false).ConfigureAwait(false);
+            await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, dataPlaneScope, resource.Name, deployId, throwOnError: false).ConfigureAwait(false);
 
             if (portStates.FirstOrDefault() is JsonObject firstPort && firstPort["Url"]?.GetValue<string>() is { } publicUrl)
             {
@@ -837,6 +840,7 @@ internal static class AzureSandboxContainerDeployment
             GetRequiredStateValue(stateSection, "Location"));
 
         await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
+        await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, resource.Name, excludedDeployId: null, throwOnError: true).ConfigureAwait(false);
         await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
     }
 
@@ -873,6 +877,7 @@ internal static class AzureSandboxContainerDeployment
             await using (cleanupTask.ConfigureAwait(false))
             {
                 await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
+                await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, GetStateResourceName(stateSection, sectionName), excludedDeployId: null, throwOnError: true).ConfigureAwait(false);
                 await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
                 await cleanupTask.CompleteAsync($"Deleted stale sandbox deployment {sectionName}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
@@ -979,6 +984,97 @@ internal static class AzureSandboxContainerDeployment
         {
             await DeleteDiskImageAsync(context, client, scope, diskImageId, throwOnError).ConfigureAwait(false);
         }
+    }
+
+    private static DeploymentStateSection CloneStateSection(DeploymentStateSection stateSection)
+    {
+        return new DeploymentStateSection(
+            stateSection.SectionName,
+            stateSection.Data.DeepClone().AsObject(),
+            version: 0);
+    }
+
+    private static async Task DeleteRemoteDeploymentsByResourceLabelAsync(
+        PipelineStepContext context,
+        AzureDevComputeClient client,
+        AzureDevComputeResourceScope scope,
+        string resourceName,
+        string? excludedDeployId,
+        bool throwOnError)
+    {
+        var labelSelector = $"aspire-resource={resourceName}";
+
+        List<AzureDevComputeSandbox> sandboxes;
+        try
+        {
+            sandboxes = await client.ListSandboxesAsync(scope, labelSelector, context.CancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!throwOnError)
+        {
+            context.Logger.LogWarning(ex, "Failed to list existing sandbox deployments labeled for resource '{ResourceName}'.", resourceName);
+            sandboxes = [];
+        }
+
+        foreach (var sandbox in sandboxes.Where(sandbox => ShouldDeleteLabeledDeployment(sandbox.Labels, resourceName, excludedDeployId)))
+        {
+            await DeleteSandboxAsync(
+                context,
+                client,
+                scope,
+                sandbox.Id,
+                sandbox.Ports.Select(static port => port.Port),
+                throwOnError).ConfigureAwait(false);
+        }
+
+        List<AzureDevComputeDiskImage> diskImages;
+        try
+        {
+            diskImages = await client.ListDiskImagesAsync(scope, labelSelector, context.CancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!throwOnError)
+        {
+            context.Logger.LogWarning(ex, "Failed to list existing sandbox disk images labeled for resource '{ResourceName}'.", resourceName);
+            diskImages = [];
+        }
+
+        foreach (var diskImage in diskImages.Where(diskImage => ShouldDeleteLabeledDeployment(diskImage.Labels, resourceName, excludedDeployId)))
+        {
+            await DeleteDiskImageAsync(context, client, scope, diskImage.Id, throwOnError).ConfigureAwait(false);
+        }
+    }
+
+    private static bool ShouldDeleteLabeledDeployment(IReadOnlyDictionary<string, string> labels, string resourceName, string? excludedDeployId)
+    {
+        if (!HasLabel(labels, "aspire-resource", resourceName))
+        {
+            return false;
+        }
+
+        if (excludedDeployId is null)
+        {
+            return true;
+        }
+
+        return labels.TryGetValue("aspire-deploy", out var deployId) &&
+            !string.Equals(deployId, excludedDeployId, StringComparison.Ordinal);
+    }
+
+    private static bool HasLabel(IReadOnlyDictionary<string, string> labels, string name, string value)
+    {
+        return labels.TryGetValue(name, out var actualValue) &&
+            string.Equals(actualValue, value, StringComparison.Ordinal);
+    }
+
+    private static string GetStateResourceName(DeploymentStateSection stateSection, string sectionName)
+    {
+        if (stateSection.Data["ResourceName"]?.GetValue<string>() is { Length: > 0 } resourceName)
+        {
+            return resourceName;
+        }
+
+        return sectionName.StartsWith(SandboxStateSectionPrefix, StringComparison.Ordinal)
+            ? sectionName[SandboxStateSectionPrefix.Length..]
+            : sectionName;
     }
 
     private static IEnumerable<int> GetStatePorts(DeploymentStateSection stateSection)
@@ -1161,7 +1257,7 @@ internal static class AzureSandboxContainerDeployment
 
     internal static string GetStateSectionName(AzureSandboxContainerResource resource) => $"{SandboxStateSectionPrefix}{resource.Name}";
 
-    private static string GetStaleCleanupStepName(AzureSandboxGroupResource resource) => $"destroy-stale-azure-sandboxes-{resource.Name}";
+    private static string GetStaleCleanupStepName() => "destroy-stale-azure-sandboxes";
 
     internal static string GetDeployStepName(AzureSandboxContainerResource resource) => $"deploy-{resource.Name}";
 

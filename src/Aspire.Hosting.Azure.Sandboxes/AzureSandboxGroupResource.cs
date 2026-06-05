@@ -71,11 +71,6 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
                 }
             }
 
-            if (IsPrimarySandboxGroup(model, this))
-            {
-                steps.Add(AzureSandboxContainerDeployment.CreateStaleCleanupPipelineStep(this, AzureSandboxContainerDeployment.GetActiveStateSectionNames(model)));
-            }
-
             return steps;
         }));
 
@@ -94,11 +89,6 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
                 {
                     annotation.Callback(context);
                 }
-            }
-
-            if (IsPrimarySandboxGroup(context.Model, this))
-            {
-                AzureSandboxContainerDeployment.ConfigureStaleCleanupDestroyOrdering(context, this);
             }
         }));
     }
@@ -268,7 +258,4 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
         return DefaultContainerRegistry;
     }
-
-    private static bool IsPrimarySandboxGroup(DistributedApplicationModel model, AzureSandboxGroupResource resource) =>
-        ReferenceEquals(model.Resources.OfType<AzureSandboxGroupResource>().OrderBy(static group => group.Name, StringComparer.Ordinal).FirstOrDefault(), resource);
 }

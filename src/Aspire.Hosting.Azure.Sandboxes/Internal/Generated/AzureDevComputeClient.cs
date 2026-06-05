@@ -38,6 +38,22 @@ internal sealed class AzureDevComputeClient(HttpClient httpClient, TokenCredenti
             cancellationToken);
     }
 
+    public Task<List<AzureDevComputeDiskImage>> ListDiskImagesAsync(AzureDevComputeResourceScope scope, string? labels, CancellationToken cancellationToken)
+    {
+        var path = $"{GetSandboxGroupPath(scope)}/diskimages?Page=1&PageSize=100";
+        if (!string.IsNullOrWhiteSpace(labels))
+        {
+            path += $"&labels={WebUtility.UrlEncode(labels)}";
+        }
+
+        return SendAsync<List<AzureDevComputeDiskImage>>(
+            scope,
+            HttpMethod.Get,
+            path,
+            content: null,
+            cancellationToken);
+    }
+
     public Task<AzureDevComputeDiskImage> GetDiskImageAsync(AzureDevComputeResourceScope scope, string diskImageId, CancellationToken cancellationToken)
     {
         return SendAsync<AzureDevComputeDiskImage>(

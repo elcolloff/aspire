@@ -360,6 +360,7 @@ public static class AzureSandboxesExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         builder.AddAzureProvisioning();
+        AzureSandboxCleanupResource.EnsureAdded(builder);
         builder.Services.Configure<AzureProvisioningOptions>(options => options.SupportsTargetedRoleAssignments = true);
 
         static void ConfigureInfrastructure(AzureResourceInfrastructure infrastructure)
