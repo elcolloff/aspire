@@ -394,6 +394,16 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (url.pathname === '/webhook' && request.method === 'POST') {
+      const body = await readRequestBody(request);
+      sendJson(response, 202, {
+        accepted: true,
+        contentType: request.headers['content-type'] ?? null,
+        bodyLength: body.length,
+      });
+      return;
+    }
+
     if (url.pathname === '/api/blobs' && request.method === 'GET') {
       sendJson(response, 200, await listBlobs());
       return;

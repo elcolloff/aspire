@@ -116,6 +116,12 @@ public static class AzureSandboxesExtensions
 
                 foreach (var connectorDefinition in configResource.Connectors)
                 {
+                    var connection = connectionMap[connectorDefinition.Connection];
+                    if (!config.DependsOn.Contains(connection))
+                    {
+                        config.DependsOn.Add(connection);
+                    }
+
                     var connector = new ConnectorGatewayMcpConnector
                     {
                         Name = connectorDefinition.Name,
@@ -372,6 +378,7 @@ public static class AzureSandboxesExtensions
             infrastructure.Add(new ProvisioningOutput("name", typeof(string)) { Value = sandboxGroup.Name.ToBicepExpression() });
 
             AddSandboxGroupDeploymentPrincipalRoleAssignment(infrastructure, sandboxGroup);
+            AddSandboxGroupPrincipalRoleAssignments(infrastructure, sandboxGroup, sandboxResource);
         }
 
         var resource = new AzureSandboxGroupResource(name, ConfigureInfrastructure)
@@ -522,6 +529,33 @@ public static class AzureSandboxesExtensions
     }
 
     /// <summary>
+    /// Assigns the specified roles to an Azure connector gateway, granting its system-assigned managed identity
+    /// the necessary permissions on the target Azure Container Apps sandbox group resource.
+    /// </summary>
+    /// <param name="builder">The Azure connector gateway resource whose system-assigned managed identity receives the role assignments.</param>
+    /// <param name="target">The target Azure sandbox group resource.</param>
+    /// <param name="roles">The built-in sandbox group roles to be assigned.</param>
+    /// <returns>The updated <see cref="IResourceBuilder{AzureConnectorGatewayResource}"/> with the applied role assignments.</returns>
+    [AspireExportIgnore(Reason = "AzureSandboxGroupBuiltInRole is not compatible with ATS.")]
+    public static IResourceBuilder<AzureConnectorGatewayResource> WithRoleAssignments(
+        this IResourceBuilder<AzureConnectorGatewayResource> builder,
+        IResourceBuilder<AzureSandboxGroupResource> target,
+        params AzureSandboxGroupBuiltInRole[] roles)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(target);
+
+        IReadOnlySet<AzureSandboxGroupBuiltInRole> roleSet = roles is null ? new HashSet<AzureSandboxGroupBuiltInRole>() : roles.ToHashSet();
+        target.Resource.RoleAssignmentPrincipals.Add(new AzureSandboxGroupRoleAssignmentPrincipal(
+            builder.Resource.Name,
+            builder.Resource.PrincipalId,
+            RoleManagementPrincipalType.ServicePrincipal,
+            roleSet));
+
+        return builder;
+    }
+
+    /// <summary>
     /// Assigns the specified roles to the given resource, granting it the necessary permissions
     /// on the target Azure Container Apps sandbox group resource.
     /// </summary>
@@ -607,6 +641,41 @@ public static class AzureSandboxesExtensions
             PrincipalId = principalId,
             RoleDefinitionId = BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)
         });
+    }
+
+    private static void AddSandboxGroupPrincipalRoleAssignments(
+        AzureResourceInfrastructure infrastructure,
+        SandboxGroup sandboxGroup,
+        AzureSandboxGroupResource sandboxResource)
+    {
+        foreach (var principal in sandboxResource.RoleAssignmentPrincipals)
+        {
+            if (principal.Roles.Count == 0)
+            {
+                continue;
+            }
+
+            var principalId = principal.PrincipalId.AsProvisioningParameter(
+                infrastructure,
+                $"{Infrastructure.NormalizeBicepIdentifier(principal.Name)}_principalId");
+
+            foreach (var role in principal.Roles)
+            {
+                var roleId = role.ToString();
+                var roleName = AzureSandboxGroupBuiltInRole.GetBuiltInRoleName(role);
+                infrastructure.Add(new RoleAssignment($"{sandboxGroup.BicepIdentifier}_{Infrastructure.NormalizeBicepIdentifier(principal.Name)}_{Infrastructure.NormalizeBicepIdentifier(roleName)}")
+                {
+                    Name = BicepFunction.CreateGuid(
+                        sandboxGroup.Id,
+                        principalId,
+                        BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)),
+                    Scope = new IdentifierExpression(sandboxGroup.BicepIdentifier),
+                    PrincipalType = principal.PrincipalType,
+                    PrincipalId = principalId,
+                    RoleDefinitionId = BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)
+                });
+            }
+        }
     }
 
     private static void ValidateSandboxOptions(AzureSandboxOptions options)

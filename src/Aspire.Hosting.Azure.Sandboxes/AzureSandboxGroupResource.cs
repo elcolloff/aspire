@@ -116,6 +116,8 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
     internal List<AzureUserAssignedIdentityResource> UserAssignedIdentities { get; } = [];
 
+    internal List<AzureSandboxGroupRoleAssignmentPrincipal> RoleAssignmentPrincipals { get; } = [];
+
     internal AzureContainerRegistryResource? DefaultContainerRegistry { get; set; }
 
     IAzureContainerRegistryResource? IAzureComputeEnvironmentResource.ContainerRegistry => ContainerRegistry;

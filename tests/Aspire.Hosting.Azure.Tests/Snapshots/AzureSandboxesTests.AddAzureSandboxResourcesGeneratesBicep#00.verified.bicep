@@ -50,6 +50,9 @@ resource teamsmcp 'Microsoft.Web/connectorGateways/mcpserverConfigs@2026-05-01-p
     ]
   }
   parent: gateway
+  dependsOn: [
+    teams
+  ]
 }
 
 output id string = gateway.id

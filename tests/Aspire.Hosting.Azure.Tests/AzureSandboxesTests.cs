@@ -77,6 +77,26 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public async Task ConnectorGatewayWithRoleAssignmentsAddsSandboxGroupRoleAssignments()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var gateway = builder.AddAzureConnectorGateway("gateway");
+        var sandboxGroup = builder.AddAzureSandboxGroup("hostgroup");
+
+        gateway.WithRoleAssignments(sandboxGroup, AzureSandboxGroupBuiltInRole.SandboxGroupDataOwner);
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var (manifest, bicep) = await AzureManifestUtils.GetManifestWithBicep(model, sandboxGroup.Resource);
+
+        await Verify(manifest.ToString(), "json")
+            .AppendContentAsFile(bicep, "bicep");
+    }
+
+    [Fact]
     public async Task AddAzureSandboxGroupSupportsExplicitManagedIdentities()
     {
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
@@ -156,6 +176,7 @@ public class AzureSandboxesTests
         var accessPolicy = Assert.Single(connection.Resource.AccessPolicies);
         Assert.Equal("gateway-acl", accessPolicy.PolicyName);
         Assert.Equal(AzureConnectorGatewayConnectionAccessPolicyPrincipal.GatewayManagedIdentity, accessPolicy.Principal);
+        Assert.Equal("webhook", trigger.Resource.CallbackPath);
 
         var triggerSteps = await CreateStepsAsync(app, trigger.Resource);
         var triggerStep = Assert.Single(triggerSteps, step => step.Name == "provision-newfile");

@@ -96,7 +96,7 @@ public sealed class AzureConnectorGatewayTriggerConfigResource : AzureProvisioni
     public EndpointReference CallbackEndpoint { get; }
 
     /// <summary>
-    /// Gets the optional callback path appended to <see cref="CallbackEndpoint"/>.
+    /// Gets the optional relative callback path appended to <see cref="CallbackEndpoint"/>.
     /// </summary>
     public string? CallbackPath { get; }
 
@@ -141,7 +141,8 @@ public sealed class AzureConnectorGatewayTriggerConfigResource : AzureProvisioni
             return null;
         }
 
-        return callbackPath[0] == '/' ? callbackPath : $"/{callbackPath}";
+        var normalizedPath = callbackPath.TrimStart('/');
+        return string.IsNullOrWhiteSpace(normalizedPath) ? null : normalizedPath;
     }
 
     private static void ConfigureTriggerInfrastructure(AzureResourceInfrastructure infrastructure)
