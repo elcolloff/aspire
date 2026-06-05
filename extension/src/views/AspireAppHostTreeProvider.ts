@@ -934,9 +934,16 @@ export class AspireAppHostTreeProvider implements vscode.TreeDataProvider<TreeEl
             const workspaceResources = [...this._repository.workspaceResources];
             const workspaceAppHost = this._repository.workspaceAppHost;
             const workspaceCandidatePaths = this._repository.workspaceAppHostCandidatePaths ?? [];
+            const runningAppHostPaths = this._repository.appHosts.map(appHost => appHost.appHostPath);
+            const discoveryPending = this._repository.isWorkspaceAppHostDiscoveryComplete === false;
             const workspaceAppHostPaths = workspaceCandidatePaths.length > 0
-                ? workspaceCandidatePaths
-                : this._repository.appHosts.map(appHost => appHost.appHostPath);
+                ? discoveryPending
+                    ? [
+                        ...workspaceCandidatePaths,
+                        ...runningAppHostPaths.filter(appHostPath => !workspaceCandidatePaths.some(candidatePath => isMatchingAppHostPath(appHostPath, candidatePath))),
+                    ]
+                    : workspaceCandidatePaths
+                : runningAppHostPaths;
 
             if (workspaceAppHostPaths.length > 1 || (workspaceResources.length === 0 && !workspaceAppHost)) {
                 const selectedAppHostPath = workspaceAppHost?.appHostPath ?? this._repository.workspaceAppHostPath;

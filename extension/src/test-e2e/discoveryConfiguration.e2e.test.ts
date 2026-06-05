@@ -1,9 +1,10 @@
 import * as assert from 'assert';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getCommandInvocationCount, isSamePath, waitForCommandOutcome, waitForExtensionState, waitForRepositoryIdle, waitForSelectedWorkspaceAppHost, waitForWorkspaceAppHost } from './helpers/assertions';
-import { createAdditionalAppHostCandidate, executeE2eControlCommand, removeAdditionalAppHostCandidate, removeLegacyAspireSettings, removeWorkspaceAppHostConfig, restoreWorkspaceAppHostConfig, restoreWorkspaceCliPath, runE2eTeardown, setCliUnavailableForE2E, stopPrimaryAppHostIfRunning, writeLegacyAspireSettings, writeWorkspaceAppHostConfig, writeWorkspaceAppHostConfigRaw } from './helpers/fixtures';
-import { getPrimaryAppHostProjectPath, getRunRoot, getWorkspaceRoot } from './helpers/paths';
+import { getCommandInvocationCount, isSamePath, waitForCommandOutcome, waitForExtensionState, waitForNoRunningAppHost, waitForRepositoryIdle, waitForSelectedWorkspaceAppHost, waitForWorkspaceAppHost } from './helpers/assertions';
+import { createAdditionalAppHostCandidate, executeE2eControlCommand, removeAdditionalAppHostCandidate, removeLegacyAspireSettings, removeWorkspaceAppHostConfig, restoreWorkspaceAppHostConfig, restoreWorkspaceCliPath, runE2eTeardown, setCliUnavailableForE2E, stopPrimaryAppHostIfRunning, writeLegacyAspireSettings, writeSlowAppHostDiscoveryCliWrapper, writeWorkspaceAppHostConfig, writeWorkspaceAppHostConfigRaw, writeWorkspaceCliPath } from './helpers/fixtures';
+import { getCliPath, getPrimaryAppHostProjectPath, getRunRoot, getWorkspaceRoot } from './helpers/paths';
 import { openAspireView, waitForWorkbenchText } from './helpers/vscode';
 
 suite('Aspire workspace discovery and configuration E2E', function () {
@@ -172,7 +173,98 @@ suite('Aspire workspace discovery and configuration E2E', function () {
             }
         }
     });
+
+    test('shows running workspace AppHosts while discovery is still pending', async () => {
+        await openAspireView();
+        await waitForRepositoryIdle();
+        await waitForSelectedWorkspaceAppHost();
+        await stopPrimaryAppHostIfRunning();
+        await waitForNoRunningAppHost();
+
+        const wrapperPath = writeSlowAppHostDiscoveryCliWrapper(60000);
+        await writeWorkspaceCliPath(wrapperPath);
+
+        const refreshBefore = getCommandInvocationCount('aspire-vscode.refreshAppHosts');
+        await executeE2eControlCommand({ name: 'refreshAppHosts' }, { waitFor: 'started' });
+        await waitForCommandOutcome('aspire-vscode.refreshAppHosts', 'success', 60000, refreshBefore);
+        await waitForExtensionState(
+            file => !file.state.isWorkspaceAppHostDiscoveryComplete
+                && file.state.workspaceAppHostCandidatePaths.length === 0
+                && file.state.appHosts.length === 0,
+            'slow workspace discovery to remain pending without AppHost candidates',
+            30000);
+
+        const appHostProcessOutput: string[] = [];
+        const appHostProcess = startPrimaryAppHost(appHostProcessOutput);
+        try {
+            await waitForAppHostRunReady(appHostProcessOutput);
+            const psRefreshBefore = getCommandInvocationCount('aspire-vscode.refreshAppHosts');
+            await executeE2eControlCommand({ name: 'refreshAppHosts' }, { waitFor: 'started' });
+            await waitForCommandOutcome('aspire-vscode.refreshAppHosts', 'success', 60000, psRefreshBefore);
+
+            const appHostPath = getPrimaryAppHostProjectPath();
+            const runningDuringDiscovery = await waitForExtensionState(
+                file => !file.state.isWorkspaceAppHostDiscoveryComplete
+                    && file.state.workspaceAppHostCandidatePaths.length === 0
+                    && file.state.appHosts.some(appHost => isSamePath(appHost.appHostPath, appHostPath))
+                    && file.state.workspaceAppHost !== undefined
+                    && isSamePath(file.state.workspaceAppHost.appHostPath, appHostPath)
+                    && !file.state.isRepositoryLoading,
+                'running workspace AppHost from ps while workspace discovery is pending',
+                120000);
+
+            assert.ok(runningDuringDiscovery.state.appHosts.some(appHost => isSamePath(appHost.appHostPath, appHostPath)));
+        } catch (error) {
+            throw new Error(`Running AppHost was not shown before slow discovery completed. AppHost output:\n${appHostProcessOutput.join('')}`, { cause: error });
+        } finally {
+            await restoreWorkspaceCliPath();
+            terminateAppHostProcess(appHostProcess);
+        }
+    });
 });
+
+function startPrimaryAppHost(output: string[]): ChildProcessWithoutNullStreams {
+    const child = spawn(getCliPath(), ['run', '--apphost', getPrimaryAppHostProjectPath(), '--nologo'], {
+        cwd: getWorkspaceRoot(),
+        env: process.env,
+    });
+
+    child.stdout.on('data', chunk => recordProcessOutput(output, chunk));
+    child.stderr.on('data', chunk => recordProcessOutput(output, chunk));
+
+    return child;
+}
+
+function terminateAppHostProcess(child: ChildProcessWithoutNullStreams): void {
+    if (!child.killed) {
+        child.kill('SIGTERM');
+    }
+}
+
+async function waitForAppHostRunReady(output: string[], timeoutMs = 60000): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const text = output.join('');
+        if (text.includes('Press CTRL+C') || text.includes('Presione CTRL+C')) {
+            return;
+        }
+
+        await delay(250);
+    }
+
+    throw new Error(`Timed out waiting for AppHost to start. Output:\n${output.join('')}`);
+}
+
+function recordProcessOutput(output: string[], chunk: Buffer): void {
+    output.push(chunk.toString());
+    while (output.join('').length > 8000) {
+        output.shift();
+    }
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function getHiddenAppHostDirectory(appHostDirectory: string): string {
     const runRoot = getRunRoot();

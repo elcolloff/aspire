@@ -165,6 +165,12 @@ export function writeConfigInfoUnsupportedCliWrapper(name = 'aspire-no-config-in
     });
 }
 
+export function writeSlowAppHostDiscoveryCliWrapper(delayMs: number, name = 'aspire-slow-ls'): string {
+    return writeCliWrapper(name, {
+        lsDelayMs: delayMs,
+    });
+}
+
 export async function restoreWorkspaceCliPath(): Promise<void> {
     await writeWorkspaceCliPath(getCliPath());
 }
@@ -324,7 +330,7 @@ function getLegacyAspireSettingsPath(): string {
 
 function writeCliWrapper(
     name: string,
-    options: { configInfoJson?: unknown; configInfoExitCode?: number; configInfoStderr?: string },
+    options: { configInfoJson?: unknown; configInfoExitCode?: number; configInfoStderr?: string; lsDelayMs?: number },
 ): string {
     const wrapperDirectory = path.join(getWorkspaceRoot(), '.e2e-cli-wrappers');
     fs.mkdirSync(wrapperDirectory, { recursive: true });
@@ -340,12 +346,16 @@ if (args.includes('--include-disabled-commands')) {
   process.exit(123);
 }
 
-if (args.length === 3 && args[0] === 'config' && args[1] === 'info' && args[2] === '--json') {
+if (args.includes('config') && args.includes('info') && args.includes('--json')) {
 ${options.configInfoJson === undefined
         ? `  console.error(${JSON.stringify(options.configInfoStderr ?? 'config info is not available')});
   process.exit(${options.configInfoExitCode ?? 1});`
         : `  console.log(${JSON.stringify(JSON.stringify(options.configInfoJson))});
   process.exit(0);`}
+}
+
+if (args.includes('ls') && ${options.lsDelayMs ?? 0} > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${options.lsDelayMs ?? 0});
 }
 
 const result = spawnSync(realCli, args, {
