@@ -1441,9 +1441,14 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
         string optionsClassName)
     {
         var requiredParameterList = string.Join(", ", requiredParameters.Select(parameter => $"{MapParameterToJava(parameter)} {ToCamelCase(parameter.Name)}"));
+        // Name the options-bag parameter "optionsBag" rather than "options" to avoid colliding with a flattened
+        // local. Some capabilities have an optional parameter literally named "options" (for example the interaction
+        // prompts), and the flattening below declares "var options = optionsBag.getOptions()". Sharing the name would
+        // make the local shadow the parameter, which is a Java compile error. This matches the TypeScript generator,
+        // which also uses "optionsBag".
         var publicParameterList = string.IsNullOrEmpty(requiredParameterList)
-            ? $"{optionsClassName} options"
-            : $"{requiredParameterList}, {optionsClassName} options";
+            ? $"{optionsClassName} optionsBag"
+            : $"{requiredParameterList}, {optionsClassName} optionsBag";
 
         if (!string.IsNullOrEmpty(capability.Description))
         {
@@ -1454,7 +1459,7 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
         foreach (var parameter in optionalParameters)
         {
             var paramName = ToCamelCase(parameter.Name);
-            WriteLine($"        var {paramName} = options == null ? null : options.{GetOptionGetterName(parameter)}();");
+            WriteLine($"        var {paramName} = optionsBag == null ? null : optionsBag.{GetOptionGetterName(parameter)}();");
         }
 
         var implementationArguments = requiredParameters
