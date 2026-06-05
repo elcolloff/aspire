@@ -468,6 +468,114 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
         return {"success": not result.get("Canceled", False), "canceled": result.get("Canceled", False)}
 
     container.with_command("pick-zone", "Pick Zone", pick_zone_command)
+    # Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
+    # exercised by the polyglot typecheck: all prompt overloads, every input factory and builder method,
+    # the dynamic-loading context accessors/setters, and the option/result DTO fields.
+    def interaction_showcase_command(ctx):
+        interaction_service = ctx.service_provider.get_interaction_service()
+        if not interaction_service.is_available():
+            return {"success": True, "message": "Interaction service is not available."}
+
+        confirmation = interaction_service.prompt_confirmation(
+            "Confirm",
+            "Proceed?",
+            options={
+                "PrimaryButtonText": "Yes",
+                "SecondaryButtonText": "No",
+                "ShowSecondaryButton": True,
+                "ShowDismiss": True,
+                "EnableMessageMarkdown": True,
+                "Intent": "Confirmation",
+            }
+        )
+
+        message_box = interaction_service.prompt_message_box(
+            "Notice",
+            "Read this.",
+            options={"PrimaryButtonText": "OK", "Intent": "Information"}
+        )
+
+        notification = interaction_service.prompt_notification(
+            "Heads up",
+            "Something happened.",
+            options={
+                "Intent": "Warning",
+                "LinkText": "Learn more",
+                "LinkUrl": "https://aspire.dev",
+                "ShowDismiss": True,
+            }
+        )
+
+        text_input = interaction_service.create_text_input(
+            "name",
+            options={
+                "Label": "Name",
+                "Description": "Your **name**",
+                "EnableDescriptionMarkdown": True,
+                "Required": True,
+                "Placeholder": "Jane Doe",
+                "Value": "Jane",
+                "MaxLength": 64,
+                "Disabled": False,
+            }
+        )
+        secret_input = interaction_service.create_secret_input("password", options={"Required": True})
+        boolean_input = interaction_service.create_boolean_input("enabled", options={"Value": "true"})
+        number_input = interaction_service.create_number_input("count", options={"Value": "1"})
+        choice_input = interaction_service.create_choice_input(
+            "color",
+            choices={"r": "Red", "g": "Green"},
+            options={"AllowCustomChoice": True}
+        )
+        preset_input = interaction_service.create_text_input("greeting").with_value("hello")
+        size_input = interaction_service.create_choice_input("size").with_choice_options({"s": "Small", "l": "Large"})
+
+        def load_shade(load_context):
+            input_name = load_context.get_input_name()
+            color = load_context.get_input_value("color")
+            load_context.set_choice_options(
+                {"crimson": "Crimson", "scarlet": "Scarlet"}
+                if color == "r"
+                else {"lime": "Lime", "forest": "Forest"}
+            )
+            load_context.set_value(input_name)
+
+        dependent_input = interaction_service.create_choice_input("shade").with_dynamic_loading(
+            load_shade,
+            options={"AlwaysLoadOnStart": True, "DependsOnInputs": ["color"]}
+        )
+
+        single = interaction_service.prompt_input(
+            "Single input",
+            "Enter a value.",
+            interaction_service.create_text_input("solo"),
+            options={"PrimaryButtonText": "Save"}
+        )
+
+        multi = interaction_service.prompt_inputs(
+            "Multiple inputs",
+            "Fill out the form.",
+            [text_input, secret_input, boolean_input, number_input, choice_input, preset_input, size_input, dependent_input],
+            options={"PrimaryButtonText": "Submit", "EnableMessageMarkdown": True}
+        )
+
+        selected_color = next((i.get("Value") for i in (multi.get("Inputs") or []) if i.get("Name") == "color"), None)
+        solo_value = (single.get("Input") or {}).get("Value")
+
+        success = (not confirmation.get("Canceled", False)
+                   and confirmation.get("Value", False)
+                   and not message_box.get("Canceled", False)
+                   and not notification.get("Canceled", False)
+                   and not single.get("Canceled", False)
+                   and not multi.get("Canceled", False))
+
+        return {
+            "success": bool(success),
+            "canceled": multi.get("Canceled", False),
+            "message": f"color={selected_color or ''} solo={solo_value or ''}",
+        }
+
+    container.with_command("interaction-showcase", "Interaction Showcase", interaction_showcase_command)
     # withHttpCommand
     container.with_http_command("/health", "Health Check")
     container.with_http_command("/api/reset", "Reset", options={"MethodName": "POST", "ConfirmationMessage": "Are you sure?"})

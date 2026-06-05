@@ -5099,12 +5099,7 @@ class EventingSubscriberRegistrationContextPromiseImpl implements EventingSubscr
 /** Context for {@link ResourceCommandAnnotation.ExecuteCommand}. */
 export interface ExecuteCommandContext {
     toJSON(): MarshalledHandle;
-    /**
-     * The service provider.
-     *
-     * Polyglot command callbacks use this handle to resolve app host services, such as the interaction service via
-     * `serviceProvider().getInteractionService()`, so they can prompt the user while the command executes.
-     */
+    /** The service provider. */
     serviceProvider(): ServiceProviderPromise;
     /** The resource name. */
     resourceName(): Promise<string>;
@@ -5123,12 +5118,7 @@ export interface ExecuteCommandContext {
 }
 
 export interface ExecuteCommandContextPromise extends PromiseLike<ExecuteCommandContext> {
-    /**
-     * The service provider.
-     *
-     * Polyglot command callbacks use this handle to resolve app host services, such as the interaction service via
-     * `serviceProvider().getInteractionService()`, so they can prompt the user while the command executes.
-     */
+    /** The service provider. */
     serviceProvider(): ServiceProviderPromise;
     /** The resource name. */
     resourceName(): Promise<string>;

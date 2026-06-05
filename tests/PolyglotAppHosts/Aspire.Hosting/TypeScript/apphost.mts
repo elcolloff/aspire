@@ -9,6 +9,7 @@ import {
     HealthStatus,
     IconVariant,
     InputType,
+    MessageIntent,
     OtlpProtocol,
     ProbeType,
     ResourceCommandState,
@@ -781,6 +782,104 @@ await container.withCommand("pick-zone", "Pick Zone", async (ctx) => {
         [regionInput, zoneInput]);
 
     return { success: !result.canceled, canceled: result.canceled };
+});
+// Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
+// exercised by the polyglot typecheck: all prompt overloads, every input factory and builder method,
+// the dynamic-loading context accessors/setters, and the option/result DTO fields.
+await container.withCommand("interaction-showcase", "Interaction Showcase", async (ctx) => {
+    const interactionService = await ctx.serviceProvider().getInteractionService();
+
+    if (!(await interactionService.isAvailable())) {
+        return { success: true, message: "Interaction service is not available." };
+    }
+
+    const confirmation = await interactionService.promptConfirmation("Confirm", "Proceed?", {
+        options: {
+            primaryButtonText: "Yes",
+            secondaryButtonText: "No",
+            showSecondaryButton: true,
+            showDismiss: true,
+            enableMessageMarkdown: true,
+            intent: MessageIntent.Confirmation
+        }
+    });
+
+    const messageBox = await interactionService.promptMessageBox("Notice", "Read this.", {
+        options: { primaryButtonText: "OK", intent: MessageIntent.Information }
+    });
+
+    const notification = await interactionService.promptNotification("Heads up", "Something happened.", {
+        options: {
+            intent: MessageIntent.Warning,
+            linkText: "Learn more",
+            linkUrl: "https://aspire.dev",
+            showDismiss: true
+        }
+    });
+
+    const textInput = await interactionService.createTextInput("name", {
+        label: "Name",
+        description: "Your **name**",
+        enableDescriptionMarkdown: true,
+        required: true,
+        placeholder: "Jane Doe",
+        value: "Jane",
+        maxLength: 64,
+        disabled: false
+    });
+    const secretInput = await interactionService.createSecretInput("password", { required: true });
+    const booleanInput = await interactionService.createBooleanInput("enabled", { value: "true" });
+    const numberInput = await interactionService.createNumberInput("count", { value: "1" });
+    const choiceInput = await interactionService.createChoiceInput("color", {
+        choices: { "r": "Red", "g": "Green" },
+        options: { allowCustomChoice: true }
+    });
+    const presetInput = await interactionService.createTextInput("greeting").withValue("hello");
+    const sizeInput = await interactionService
+        .createChoiceInput("size")
+        .withChoiceOptions({ "s": "Small", "l": "Large" });
+    const dependentInput = await interactionService
+        .createChoiceInput("shade")
+        .withDynamicLoading(async (loadContext) => {
+            const inputName = await loadContext.getInputName();
+            const color = await loadContext.getInputValue("color");
+
+            await loadContext.setChoiceOptions(color === "r"
+                ? { "crimson": "Crimson", "scarlet": "Scarlet" }
+                : { "lime": "Lime", "forest": "Forest" });
+            await loadContext.setValue(inputName);
+        }, {
+            alwaysLoadOnStart: true,
+            dependsOnInputs: ["color"]
+        });
+
+    const single = await interactionService.promptInput(
+        "Single input",
+        "Enter a value.",
+        interactionService.createTextInput("solo"),
+        { options: { primaryButtonText: "Save" } });
+
+    const multi = await interactionService.promptInputs(
+        "Multiple inputs",
+        "Fill out the form.",
+        [textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput],
+        { options: { primaryButtonText: "Submit", enableMessageMarkdown: true } });
+
+    const selectedColor = multi.inputs?.find(input => input.name === "color")?.value;
+    const soloValue = single.input?.value;
+
+    const success = !confirmation.canceled
+        && confirmation.value === true
+        && !messageBox.canceled
+        && !notification.canceled
+        && !single.canceled
+        && !multi.canceled;
+
+    return {
+        success,
+        canceled: multi.canceled,
+        message: `color=${selectedColor ?? ""} solo=${soloValue ?? ""}`
+    };
 });
 
 // withProcessCommand

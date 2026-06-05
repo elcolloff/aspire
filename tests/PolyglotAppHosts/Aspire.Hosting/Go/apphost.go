@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"apphost/modules/aspire"
@@ -619,6 +620,137 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		}
 
 		return &aspire.ExecuteCommandResult{Success: !result.Canceled, Canceled: aspire.BoolPtr(result.Canceled)}
+	})
+
+	// Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
+	// exercised by the polyglot typecheck: all prompt overloads, every input factory and builder method,
+	// the dynamic-loading context accessors/setters, and the option/result DTO fields.
+	_ = container.WithCommand("interaction-showcase", "Interaction Showcase", func(ctx aspire.ExecuteCommandContext) *aspire.ExecuteCommandResult {
+		interactionService := ctx.ServiceProvider().GetInteractionService()
+
+		available, err := interactionService.IsAvailable()
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+		if !available {
+			return &aspire.ExecuteCommandResult{Success: true, Message: aspire.StringPtr("Interaction service is not available.")}
+		}
+
+		confirmIntent := aspire.MessageIntentConfirmation
+		confirmation, err := interactionService.PromptConfirmation("Confirm", "Proceed?", &aspire.PromptConfirmationOptions{
+			Options: &aspire.InteractionMessageBoxOptions{
+				PrimaryButtonText:     "Yes",
+				SecondaryButtonText:   "No",
+				ShowSecondaryButton:   aspire.BoolPtr(true),
+				ShowDismiss:           aspire.BoolPtr(true),
+				EnableMessageMarkdown: aspire.BoolPtr(true),
+				Intent:                &confirmIntent,
+			},
+		})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		infoIntent := aspire.MessageIntentInformation
+		messageBox, err := interactionService.PromptMessageBox("Notice", "Read this.", &aspire.PromptMessageBoxOptions{
+			Options: &aspire.InteractionMessageBoxOptions{PrimaryButtonText: "OK", Intent: &infoIntent},
+		})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		warnIntent := aspire.MessageIntentWarning
+		notification, err := interactionService.PromptNotification("Heads up", "Something happened.", &aspire.PromptNotificationOptions{
+			Options: &aspire.InteractionNotificationOptions{
+				Intent:      &warnIntent,
+				LinkText:    "Learn more",
+				LinkUrl:     "https://aspire.dev",
+				ShowDismiss: aspire.BoolPtr(true),
+			},
+		})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		textInput := interactionService.CreateTextInput("name", &aspire.CreateTextInputOptions{
+			Options: &aspire.CreateInteractionInputOptions{
+				Label:                     "Name",
+				Description:               "Your **name**",
+				EnableDescriptionMarkdown: aspire.BoolPtr(true),
+				Required:                  aspire.BoolPtr(true),
+				Placeholder:               "Jane Doe",
+				Value:                     "Jane",
+				MaxLength:                 aspire.Float64Ptr(64),
+				Disabled:                  aspire.BoolPtr(false),
+			},
+		})
+		secretInput := interactionService.CreateSecretInput("password", &aspire.CreateSecretInputOptions{
+			Options: &aspire.CreateInteractionInputOptions{Required: aspire.BoolPtr(true)},
+		})
+		booleanInput := interactionService.CreateBooleanInput("enabled", &aspire.CreateBooleanInputOptions{
+			Options: &aspire.CreateInteractionInputOptions{Value: "true"},
+		})
+		numberInput := interactionService.CreateNumberInput("count", &aspire.CreateNumberInputOptions{
+			Options: &aspire.CreateInteractionInputOptions{Value: "1"},
+		})
+		choiceInput := interactionService.CreateChoiceInput("color", &aspire.CreateChoiceInputOptions{
+			Choices: map[string]string{"r": "Red", "g": "Green"},
+			Options: &aspire.CreateInteractionInputOptions{AllowCustomChoice: aspire.BoolPtr(true)},
+		})
+		presetInput := interactionService.CreateTextInput("greeting").WithValue("hello")
+		sizeInput := interactionService.CreateChoiceInput("size").WithChoiceOptions(map[string]string{"s": "Small", "l": "Large"})
+		dependentInput := interactionService.CreateChoiceInput("shade").WithDynamicLoading(func(loadContext aspire.InteractionInputLoadContext) {
+			inputName, _ := loadContext.GetInputName()
+			color, _ := loadContext.GetInputValue("color")
+			shades := map[string]string{"lime": "Lime", "forest": "Forest"}
+			if color == "r" {
+				shades = map[string]string{"crimson": "Crimson", "scarlet": "Scarlet"}
+			}
+			_ = loadContext.SetChoiceOptions(shades)
+			_ = loadContext.SetValue(inputName)
+		}, &aspire.WithDynamicLoadingOptions{
+			Options: &aspire.DynamicLoadingOptions{AlwaysLoadOnStart: aspire.BoolPtr(true), DependsOnInputs: []string{"color"}},
+		})
+
+		single, err := interactionService.PromptInput("Single input", "Enter a value.", interactionService.CreateTextInput("solo"), &aspire.PromptInputOptions{
+			Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: "Save"},
+		})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		multi, err := interactionService.PromptInputs("Multiple inputs", "Fill out the form.",
+			[]aspire.InteractionInputBuilder{textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput},
+			&aspire.PromptInputsOptions{
+				Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: "Submit", EnableMessageMarkdown: aspire.BoolPtr(true)},
+			})
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+
+		selectedColor := ""
+		for _, input := range multi.Inputs {
+			if input.Name == "color" {
+				selectedColor = input.Value
+			}
+		}
+		soloValue := ""
+		if single.Input != nil {
+			soloValue = single.Input.Value
+		}
+
+		success := !confirmation.Canceled &&
+			confirmation.Value != nil && *confirmation.Value &&
+			!messageBox.Canceled &&
+			!notification.Canceled &&
+			!single.Canceled &&
+			!multi.Canceled
+
+		return &aspire.ExecuteCommandResult{
+			Success:  success,
+			Canceled: aspire.BoolPtr(multi.Canceled),
+			Message:  aspire.StringPtr(fmt.Sprintf("color=%s solo=%s", selectedColor, soloValue)),
+		}
 	})
 
 	app, err := builder.Build()

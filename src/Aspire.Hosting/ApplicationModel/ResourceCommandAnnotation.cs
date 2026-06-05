@@ -432,10 +432,6 @@ public sealed class ExecuteCommandContext
     /// <summary>
     /// The service provider.
     /// </summary>
-    /// <remarks>
-    /// Polyglot command callbacks use this handle to resolve app host services, such as the interaction service via
-    /// <c>serviceProvider().getInteractionService()</c>, so they can prompt the user while the command executes.
-    /// </remarks>
     public required IServiceProvider ServiceProvider { get; init; }
 
     /// <summary>
