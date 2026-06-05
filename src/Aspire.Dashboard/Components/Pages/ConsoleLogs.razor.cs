@@ -1210,19 +1210,19 @@ public sealed partial class ConsoleLogs : ComponentBase, IComponentWithTelemetry
         _ => Appearance.Neutral,
     };
 
-    private static string TerminalPrimaryButtonLabel(string status) => status switch
+    private string TerminalPrimaryButtonLabel(string status) => status switch
     {
-        "primary" => "Primary",
-        "connecting" => "Connecting…",
-        _ => "Take control",
+        "primary" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarPrimaryLabel)],
+        "connecting" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarConnectingLabel)],
+        _ => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarTakeControlLabel)],
     };
 
-    private static string TerminalPrimaryButtonTitle(string status) => status switch
+    private string TerminalPrimaryButtonTitle(string status) => status switch
     {
-        "primary" => "This tab owns primary input on the terminal session.",
-        "no-primary" => "No client currently owns primary input. Click to take it.",
-        "viewer" => "Another client owns primary input. Click to take control.",
-        "connecting" => "Connecting to the terminal session…",
+        "primary" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarPrimaryTitle)],
+        "no-primary" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarNoPrimaryTitle)],
+        "viewer" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarViewerTitle)],
+        "connecting" => Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarConnectingTitle)],
         _ => status,
     };
 

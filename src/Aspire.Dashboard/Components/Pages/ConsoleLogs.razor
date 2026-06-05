@@ -84,13 +84,13 @@
                 <FluentButton Appearance="Appearance.Stealth"
                               Disabled="@(!terminalState.FontControlsEnabled || terminalState.FontPx <= TerminalFontMin)"
                               OnClick="TerminalFontMinusAsync"
-                              Title="Decrease font size">−</FluentButton>
+                              Title="@Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarDecreaseFontSize)]">−</FluentButton>
                 <span style="min-width: 28px; text-align: center; font-variant-numeric: tabular-nums;"
-                      title="Terminal font size">@terminalState.FontPx</span>
+                      title="@Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarFontSize)]">@terminalState.FontPx</span>
                 <FluentButton Appearance="Appearance.Stealth"
                               Disabled="@(!terminalState.FontControlsEnabled || terminalState.FontPx >= TerminalFontMax)"
                               OnClick="TerminalFontPlusAsync"
-                              Title="Increase font size">+</FluentButton>
+                              Title="@Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarIncreaseFontSize)]">+</FluentButton>
 
                 @if (_terminalSizePresets.Count > 0)
                 {
@@ -103,13 +103,13 @@
                                   Disabled="@(!terminalState.SizeSelectEnabled)"
                                   Width="100px"
                                   Style="min-width: auto;"
-                                  AriaLabel="Terminal grid size" />
+                                  AriaLabel="@Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarGridSize)]" />
                 }
 
                 @if (terminalState.Cols > 0 && terminalState.Rows > 0)
                 {
                     <span style="color: var(--neutral-foreground-hint); font-variant-numeric: tabular-nums;"
-                          title="Current terminal grid">
+                          title="@Loc[nameof(Dashboard.Resources.ConsoleLogs.TerminalToolbarCurrentGrid)]">
                         @terminalState.Cols × @terminalState.Rows
                     </span>
                 }

@@ -98,8 +98,7 @@ internal sealed class TerminalAttachCommand : BaseCommand
 
         if (!connectionResult.Success)
         {
-            _interactionService.DisplayMessage(KnownEmojis.Information, connectionResult.ErrorMessage);
-            return CommandResult.Success();
+            return CommandResult.FromExitCode(AppHostConnectionResultHandler.DisplayFailureAsInformation(connectionResult, _interactionService));
         }
 
         var connection = connectionResult.Connection!;

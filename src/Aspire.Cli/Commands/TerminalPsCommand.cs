@@ -93,6 +93,14 @@ internal sealed class TerminalPsCommand : BaseCommand
 
         if (!connectionResult.Success)
         {
+            // Project-resolution failures (bad --apphost path, no AppHost project found, missing SDK)
+            // must surface as an error with the correct non-zero exit code so scripts/CI can detect them.
+            // For "no running AppHost" (a normal state for `ps`), the JSON branch still emits `[]` so
+            // structured consumers don't have to special-case it.
+            if (connectionResult.IsProjectResolutionError)
+            {
+                return CommandResult.FromExitCode(AppHostConnectionResultHandler.DisplayFailureAsInformation(connectionResult, _interactionService));
+            }
             if (format == OutputFormat.Json)
             {
                 _interactionService.DisplayRawText("[]", ConsoleOutput.Standard);
