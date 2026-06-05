@@ -100,8 +100,11 @@ public sealed class AzureStorageRunModeTests(ITestOutputHelper output)
                 text = Path(sys.argv[1]).read_text(encoding="utf-8")
                 payload = None
 
-                # The CLI writes command result JSON to stdout. Keep this tolerant of
-                # launch/build preamble text so the same check works for local test runs.
+                # The CLI writes command result JSON to stdout, but local runs can include
+                # launch/build preamble text before the payload:
+                #   Building...
+                #   { "success": true, "command": "get-azure-resource", ... }
+                # Parse from the first JSON object so the check works in both CI and local runs.
                 json_start = text.find("{")
                 if json_start >= 0:
                     payload = json.JSONDecoder().raw_decode(text[json_start:])[0]
@@ -129,6 +132,9 @@ public sealed class AzureStorageRunModeTests(ITestOutputHelper output)
                 """);
 
             output.WriteLine("Step 6: Setting Azure run-mode context...");
+            // When Azure:ResourceGroup is supplied explicitly, run mode treats it as an existing
+            // group unless Azure:AllowResourceGroupCreation is enabled. This test owns a unique
+            // group name, so allow provisioning to create it instead of waiting on a non-existent group.
             var contextCommand = $"unset ASPIRE_PLAYGROUND && export AZURE__SUBSCRIPTIONID={subscriptionId} && export AZURE__LOCATION=westus3 && export AZURE__RESOURCEGROUP={resourceGroupName} && export AZURE__ALLOWRESOURCEGROUPCREATION=true";
             if (!string.IsNullOrEmpty(tenantId))
             {
@@ -141,6 +147,8 @@ public sealed class AzureStorageRunModeTests(ITestOutputHelper output)
             appHostStarted = true;
 
             output.WriteLine("Step 8: Waiting for Azure Storage resource to be running...");
+            // `aspire start` returns after the AppHost is detached. Run-mode Azure provisioning
+            // continues inside that AppHost, so wait for the resource state before invoking commands.
             await auto.RunCommandAsync("aspire wait storage --status up --timeout 1500 --non-interactive", counter, TimeSpan.FromMinutes(26));
 
             output.WriteLine("Step 9: Running get-azure-resource command...");
