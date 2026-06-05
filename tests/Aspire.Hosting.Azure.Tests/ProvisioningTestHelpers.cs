@@ -541,6 +541,8 @@ internal sealed class TestArmDeploymentCollection : IArmDeploymentCollection
         var operation = new TestArmOperation<ArmDeploymentResource>(deployment);
         return Task.FromResult<ArmOperation<ArmDeploymentResource>>(operation);
     }
+
+    public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -592,17 +594,20 @@ internal sealed class TestArmDeploymentResource : ArmDeploymentResource
     private readonly string _name;
     private readonly Dictionary<string, object>? _deploymentData;
     private readonly Func<string, Dictionary<string, object>>? _deploymentDataProvider;
+    private readonly ResourcesProvisioningState _provisioningState;
 
-    public TestArmDeploymentResource(string name, Dictionary<string, object> deploymentData)
+    public TestArmDeploymentResource(string name, Dictionary<string, object> deploymentData, ResourcesProvisioningState? provisioningState = null)
     {
         _name = name;
         _deploymentData = deploymentData;
+        _provisioningState = provisioningState ?? ResourcesProvisioningState.Succeeded;
     }
 
-    public TestArmDeploymentResource(string name, Func<string, Dictionary<string, object>> deploymentDataProvider)
+    public TestArmDeploymentResource(string name, Func<string, Dictionary<string, object>> deploymentDataProvider, ResourcesProvisioningState? provisioningState = null)
     {
         _name = name;
         _deploymentDataProvider = deploymentDataProvider;
+        _provisioningState = provisioningState ?? ResourcesProvisioningState.Succeeded;
     }
 
     public override ResourceIdentifier Id => new ResourceIdentifier($"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Resources/deployments/{_name}");
@@ -620,7 +625,7 @@ internal sealed class TestArmDeploymentResource : ArmDeploymentResource
             {
                 data = _deploymentData!;
             }
-            return ArmResourcesModelFactory.ArmDeploymentData(Id, _name, properties: ArmResourcesModelFactory.ArmDeploymentPropertiesExtended(provisioningState: ResourcesProvisioningState.Succeeded, outputs: BinaryData.FromObjectAsJson(data)));
+            return ArmResourcesModelFactory.ArmDeploymentData(Id, _name, properties: ArmResourcesModelFactory.ArmDeploymentPropertiesExtended(provisioningState: _provisioningState, outputs: BinaryData.FromObjectAsJson(data)));
         }
     }
 

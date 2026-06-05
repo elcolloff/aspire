@@ -270,6 +270,42 @@ public class AzureBicepProvisionerTests
     }
 
     [Fact]
+    public async Task ConfigureResourceAsync_DoesNotReuseInProgressDeploymentState()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var parameters = new JsonObject();
+        var checksum = BicepUtilities.GetChecksum(resource, parameters, scope: null);
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        section.Data["Id"] = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Resources/deployments/storage2";
+        section.Data["Parameters"] = parameters.ToJsonString();
+        section.Data["Outputs"] = """{"name":{"value":"storage2"}}""";
+        section.Data["CheckSum"] = checksum;
+        section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey] = BicepProvisioner.DeploymentStateProvisioningStateRunning;
+        await deploymentStateManager.SaveSectionAsync(section, CancellationToken.None);
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var reused = await provisioner.ConfigureResourceAsync(resource, CancellationToken.None);
+
+        Assert.False(reused);
+        Assert.Empty(resource.Outputs);
+    }
+
+    [Fact]
     public async Task ConfigureResourceAsync_PublishesAzureIdentityPropertiesFromDeploymentState()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
@@ -351,6 +387,7 @@ public class AzureBicepProvisionerTests
 
         section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
         Assert.Equal("westus3", section.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>());
+        Assert.False(section.Data.ContainsKey(BicepProvisioner.DeploymentStateProvisioningStateKey));
     }
 
     [Fact]
@@ -383,6 +420,103 @@ public class AzureBicepProvisionerTests
 
         section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
         Assert.False(section.Data.ContainsKey(AzureProvisioningController.LocationOverrideKey));
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_SavesInProgressDeploymentStateBeforeWaiting()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var resourceGroup = new DeploymentCollectionResourceGroupResource(new WaitingThrowingArmDeploymentCollection());
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(resourceGroup: resourceGroup);
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        Assert.Equal("/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Resources/deployments/storage2", section.Data["Id"]?.GetValue<string>());
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateRunning, section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
+        Assert.True(section.Data.ContainsKey("Parameters"));
+        Assert.True(section.Data.ContainsKey("CheckSum"));
+        Assert.False(section.Data.ContainsKey("Outputs"));
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_CancelsStartedDeploymentWhenWaitIsCanceled()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var deploymentCollection = new CancelingArmDeploymentCollection();
+        var resourceGroup = new DeploymentCollectionResourceGroupResource(deploymentCollection);
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(resourceGroup: resourceGroup);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        Assert.Equal(1, deploymentCollection.CancelCallCount);
+        Assert.Equal("storage2", deploymentCollection.CanceledDeploymentName);
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateCanceled, section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_SavesTerminalDeploymentStateWhenDeploymentFails()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var resourceGroup = new DeploymentCollectionResourceGroupResource(new FailingArmDeploymentCollection());
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(resourceGroup: resourceGroup);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        Assert.Contains(ResourcesProvisioningState.Failed.ToString(), exception.Message);
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        Assert.Equal(ResourcesProvisioningState.Failed.ToString(), section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
     }
 
     [Fact]
@@ -519,6 +653,23 @@ public class AzureBicepProvisionerTests
         public Task ClearAllStateAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    private sealed class DeploymentCollectionResourceGroupResource(IArmDeploymentCollection armDeploymentCollection) : IResourceGroupResource
+    {
+        public ResourceIdentifier Id { get; } = new("/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg");
+        public string Name => "test-rg";
+
+        public IArmDeploymentCollection GetArmDeployments() => armDeploymentCollection;
+
+        public Task<ArmOperation> DeleteAsync(WaitUntil waitUntil, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ArmOperation>(new TestDeleteArmOperation());
+
+        public async IAsyncEnumerable<(string Name, string ResourceType)> GetResourcesAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+    }
+
     private sealed class ThrowingResourceGroupResource(string name) : IResourceGroupResource
     {
         private int _deleteCallCount;
@@ -564,6 +715,8 @@ public class AzureBicepProvisionerTests
             ArmDeploymentContent content,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<ArmOperation<ArmDeploymentResource>>(new WaitingThrowingArmDeploymentOperation());
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class WaitingThrowingArmDeploymentOperation : ArmOperation<ArmDeploymentResource>
@@ -603,5 +756,69 @@ public class AzureBicepProvisionerTests
             ArmDeploymentContent content,
             CancellationToken cancellationToken = default) =>
             throw new RequestFailedException(409, "Deployment creation failed.");
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class CancelingArmDeploymentCollection : IArmDeploymentCollection
+    {
+        public int CancelCallCount { get; private set; }
+        public string? CanceledDeploymentName { get; private set; }
+
+        public Task<ArmOperation<ArmDeploymentResource>> CreateOrUpdateAsync(
+            WaitUntil waitUntil,
+            string deploymentName,
+            ArmDeploymentContent content,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<ArmOperation<ArmDeploymentResource>>(new CancelingArmDeploymentOperation());
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default)
+        {
+            CancelCallCount++;
+            CanceledDeploymentName = deploymentName;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CancelingArmDeploymentOperation : ArmOperation<ArmDeploymentResource>
+    {
+        public override string Id { get; } = Guid.NewGuid().ToString();
+
+        public override ArmDeploymentResource Value => throw new InvalidOperationException("The deployment did not complete successfully.");
+
+        public override bool HasCompleted => false;
+
+        public override bool HasValue => false;
+
+        public override Response GetRawResponse() => new MockResponse(200);
+
+        public override Response UpdateStatus(CancellationToken cancellationToken = default) => new MockResponse(200);
+
+        public override ValueTask<Response> UpdateStatusAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult<Response>(new MockResponse(200));
+
+        public override ValueTask<Response<ArmDeploymentResource>> WaitForCompletionAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<Response<ArmDeploymentResource>>(new OperationCanceledException(cancellationToken));
+
+        public override ValueTask<Response<ArmDeploymentResource>> WaitForCompletionAsync(TimeSpan pollingInterval, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<Response<ArmDeploymentResource>>(new OperationCanceledException(cancellationToken));
+
+        public override Response<ArmDeploymentResource> WaitForCompletion(CancellationToken cancellationToken = default) =>
+            throw new OperationCanceledException(cancellationToken);
+
+        public override Response<ArmDeploymentResource> WaitForCompletion(TimeSpan pollingInterval, CancellationToken cancellationToken = default) =>
+            throw new OperationCanceledException(cancellationToken);
+    }
+
+    private sealed class FailingArmDeploymentCollection : IArmDeploymentCollection
+    {
+        public Task<ArmOperation<ArmDeploymentResource>> CreateOrUpdateAsync(
+            WaitUntil waitUntil,
+            string deploymentName,
+            ArmDeploymentContent content,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<ArmOperation<ArmDeploymentResource>>(new TestArmOperation<ArmDeploymentResource>(
+                new TestArmDeploymentResource(deploymentName, [], ResourcesProvisioningState.Failed)));
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

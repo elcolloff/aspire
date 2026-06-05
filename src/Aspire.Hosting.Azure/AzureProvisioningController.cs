@@ -1270,6 +1270,11 @@ internal sealed class AzureProvisioningController(
             ["scope"] = ParseDeploymentStateJson(resource.Name, "Scope", section.Data["Scope"]?.GetValue<string>())
         };
 
+        if (section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>() is { Length: > 0 } provisioningState)
+        {
+            json["provisioningState"] = provisioningState;
+        }
+
         if (deploymentId is not null &&
             ResourceIdentifier.TryParse(deploymentId, out var deploymentResourceId) &&
             deploymentResourceId is not null)

@@ -270,6 +270,11 @@ internal interface IArmDeploymentCollection
         string deploymentName,
         ArmDeploymentContent content,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels a running deployment.
+    /// </summary>
+    Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

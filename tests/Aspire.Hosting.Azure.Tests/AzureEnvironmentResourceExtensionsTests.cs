@@ -418,6 +418,7 @@ public class AzureEnvironmentResourceExtensionsTests
             ["resourceGroup"] = resourceGroup
         }.ToJsonString();
         storageSection.Data["CheckSum"] = "checksum";
+        storageSection.Data[BicepProvisioner.DeploymentStateProvisioningStateKey] = BicepProvisioner.DeploymentStateProvisioningStateRunning;
         storageSection.Data[AzureProvisioningController.LocationOverrideKey] = "westus3";
         await deploymentStateManager.SaveSectionAsync(storageSection);
 
@@ -446,6 +447,7 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Equal(resourceId, deployment["resourceId"]?.GetValue<string>());
         Assert.Equal("westus3", deployment["locationOverride"]?.GetValue<string>());
         Assert.Equal("checksum", deployment["checksum"]?.GetValue<string>());
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateRunning, deployment["provisioningState"]?.GetValue<string>());
         Assert.Contains("/DeploymentDetailsBlade/", deployment["deploymentPortalUrl"]?.GetValue<string>());
         Assert.Contains("/resource/subscriptions/", deployment["resourcePortalUrl"]?.GetValue<string>());
 
