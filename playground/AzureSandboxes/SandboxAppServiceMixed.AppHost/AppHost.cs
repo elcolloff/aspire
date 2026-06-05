@@ -1,4 +1,5 @@
 #pragma warning disable ASPIREJAVASCRIPT001
+#pragma warning disable ASPIREAZURE001
 
 var builder = DistributedApplication.CreateBuilder(args);
 

@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIREAZURE001
+
+using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 
 namespace Aspire.Hosting.Azure;
@@ -9,6 +12,7 @@ namespace Aspire.Hosting.Azure;
 /// Configures Azure sandbox runtime options for a compute resource.
 /// </summary>
 [AspireDto]
+[Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public sealed class AzureSandboxOptions
 {
     /// <summary>
@@ -86,6 +90,7 @@ public sealed class AzureSandboxOptions
 /// Overrides Azure sandbox options for a compute resource endpoint.
 /// </summary>
 [AspireDto]
+[Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public sealed class AzureSandboxEndpointOptions
 {
     /// <summary>

@@ -6,6 +6,7 @@
 #pragma warning disable ASPIREPIPELINES001
 #pragma warning disable ASPIREPIPELINES002
 
+using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure.Provisioning;
 using Aspire.Hosting.Azure.Sandboxes.Provisioning;
@@ -22,6 +23,7 @@ namespace Aspire.Hosting.Azure;
 /// Represents an Azure connector namespace trigger config.
 /// </summary>
 [AspireExport(ExposeProperties = true)]
+[Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public sealed class AzureConnectorGatewayTriggerConfigResource : AzureProvisioningResource, IResourceWithParent<AzureConnectorGatewayResource>
 {
     internal const string DefaultState = "Enabled";

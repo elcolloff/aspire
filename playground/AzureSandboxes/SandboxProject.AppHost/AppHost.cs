@@ -1,3 +1,5 @@
+#pragma warning disable ASPIREAZURE001
+
 using Aspire.Hosting.Azure;
 
 var builder = DistributedApplication.CreateBuilder(args);

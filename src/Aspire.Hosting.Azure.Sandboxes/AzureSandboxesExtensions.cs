@@ -2,8 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma warning disable ASPIRECOMPUTE002
+#pragma warning disable ASPIREAZURE001
 #pragma warning disable ASPIREPIPELINES003 // Container build options are required by the sandbox deployment target.
 
+using System.Diagnostics.CodeAnalysis;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
 using Aspire.Hosting.Azure.Sandboxes.Provisioning;
@@ -19,6 +21,7 @@ namespace Aspire.Hosting;
 /// <summary>
 /// Extension methods for adding Azure Container Apps sandbox resources to the application model.
 /// </summary>
+[Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public static class AzureSandboxesExtensions
 {
     /// <summary>
@@ -32,6 +35,7 @@ public static class AzureSandboxesExtensions
     /// </remarks>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayResource> AddAzureConnectorGateway(this IDistributedApplicationBuilder builder, [ResourceName] string name)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -175,6 +179,7 @@ public static class AzureSandboxesExtensions
     /// <returns>A resource builder for the connector connection.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExportIgnore(Reason = "This C# helper accepts endpoint references and trigger parameter DTOs that are not ATS-compatible.")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayConnectionResource> AddConnection(
         this IResourceBuilder<AzureConnectorGatewayResource> builder,
         [ResourceName] string name,
@@ -203,6 +208,7 @@ public static class AzureSandboxesExtensions
     /// <returns>A resource builder for the MCP server config.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayMcpServerConfigResource> AddMcpServerConfig(
         this IResourceBuilder<AzureConnectorGatewayResource> builder,
         [ResourceName] string name,
@@ -239,6 +245,7 @@ public static class AzureSandboxesExtensions
     /// </remarks>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExportIgnore(Reason = "This C# helper accepts endpoint references and trigger parameter DTOs that are not ATS-compatible.")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayTriggerConfigResource> AddTriggerConfig(
         this IResourceBuilder<AzureConnectorGatewayConnectionResource> builder,
         [ResourceName] string name,
@@ -282,6 +289,7 @@ public static class AzureSandboxesExtensions
     /// <returns>The resource builder.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayMcpServerConfigResource> WithConnector(
         this IResourceBuilder<AzureConnectorGatewayMcpServerConfigResource> builder,
         string name,
@@ -345,6 +353,7 @@ public static class AzureSandboxesExtensions
     /// </remarks>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureSandboxGroupResource> AddAzureSandboxGroup(this IDistributedApplicationBuilder builder, [ResourceName] string name)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -405,6 +414,7 @@ public static class AzureSandboxesExtensions
     /// </remarks>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport("publishComputeResourceAsAzureSandbox", MethodName = "publishAsSandbox")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<T> PublishAsSandbox<T>(
         this IResourceBuilder<T> builder,
         IResourceBuilder<AzureSandboxGroupResource> sandboxGroup,
@@ -444,6 +454,7 @@ public static class AzureSandboxesExtensions
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/>, <paramref name="sandboxGroup"/>, or <paramref name="configure"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when a configured option is invalid.</exception>
     [AspireExportIgnore(Reason = "Use the AzureSandboxOptions overload from ATS.")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<T> PublishAsSandbox<T>(
         this IResourceBuilder<T> builder,
         IResourceBuilder<AzureSandboxGroupResource> sandboxGroup,
@@ -465,6 +476,7 @@ public static class AzureSandboxesExtensions
     /// <returns>The resource builder.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureSandboxGroupResource> WithNoManagedIdentity(this IResourceBuilder<AzureSandboxGroupResource> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -481,6 +493,7 @@ public static class AzureSandboxesExtensions
     /// <returns>The resource builder.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureSandboxGroupResource> WithSystemAssignedIdentity(this IResourceBuilder<AzureSandboxGroupResource> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -498,6 +511,7 @@ public static class AzureSandboxesExtensions
     /// <returns>The resource builder.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
     [AspireExport]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureSandboxGroupResource> WithUserAssignedIdentity(
         this IResourceBuilder<AzureSandboxGroupResource> builder,
         IResourceBuilder<AzureUserAssignedIdentityResource> identity)
@@ -519,6 +533,7 @@ public static class AzureSandboxesExtensions
     /// <param name="roles">The built-in sandbox group roles to be assigned.</param>
     /// <returns>The updated <see cref="IResourceBuilder{T}"/> with the applied role assignments.</returns>
     [AspireExportIgnore(Reason = "AzureSandboxGroupBuiltInRole is not compatible with ATS. Use the AzureSandboxGroupRole-based overload instead.")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<T> WithRoleAssignments<T>(
         this IResourceBuilder<T> builder,
         IResourceBuilder<AzureSandboxGroupResource> target,
@@ -537,6 +552,7 @@ public static class AzureSandboxesExtensions
     /// <param name="roles">The built-in sandbox group roles to be assigned.</param>
     /// <returns>The updated <see cref="IResourceBuilder{AzureConnectorGatewayResource}"/> with the applied role assignments.</returns>
     [AspireExportIgnore(Reason = "AzureSandboxGroupBuiltInRole is not compatible with ATS.")]
+    [Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public static IResourceBuilder<AzureConnectorGatewayResource> WithRoleAssignments(
         this IResourceBuilder<AzureConnectorGatewayResource> builder,
         IResourceBuilder<AzureSandboxGroupResource> target,

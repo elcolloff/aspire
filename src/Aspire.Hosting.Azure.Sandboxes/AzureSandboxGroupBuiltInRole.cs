@@ -1,11 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Aspire.Hosting.Azure;
 
 /// <summary>
 /// Built-in Azure Container Apps sandbox group roles that can be assigned to users, groups, service principals, and managed identities.
 /// </summary>
+[Experimental("ASPIREAZURE001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public readonly struct AzureSandboxGroupBuiltInRole : IEquatable<AzureSandboxGroupBuiltInRole>
 {
     private const string SandboxGroupDataOwnerId = "c24cf47c-5077-412d-a19c-45202126392c";
