@@ -16,7 +16,8 @@ namespace Aspire.Deployment.EndToEnd.Tests;
 public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
 {
     private const string EnableSandboxesEnvironmentVariable = "ASPIRE_DEPLOYMENT_TEST_ENABLE_SANDBOXES";
-    private const string ApiSandboxStateUrlKey = "\"Azure:Sandboxes:apiservice-sandbox-container:Ports:0:Url\"";
+    private const string SandboxStateUrlKey = "\"Azure:Sandboxes:site-sandbox-container:Ports:0:Url\"";
+    private const string ExpectedResponseText = "Sandbox TS AppHost service is running.";
 
     private static readonly TimeSpan s_testTimeout = TimeSpan.FromMinutes(90);
 
@@ -58,19 +59,15 @@ public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
         var workspace = TemporaryWorkspace.Create(output);
         var startTime = DateTime.UtcNow;
         var resourceGroupName = DeploymentE2ETestHelpers.GenerateResourceGroupName("sandboxes");
-        var projectName = "AzureSandboxProject";
         var deploymentUrls = new Dictionary<string, string>();
 
-        var projectDir = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
-        var appHostDir = Path.Combine(projectDir, $"{projectName}.AppHost");
-        var firstDeployOutputFile = Path.Combine(appHostDir, "first-deploy-output.txt");
-        var secondDeployOutputFile = Path.Combine(appHostDir, "second-deploy-output.txt");
-        var firstUrlFile = Path.Combine(appHostDir, "first-url.txt");
-        var secondUrlFile = Path.Combine(appHostDir, "second-url.txt");
-        var stateMarkerFile = Path.Combine(appHostDir, "state-marker");
+        var firstDeployOutputFile = Path.Combine(workspace.WorkspaceRoot.FullName, "first-deploy-output.txt");
+        var secondDeployOutputFile = Path.Combine(workspace.WorkspaceRoot.FullName, "second-deploy-output.txt");
+        var firstUrlFile = Path.Combine(workspace.WorkspaceRoot.FullName, "first-url.txt");
+        var secondUrlFile = Path.Combine(workspace.WorkspaceRoot.FullName, "second-url.txt");
+        var stateMarkerFile = Path.Combine(workspace.WorkspaceRoot.FullName, "state-marker");
 
         output.WriteLine($"Test: {nameof(RedeployProjectToAzureSandboxRetainsPreviousPublicUrl)}");
-        output.WriteLine($"Project Name: {projectName}");
         output.WriteLine($"Resource Group: {resourceGroupName}");
         output.WriteLine($"Subscription: {subscriptionId[..8]}...");
         output.WriteLine($"Workspace: {workspace.WorkspaceRoot.FullName}");
@@ -94,26 +91,16 @@ public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
             output.WriteLine("Step 1: Preparing environment...");
             await auto.PrepareEnvironmentAsync(workspace, counter);
 
-            await auto.InstallCurrentBuildAspireCliAsync(counter, output);
+            await auto.InstallCurrentBuildAspireBundleAsync(counter, output);
 
-            output.WriteLine("Step 3: Creating starter project...");
-            await auto.AspireNewAsync(projectName, counter, useRedisCache: false);
+            output.WriteLine("Step 3: Creating TypeScript AppHost...");
+            await auto.RunCommandAsync("aspire init --language typescript --non-interactive", counter, TimeSpan.FromMinutes(2));
 
             output.WriteLine("Step 4: Adding Azure sandboxes hosting package...");
-            await auto.TypeAsync($"cd {projectName}");
-            await auto.EnterAsync();
-            await auto.WaitForSuccessPromptAsync(counter);
+            await AddPackageAsync(auto, counter, "Aspire.Hosting.Azure.Sandboxes");
 
-            await auto.TypeAsync("aspire add Aspire.Hosting.Azure.Sandboxes");
-            await auto.EnterAsync();
-            await auto.WaitForAspireAddCompletionAsync(counter);
-
-            output.WriteLine("Step 5: Publishing the API service as an Azure sandbox...");
-            WriteSandboxAppHost(appHostDir, projectName);
-
-            await auto.TypeAsync($"cd {projectName}.AppHost");
-            await auto.EnterAsync();
-            await auto.WaitForSuccessPromptAsync(counter);
+            output.WriteLine("Step 5: Publishing a Dockerfile-backed app as an Azure sandbox from TypeScript...");
+            WriteSandboxAppHost(workspace);
 
             await auto.TypeAsync($"touch {BashQuote(stateMarkerFile)}");
             await auto.EnterAsync();
@@ -236,38 +223,55 @@ public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
         }
     }
 
-    private static void WriteSandboxAppHost(string appHostDir, string projectName)
+    private static async Task AddPackageAsync(Hex1bTerminalAutomator auto, SequenceCounter counter, string packageName)
     {
-        var appHostFilePath = Path.Combine(appHostDir, "AppHost.cs");
-        File.WriteAllText(appHostFilePath, $$"""
-            #pragma warning disable ASPIREAZURE001
+        await auto.TypeAsync($"aspire add {packageName}");
+        await auto.EnterAsync();
+        await auto.WaitForAspireAddCompletionAsync(counter, TimeSpan.FromMinutes(3));
+    }
 
-            using Aspire.Hosting.Azure;
+    private static void WriteSandboxAppHost(TemporaryWorkspace workspace)
+    {
+        var siteDir = Directory.CreateDirectory(Path.Combine(workspace.WorkspaceRoot.FullName, "site"));
+        File.WriteAllText(Path.Combine(siteDir.FullName, "Dockerfile"), """
+            FROM nginx:1.31-alpine
+            COPY index.html /usr/share/nginx/html/index.html
+            EXPOSE 80
+            """);
+        File.WriteAllText(Path.Combine(siteDir.FullName, "index.html"), $$"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head><meta charset="UTF-8"><title>Sandbox TS AppHost</title></head>
+            <body>{{ExpectedResponseText}}</body>
+            </html>
+            """);
 
-            var builder = DistributedApplication.CreateBuilder(args);
+        File.WriteAllText(Path.Combine(workspace.WorkspaceRoot.FullName, "apphost.mts"), """
+            import { createBuilder } from './.aspire/modules/aspire.mjs';
 
-            var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+            const builder = await createBuilder();
 
-            builder.AddProject<Projects.{{projectName}}_ApiService>("apiservice")
-                .WithHttpEndpoint(targetPort: 8080)
-                .WithExternalHttpEndpoints()
-                .PublishAsSandbox(sandboxGroup, new AzureSandboxOptions
-                {
-                    Cpu = "1000m",
-                    Memory = "2048Mi",
-                    Disk = "20480Mi"
-                });
+            const sandboxGroup = await builder.addAzureSandboxGroup('sandboxes');
 
-            builder.Build().Run();
+            const site = await builder.addDockerfile('site', './site');
+            await site.withHttpEndpoint({ name: 'http', targetPort: 80 });
+            await site.withExternalHttpEndpoints();
+            await site.publishAsSandbox(sandboxGroup, {
+                cpu: '1000m',
+                memory: '2048Mi',
+                disk: '20480Mi'
+            });
+
+            await builder.build().run();
             """);
     }
 
     private static string CaptureSandboxUrlFromStateCommand(string stateMarkerFile, string outputFile)
     {
         return
-            $"STATE_FILE=$(find \"$HOME/.aspire/deployments\" -name '*.json' -newer {BashQuote(stateMarkerFile)} -exec grep -l '{ApiSandboxStateUrlKey}' {{}} + | head -n 1) && " +
+            $"STATE_FILE=$(find \"$HOME/.aspire/deployments\" -name '*.json' -newer {BashQuote(stateMarkerFile)} -exec grep -l '{SandboxStateUrlKey}' {{}} + | head -n 1) && " +
             "if [ -z \"$STATE_FILE\" ]; then echo \"Sandbox deployment state file not found\"; find \"$HOME/.aspire/deployments\" -name '*.json' -newer " + BashQuote(stateMarkerFile) + " -print; exit 1; fi && " +
-            "URL=$(grep -Eo '\"Azure:Sandboxes:apiservice-sandbox-container:Ports:0:Url\"[[:space:]]*:[[:space:]]*\"[^\"]+\"' \"$STATE_FILE\" | head -n 1 | sed -E 's/^.*\"([^\"]+)\".*$/\\1/') && " +
+            "URL=$(grep -Eo '\"Azure:Sandboxes:site-sandbox-container:Ports:0:Url\"[[:space:]]*:[[:space:]]*\"[^\"]+\"' \"$STATE_FILE\" | head -n 1 | sed -E 's/^.*\"([^\"]+)\".*$/\\1/') && " +
             "if [ -z \"$URL\" ]; then echo \"Sandbox URL not found in $STATE_FILE\"; cat \"$STATE_FILE\"; exit 1; fi && " +
             $"printf '%s\\n' \"$URL\" > {BashQuote(outputFile)} && " +
             "echo \"Sandbox URL from state: $URL\"";
@@ -280,7 +284,7 @@ public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
             "echo \"Checking $URL\" && " +
             "success=0 && " +
             "for i in $(seq 1 18); do " +
-            "BODY=$(curl -fsS \"$URL\" --max-time 10 2>/tmp/aspire-sandbox-curl.err) && echo \"$BODY\" | grep -q 'API service is running' && { echo \"  OK (attempt $i)\"; success=1; break; }; " +
+            $"BODY=$(curl -fsS \"$URL\" --max-time 10 2>/tmp/aspire-sandbox-curl.err) && echo \"$BODY\" | grep -Fq {BashQuote(ExpectedResponseText)} && {{ echo \"  OK (attempt $i)\"; success=1; break; }}; " +
             "echo \"  Attempt $i failed; retrying in 10s...\"; " +
             "sleep 10; " +
             "done; " +
