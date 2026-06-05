@@ -26,6 +26,7 @@ internal static class AzureSandboxContainerDeployment
     internal const string SandboxStateSectionPrefix = $"{SandboxStateParentSection}:";
     private const int DiskImageReadyTimeoutSeconds = 600;
     private const int PublicEndpointTimeoutSeconds = 180;
+    private static readonly IReadOnlySet<string> s_noExcludedIds = new HashSet<string>(StringComparer.Ordinal);
 
     public static IEnumerable<PipelineStep> CreatePipelineSteps(AzureSandboxContainerResource resource)
     {
@@ -225,8 +226,19 @@ internal static class AzureSandboxContainerDeployment
             stateSection.Data["Ports"] = portStates;
             await deploymentStateManager.SaveSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
 
-            await DeleteExistingDeploymentAsync(context, client, dataPlaneScope, previousStateSection, throwOnError: false).ConfigureAwait(false);
-            await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, dataPlaneScope, resource.Name, deployId, throwOnError: false).ConfigureAwait(false);
+            // Endpoint consumers resolve sandbox URL values during provisioning, before this
+            // deployment step can expose the new ADC proxy URL. Keep the previous deployment
+            // alive so resources configured in this deploy can continue using the URL they
+            // just received; the next successful deploy prunes generations older than that.
+            await DeleteRemoteDeploymentsByResourceLabelAsync(
+                context,
+                client,
+                dataPlaneScope,
+                resource.Name,
+                excludedDeployIds: GetExcludedDeployIds(deployId, previousStateSection),
+                excludedSandboxIds: GetExcludedResourceIds(sandboxId, previousStateSection, "SandboxId"),
+                excludedDiskImageIds: GetExcludedResourceIds(diskImageId, previousStateSection, "DiskImageId"),
+                throwOnError: false).ConfigureAwait(false);
 
             if (portStates.FirstOrDefault() is JsonObject firstPort && firstPort["Url"]?.GetValue<string>() is { } publicUrl)
             {
@@ -840,7 +852,7 @@ internal static class AzureSandboxContainerDeployment
             GetRequiredStateValue(stateSection, "Location"));
 
         await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
-        await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, resource.Name, excludedDeployId: null, throwOnError: true).ConfigureAwait(false);
+        await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, resource.Name, s_noExcludedIds, s_noExcludedIds, s_noExcludedIds, throwOnError: true).ConfigureAwait(false);
         await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
     }
 
@@ -877,7 +889,7 @@ internal static class AzureSandboxContainerDeployment
             await using (cleanupTask.ConfigureAwait(false))
             {
                 await DeleteExistingDeploymentAsync(context, client, scope, stateSection, throwOnError: true).ConfigureAwait(false);
-                await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, GetStateResourceName(stateSection, sectionName), excludedDeployId: null, throwOnError: true).ConfigureAwait(false);
+                await DeleteRemoteDeploymentsByResourceLabelAsync(context, client, scope, GetStateResourceName(stateSection, sectionName), s_noExcludedIds, s_noExcludedIds, s_noExcludedIds, throwOnError: true).ConfigureAwait(false);
                 await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
                 await cleanupTask.CompleteAsync($"Deleted stale sandbox deployment {sectionName}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
             }
@@ -999,7 +1011,9 @@ internal static class AzureSandboxContainerDeployment
         AzureDevComputeClient client,
         AzureDevComputeResourceScope scope,
         string resourceName,
-        string? excludedDeployId,
+        IReadOnlySet<string> excludedDeployIds,
+        IReadOnlySet<string> excludedSandboxIds,
+        IReadOnlySet<string> excludedDiskImageIds,
         bool throwOnError)
     {
         var labelSelector = $"aspire-resource={resourceName}";
@@ -1015,7 +1029,7 @@ internal static class AzureSandboxContainerDeployment
             sandboxes = [];
         }
 
-        foreach (var sandbox in sandboxes.Where(sandbox => ShouldDeleteLabeledDeployment(sandbox.Labels, resourceName, excludedDeployId)))
+        foreach (var sandbox in sandboxes.Where(sandbox => ShouldDeleteLabeledDeployment(sandbox.Id, sandbox.Labels, resourceName, excludedDeployIds, excludedSandboxIds)))
         {
             await DeleteSandboxAsync(
                 context,
@@ -1037,26 +1051,31 @@ internal static class AzureSandboxContainerDeployment
             diskImages = [];
         }
 
-        foreach (var diskImage in diskImages.Where(diskImage => ShouldDeleteLabeledDeployment(diskImage.Labels, resourceName, excludedDeployId)))
+        foreach (var diskImage in diskImages.Where(diskImage => ShouldDeleteLabeledDeployment(diskImage.Id, diskImage.Labels, resourceName, excludedDeployIds, excludedDiskImageIds)))
         {
             await DeleteDiskImageAsync(context, client, scope, diskImage.Id, throwOnError).ConfigureAwait(false);
         }
     }
 
-    private static bool ShouldDeleteLabeledDeployment(IReadOnlyDictionary<string, string> labels, string resourceName, string? excludedDeployId)
+    internal static bool ShouldDeleteLabeledDeployment(
+        string id,
+        IReadOnlyDictionary<string, string> labels,
+        string resourceName,
+        IReadOnlySet<string> excludedDeployIds,
+        IReadOnlySet<string> excludedResourceIds)
     {
         if (!HasLabel(labels, "aspire-resource", resourceName))
         {
             return false;
         }
 
-        if (excludedDeployId is null)
+        if (excludedResourceIds.Contains(id))
         {
-            return true;
+            return false;
         }
 
-        return labels.TryGetValue("aspire-deploy", out var deployId) &&
-            !string.Equals(deployId, excludedDeployId, StringComparison.Ordinal);
+        return !labels.TryGetValue("aspire-deploy", out var deployId) ||
+            !excludedDeployIds.Contains(deployId);
     }
 
     private static bool HasLabel(IReadOnlyDictionary<string, string> labels, string name, string value)
@@ -1075,6 +1094,36 @@ internal static class AzureSandboxContainerDeployment
         return sectionName.StartsWith(SandboxStateSectionPrefix, StringComparison.Ordinal)
             ? sectionName[SandboxStateSectionPrefix.Length..]
             : sectionName;
+    }
+
+    private static IReadOnlySet<string> GetExcludedDeployIds(string deployId, DeploymentStateSection previousStateSection)
+    {
+        var deployIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            deployId
+        };
+
+        if (previousStateSection.Data["DeployId"]?.GetValue<string>() is { Length: > 0 } previousDeployId)
+        {
+            deployIds.Add(previousDeployId);
+        }
+
+        return deployIds;
+    }
+
+    private static IReadOnlySet<string> GetExcludedResourceIds(string id, DeploymentStateSection previousStateSection, string stateKey)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal)
+        {
+            id
+        };
+
+        if (previousStateSection.Data[stateKey]?.GetValue<string>() is { Length: > 0 } previousId)
+        {
+            ids.Add(previousId);
+        }
+
+        return ids;
     }
 
     private static IEnumerable<int> GetStatePorts(DeploymentStateSection stateSection)

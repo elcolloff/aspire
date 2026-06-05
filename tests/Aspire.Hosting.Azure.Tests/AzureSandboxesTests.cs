@@ -338,6 +338,62 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public void LabeledDeploymentCleanupKeepsCurrentAndPreviousGenerations()
+    {
+        var excludedDeployIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "current-deploy",
+            "previous-deploy"
+        };
+        var excludedResourceIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "current-id",
+            "previous-id"
+        };
+
+        Assert.False(AzureSandboxContainerDeployment.ShouldDeleteLabeledDeployment(
+            "current-id",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["aspire-resource"] = "frontend-sandbox-container",
+                ["aspire-deploy"] = "current-deploy"
+            },
+            "frontend-sandbox-container",
+            excludedDeployIds,
+            excludedResourceIds));
+        Assert.False(AzureSandboxContainerDeployment.ShouldDeleteLabeledDeployment(
+            "previous-id",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["aspire-resource"] = "frontend-sandbox-container",
+                ["aspire-deploy"] = "previous-deploy"
+            },
+            "frontend-sandbox-container",
+            excludedDeployIds,
+            excludedResourceIds));
+        Assert.False(AzureSandboxContainerDeployment.ShouldDeleteLabeledDeployment(
+            "unrelated-id",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["aspire-resource"] = "backend-sandbox-container",
+                ["aspire-deploy"] = "old-deploy"
+            },
+            "frontend-sandbox-container",
+            excludedDeployIds,
+            excludedResourceIds));
+        Assert.True(AzureSandboxContainerDeployment.ShouldDeleteLabeledDeployment(
+            "old-id",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["aspire-resource"] = "frontend-sandbox-container",
+                ["aspire-deploy"] = "old-deploy"
+            },
+            "frontend-sandbox-container",
+            excludedDeployIds,
+            excludedResourceIds));
+    }
+
+    [Fact]
     public async Task AzureDevComputeClientRetriesForbiddenResponses()
     {
         var attempts = 0;
