@@ -1,12 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIRECOMPUTE002
+#pragma warning disable ASPIREPIPELINES003 // Container build options are required by the sandbox deployment target.
+
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
 using Aspire.Hosting.Azure.Sandboxes.Provisioning;
+using Aspire.Hosting.Publishing;
 using Azure.Provisioning;
+using Azure.Provisioning.Authorization;
 using Azure.Provisioning.Expressions;
 using Azure.Provisioning.Resources;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Aspire.Hosting;
 
@@ -32,6 +38,7 @@ public static class AzureSandboxesExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         builder.AddAzureProvisioning();
+        builder.Services.Configure<AzureProvisioningOptions>(options => options.SupportsTargetedRoleAssignments = true);
 
         static void ConfigureInfrastructure(AzureResourceInfrastructure infrastructure)
         {
@@ -51,6 +58,7 @@ public static class AzureSandboxesExtensions
 
             gateway.Identity.ManagedServiceIdentityType = ManagedServiceIdentityType.SystemAssigned;
 
+            var connectionMap = new Dictionary<AzureConnectorGatewayConnectionResource, ConnectorGatewayConnection>();
             foreach (var connectionResource in gatewayResource.Connections)
             {
                 var connection = new ConnectorGatewayConnection(Infrastructure.NormalizeBicepIdentifier(connectionResource.Name))
@@ -61,6 +69,35 @@ public static class AzureSandboxesExtensions
                     ConnectorName = connectionResource.ConnectorName
                 };
                 infrastructure.Add(connection);
+                connectionMap.Add(connectionResource, connection);
+            }
+
+            var gatewayIdentity = new MemberExpression(new IdentifierExpression(gateway.BicepIdentifier), "identity");
+            foreach (var connectionResource in gatewayResource.Connections)
+            {
+                var connection = connectionMap[connectionResource];
+                foreach (var accessPolicyResource in connectionResource.AccessPolicies)
+                {
+                    var accessPolicy = new ConnectorGatewayConnectionAccessPolicy(Infrastructure.NormalizeBicepIdentifier(accessPolicyResource.Name))
+                    {
+                        Parent = connection,
+                        Name = accessPolicyResource.PolicyName,
+                        Location = BicepFunction.GetResourceGroup().Location
+                    };
+
+                    switch (accessPolicyResource.Principal)
+                    {
+                        case AzureConnectorGatewayConnectionAccessPolicyPrincipal.GatewayManagedIdentity:
+                            accessPolicy.Principal.Type = "ActiveDirectory";
+                            accessPolicy.Principal.Identity.ObjectId = (BicepValue<string>)new MemberExpression(gatewayIdentity, "principalId");
+                            accessPolicy.Principal.Identity.TenantId = (BicepValue<string>)new MemberExpression(gatewayIdentity, "tenantId");
+                            break;
+                        default:
+                            throw new NotSupportedException($"Access policy principal '{accessPolicyResource.Principal}' is not supported.");
+                    }
+
+                    infrastructure.Add(accessPolicy);
+                }
             }
 
             foreach (var configResource in gatewayResource.McpServerConfigs)
@@ -113,7 +150,6 @@ public static class AzureSandboxesExtensions
 
             infrastructure.Add(new ProvisioningOutput("id", typeof(string)) { Value = gateway.Id.ToBicepExpression() });
             infrastructure.Add(new ProvisioningOutput("name", typeof(string)) { Value = gateway.Name.ToBicepExpression() });
-            var gatewayIdentity = new MemberExpression(new IdentifierExpression(gateway.BicepIdentifier), "identity");
             infrastructure.Add(new ProvisioningOutput("principalId", typeof(string)) { Value = (BicepValue<string>)new MemberExpression(gatewayIdentity, "principalId") });
             infrastructure.Add(new ProvisioningOutput("tenantId", typeof(string)) { Value = (BicepValue<string>)new MemberExpression(gatewayIdentity, "tenantId") });
         }
@@ -132,7 +168,7 @@ public static class AzureSandboxesExtensions
     /// <param name="connectionName">The Azure connector connection name. Defaults to <paramref name="name"/>.</param>
     /// <returns>A resource builder for the connector connection.</returns>
     /// <ats-returns>The resource builder.</ats-returns>
-    [AspireExport]
+    [AspireExportIgnore(Reason = "This C# helper accepts endpoint references and trigger parameter DTOs that are not ATS-compatible.")]
     public static IResourceBuilder<AzureConnectorGatewayConnectionResource> AddConnection(
         this IResourceBuilder<AzureConnectorGatewayResource> builder,
         [ResourceName] string name,
@@ -178,6 +214,57 @@ public static class AzureSandboxesExtensions
     }
 
     /// <summary>
+    /// Adds a connector trigger config that posts notifications to an Azure sandbox endpoint.
+    /// </summary>
+    /// <param name="builder">The connector connection resource builder.</param>
+    /// <param name="name">The name of the Aspire resource.</param>
+    /// <param name="operationName">The connector trigger operation name.</param>
+    /// <param name="callbackEndpoint">The sandbox endpoint that receives trigger notifications.</param>
+    /// <param name="callbackPath">The optional path appended to the sandbox endpoint URL.</param>
+    /// <param name="parameters">The connector trigger parameters.</param>
+    /// <param name="description">The trigger config description.</param>
+    /// <param name="triggerName">The Azure trigger config name. Defaults to <paramref name="name"/>.</param>
+    /// <returns>A resource builder for the connector trigger config.</returns>
+    /// <remarks>
+    /// Connector trigger configs depend on the public sandbox URL produced by the sandbox data-plane
+    /// deployment. Aspire therefore provisions this resource in a late deploy step after the sandbox
+    /// endpoint state is available, instead of including it in the connector namespace's first-pass
+    /// Azure.Provisioning module.
+    /// </remarks>
+    /// <ats-returns>The resource builder.</ats-returns>
+    [AspireExportIgnore(Reason = "This C# helper accepts endpoint references and trigger parameter DTOs that are not ATS-compatible.")]
+    public static IResourceBuilder<AzureConnectorGatewayTriggerConfigResource> AddTriggerConfig(
+        this IResourceBuilder<AzureConnectorGatewayConnectionResource> builder,
+        [ResourceName] string name,
+        string operationName,
+        EndpointReference callbackEndpoint,
+        string? callbackPath = null,
+        IEnumerable<AzureConnectorGatewayTriggerParameter>? parameters = null,
+        string? description = null,
+        string? triggerName = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationName);
+        ArgumentNullException.ThrowIfNull(callbackEndpoint);
+
+        triggerName ??= name;
+        EnsureGatewayAccessPolicy(builder.Resource);
+
+        var trigger = new AzureConnectorGatewayTriggerConfigResource(
+            name,
+            triggerName,
+            operationName,
+            callbackEndpoint,
+            callbackPath,
+            description,
+            builder.Resource,
+            parameters?.ToArray() ?? []);
+
+        return builder.ApplicationBuilder.AddResource(trigger);
+    }
+
+    /// <summary>
     /// Adds a connector operation route to a managed MCP server config.
     /// </summary>
     /// <param name="builder">The MCP server config resource builder.</param>
@@ -217,6 +304,29 @@ public static class AzureSandboxesExtensions
         return builder;
     }
 
+    private static void EnsureGatewayAccessPolicy(AzureConnectorGatewayConnectionResource connection)
+    {
+        const string accessPolicyName = "gateway-acl";
+        if (connection.AccessPolicies.Any(policy =>
+            string.Equals(policy.PolicyName, accessPolicyName, StringComparison.Ordinal) &&
+            policy.Principal == AzureConnectorGatewayConnectionAccessPolicyPrincipal.GatewayManagedIdentity))
+        {
+            return;
+        }
+
+        // Connector event triggers require the connector namespace's managed identity to
+        // be explicitly authorized on the connection. The ARM child resource shape is:
+        //   Microsoft.Web/connectorGateways/{gateway}/connections/{connection}/accessPolicies/{name}
+        // with principal.type = ActiveDirectory and identity = { objectId, tenantId }.
+        // The objectId/tenantId come from the gateway's system-assigned identity output,
+        // so this policy can stay in the first-pass gateway Azure.Provisioning module.
+        connection.AccessPolicies.Add(
+            AzureConnectorGatewayConnectionAccessPolicyResource.CreateGatewayManagedIdentityPolicy(
+                $"{connection.Name}-gateway-acl",
+                accessPolicyName,
+                connection));
+    }
+
     /// <summary>
     /// Adds an Azure Container Apps sandbox group resource to the application model.
     /// </summary>
@@ -235,6 +345,7 @@ public static class AzureSandboxesExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         builder.AddAzureProvisioning();
+        builder.Services.Configure<AzureProvisioningOptions>(options => options.SupportsTargetedRoleAssignments = true);
 
         static void ConfigureInfrastructure(AzureResourceInfrastructure infrastructure)
         {
@@ -259,6 +370,8 @@ public static class AzureSandboxesExtensions
 
             infrastructure.Add(new ProvisioningOutput("id", typeof(string)) { Value = sandboxGroup.Id.ToBicepExpression() });
             infrastructure.Add(new ProvisioningOutput("name", typeof(string)) { Value = sandboxGroup.Name.ToBicepExpression() });
+
+            AddSandboxGroupDeploymentPrincipalRoleAssignment(infrastructure, sandboxGroup);
         }
 
         var resource = new AzureSandboxGroupResource(name, ConfigureInfrastructure)
@@ -270,136 +383,72 @@ public static class AzureSandboxesExtensions
     }
 
     /// <summary>
-    /// Configures CPU, memory, and disk resources for a compute resource deployed to an Azure sandbox.
+    /// Publishes the specified compute resource as an Azure sandbox container.
     /// </summary>
     /// <typeparam name="T">The compute resource type.</typeparam>
     /// <param name="builder">The compute resource builder.</param>
-    /// <param name="cpu">The CPU quantity, such as <c>1000m</c>.</param>
-    /// <param name="memory">The memory quantity, such as <c>2048Mi</c>.</param>
-    /// <param name="disk">The disk quantity, such as <c>20480Mi</c>.</param>
+    /// <param name="sandboxGroup">The Azure sandbox group that hosts the resource.</param>
+    /// <param name="options">The sandbox runtime options.</param>
     /// <returns>The resource builder.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when a configured quantity is empty.</exception>
-    [AspireExport]
-    public static IResourceBuilder<T> WithAzureSandboxResources<T>(
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> or <paramref name="sandboxGroup"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when a configured option is invalid.</exception>
+    /// <remarks>
+    /// This method assigns the compute resource to <paramref name="sandboxGroup"/> and configures all sandbox-specific
+    /// runtime options in one call.
+    /// </remarks>
+    /// <ats-returns>The resource builder.</ats-returns>
+    [AspireExport("publishComputeResourceAsAzureSandbox", MethodName = "publishAsSandbox")]
+    public static IResourceBuilder<T> PublishAsSandbox<T>(
         this IResourceBuilder<T> builder,
-        string? cpu = null,
-        string? memory = null,
-        string? disk = null)
+        IResourceBuilder<AzureSandboxGroupResource> sandboxGroup,
+        AzureSandboxOptions? options = null)
         where T : IResource, IComputeResource
     {
         ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(sandboxGroup);
 
-        ValidateOptionalQuantity(cpu, nameof(cpu));
-        ValidateOptionalQuantity(memory, nameof(memory));
-        ValidateOptionalQuantity(disk, nameof(disk));
+        var sandboxOptions = options ?? new AzureSandboxOptions();
+        ValidateSandboxOptions(sandboxOptions);
+        var copiedOptions = CopyAzureSandboxOptions(sandboxOptions);
 
-        var options = GetOrCreateAzureSandboxOptions(builder);
-        options.Cpu = cpu ?? options.Cpu;
-        options.Memory = memory ?? options.Memory;
-        options.Disk = disk ?? options.Disk;
-
-        return builder;
+        return builder
+            .WithComputeEnvironment(sandboxGroup)
+            .WithContainerBuildOptions(static context =>
+            {
+                // ADC creates disk images from registry images. Buildx's default output can push an
+                // OCI image index with provenance attestations, which ADC currently treats as a
+                // ready disk image but boots without a usable root filesystem. Force a single
+                // Docker-format linux/amd64 image for resources published to sandboxes.
+                context.Destination = ContainerImageDestination.Registry;
+                context.ImageFormat = ContainerImageFormat.Docker;
+                context.TargetPlatform = ContainerTargetPlatform.LinuxAmd64;
+            })
+            .WithAnnotation(new AzureSandboxContainerOptionsAnnotation(copiedOptions), ResourceAnnotationMutationBehavior.Replace);
     }
 
     /// <summary>
-    /// Configures the auto-suspend policy for a compute resource deployed to an Azure sandbox.
+    /// Publishes the specified compute resource as an Azure sandbox container.
     /// </summary>
     /// <typeparam name="T">The compute resource type.</typeparam>
     /// <param name="builder">The compute resource builder.</param>
-    /// <param name="enabled">A value indicating whether auto-suspend is enabled.</param>
-    /// <param name="interval">The idle interval, in seconds, before auto-suspend runs.</param>
-    /// <param name="mode">The sandbox suspend mode. Supported values are <c>Memory</c>, <c>Disk</c>, and <c>None</c>.</param>
+    /// <param name="sandboxGroup">The Azure sandbox group that hosts the resource.</param>
+    /// <param name="configure">The callback that configures sandbox runtime options.</param>
     /// <returns>The resource builder.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="interval"/> is negative.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="mode"/> is not supported.</exception>
-    [AspireExport]
-    public static IResourceBuilder<T> WithAzureSandboxAutoSuspend<T>(
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/>, <paramref name="sandboxGroup"/>, or <paramref name="configure"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when a configured option is invalid.</exception>
+    [AspireExportIgnore(Reason = "Use the AzureSandboxOptions overload from ATS.")]
+    public static IResourceBuilder<T> PublishAsSandbox<T>(
         this IResourceBuilder<T> builder,
-        bool enabled = true,
-        int? interval = null,
-        string? mode = null)
+        IResourceBuilder<AzureSandboxGroupResource> sandboxGroup,
+        Action<AzureSandboxOptions> configure)
         where T : IResource, IComputeResource
     {
-        ArgumentNullException.ThrowIfNull(builder);
-        ValidateOptionalNonNegative(interval, nameof(interval));
-        ValidateOptionalAllowedValue(mode, nameof(mode), "Memory", "Disk", "None");
+        ArgumentNullException.ThrowIfNull(configure);
 
-        var options = GetOrCreateAzureSandboxOptions(builder);
-        options.AutoSuspendEnabled = enabled;
-        options.AutoSuspendInterval = interval;
-        options.AutoSuspendMode = mode;
+        var options = new AzureSandboxOptions();
+        configure(options);
 
-        return builder;
-    }
-
-    /// <summary>
-    /// Configures the auto-delete policy for a compute resource deployed to an Azure sandbox.
-    /// </summary>
-    /// <typeparam name="T">The compute resource type.</typeparam>
-    /// <param name="builder">The compute resource builder.</param>
-    /// <param name="enabled">A value indicating whether auto-delete is enabled.</param>
-    /// <param name="deleteIntervalInDays">The delete interval, in days.</param>
-    /// <param name="deleteIntervalInSeconds">The delete interval, in seconds.</param>
-    /// <param name="trigger">The auto-delete trigger. Supported values are <c>AfterSuspend</c> and <c>AfterCreation</c>.</param>
-    /// <returns>The resource builder.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when an interval is negative.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="trigger"/> is not supported.</exception>
-    [AspireExport]
-    public static IResourceBuilder<T> WithAzureSandboxAutoDelete<T>(
-        this IResourceBuilder<T> builder,
-        bool enabled = true,
-        int? deleteIntervalInDays = null,
-        long? deleteIntervalInSeconds = null,
-        string? trigger = null)
-        where T : IResource, IComputeResource
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        ValidateOptionalNonNegative(deleteIntervalInDays, nameof(deleteIntervalInDays));
-        ValidateOptionalNonNegative(deleteIntervalInSeconds, nameof(deleteIntervalInSeconds));
-        ValidateOptionalAllowedValue(trigger, nameof(trigger), "AfterSuspend", "AfterCreation");
-
-        var options = GetOrCreateAzureSandboxOptions(builder);
-        options.AutoDeleteEnabled = enabled;
-        options.AutoDeleteIntervalInDays = deleteIntervalInDays;
-        options.AutoDeleteIntervalInSeconds = deleteIntervalInSeconds;
-        options.AutoDeleteTrigger = trigger;
-
-        return builder;
-    }
-
-    /// <summary>
-    /// Configures anonymous access for a compute resource endpoint deployed to an Azure sandbox.
-    /// </summary>
-    /// <typeparam name="T">The compute resource type.</typeparam>
-    /// <param name="builder">The compute resource builder.</param>
-    /// <param name="endpointName">The Aspire endpoint name.</param>
-    /// <param name="anonymous">A value indicating whether the sandbox port allows anonymous access.</param>
-    /// <returns>The resource builder.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="builder"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="endpointName"/> is empty.</exception>
-    [AspireExport]
-    public static IResourceBuilder<T> WithAzureSandboxEndpointAnonymousAccess<T>(
-        this IResourceBuilder<T> builder,
-        string endpointName,
-        bool anonymous = true)
-        where T : IResource, IComputeResource
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
-
-        var options = GetOrCreateAzureSandboxOptions(builder);
-        if (!options.Endpoints.TryGetValue(endpointName, out var endpointOptions))
-        {
-            endpointOptions = new AzureSandboxEndpointOptions();
-            options.Endpoints.Add(endpointName, endpointOptions);
-        }
-
-        endpointOptions.Anonymous = anonymous;
-
-        return builder;
+        return builder.PublishAsSandbox(sandboxGroup, options);
     }
 
     /// <summary>
@@ -507,17 +556,103 @@ public static class AzureSandboxesExtensions
         return builder.WithRoleAssignments(target, builtInRoles);
     }
 
-    private static AzureSandboxContainerOptionsAnnotation GetOrCreateAzureSandboxOptions<T>(IResourceBuilder<T> builder)
-        where T : IResource, IComputeResource
+    private static AzureSandboxOptions CopyAzureSandboxOptions(AzureSandboxOptions options)
     {
-        var annotation = builder.Resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault();
-        if (annotation is null)
+        return new AzureSandboxOptions
         {
-            annotation = new AzureSandboxContainerOptionsAnnotation();
-            builder.Resource.Annotations.Add(annotation);
+            Cpu = options.Cpu,
+            Memory = options.Memory,
+            Disk = options.Disk,
+            AutoSuspendEnabled = options.AutoSuspendEnabled,
+            AutoSuspendInterval = options.AutoSuspendInterval,
+            AutoSuspendMode = options.AutoSuspendMode,
+            AutoDeleteEnabled = options.AutoDeleteEnabled,
+            AutoDeleteIntervalInDays = options.AutoDeleteIntervalInDays,
+            AutoDeleteIntervalInSeconds = options.AutoDeleteIntervalInSeconds,
+            AutoDeleteTrigger = options.AutoDeleteTrigger,
+            EgressProxyEnabled = options.EgressProxyEnabled,
+            EgressTrafficInspection = options.EgressTrafficInspection,
+            PublicEndpointReadyTimeoutSeconds = options.PublicEndpointReadyTimeoutSeconds,
+            Endpoints = options.Endpoints?.Select(static endpoint => new AzureSandboxEndpointOptions
+            {
+                Name = endpoint.Name,
+                Anonymous = endpoint.Anonymous
+            }).ToArray()
+        };
+    }
+
+    private static void AddSandboxGroupDeploymentPrincipalRoleAssignment(AzureResourceInfrastructure infrastructure, SandboxGroup sandboxGroup)
+    {
+        var role = AzureSandboxGroupBuiltInRole.SandboxGroupDataOwner;
+        var roleId = role.ToString();
+        var principalId = new ProvisioningParameter(AzureBicepResource.KnownParameters.UserPrincipalId, typeof(Guid));
+        infrastructure.Add(principalId);
+
+        // Sandbox deployment creates disk images, sandboxes, lifecycle settings, and public
+        // ports through the Azure Dev Compute data-plane API after the sandbox group ARM
+        // resource is provisioned. Model the deployment-principal grant in the sandbox
+        // group's own Azure.Provisioning module, just like other Azure deployment targets
+        // model environment-owned RBAC in their environment resource. The publish pipeline
+        // wires this well-known userPrincipalId parameter from the outer Azure environment,
+        // while direct `aspire deploy` fills it from the current Azure principal.
+        // https://learn.microsoft.com/azure/templates/microsoft.authorization/2022-04-01/roleassignments
+        infrastructure.Add(new RoleAssignment($"{sandboxGroup.BicepIdentifier}_deploymentPrincipalDataOwner")
+        {
+            Name = BicepFunction.CreateGuid(
+                sandboxGroup.Id,
+                principalId,
+                BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)),
+            Scope = new IdentifierExpression(sandboxGroup.BicepIdentifier),
+            PrincipalType = RoleManagementPrincipalType.User,
+            PrincipalId = principalId,
+            RoleDefinitionId = BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)
+        });
+    }
+
+    private static void ValidateSandboxOptions(AzureSandboxOptions options)
+    {
+        ValidateOptionalQuantity(options.Cpu, nameof(AzureSandboxOptions.Cpu));
+        ValidateOptionalQuantity(options.Memory, nameof(AzureSandboxOptions.Memory));
+        ValidateOptionalQuantity(options.Disk, nameof(AzureSandboxOptions.Disk));
+        ValidateOptionalNonNegative(options.AutoSuspendInterval, nameof(AzureSandboxOptions.AutoSuspendInterval));
+        ValidateOptionalAllowedValue(options.AutoSuspendMode, nameof(AzureSandboxOptions.AutoSuspendMode), "Memory", "Disk", "None");
+        ValidateOptionalNonNegative(options.AutoDeleteIntervalInDays, nameof(AzureSandboxOptions.AutoDeleteIntervalInDays));
+        ValidateOptionalNonNegative(options.AutoDeleteIntervalInSeconds, nameof(AzureSandboxOptions.AutoDeleteIntervalInSeconds));
+        ValidateOptionalAllowedValue(options.AutoDeleteTrigger, nameof(AzureSandboxOptions.AutoDeleteTrigger), "AfterSuspend", "AfterCreation");
+        ValidateOptionalAllowedValue(options.EgressTrafficInspection, nameof(AzureSandboxOptions.EgressTrafficInspection), "Legacy", "Partial", "Full", "None");
+        ValidateOptionalPositive(options.PublicEndpointReadyTimeoutSeconds, nameof(AzureSandboxOptions.PublicEndpointReadyTimeoutSeconds));
+
+        if (options.Endpoints is null)
+        {
+            return;
         }
 
-        return annotation;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var endpoint in options.Endpoints)
+        {
+            if (endpoint is null)
+            {
+                throw new ArgumentException("Endpoint options cannot contain null values.", nameof(options));
+            }
+
+            if (string.IsNullOrWhiteSpace(endpoint.Name))
+            {
+                throw new ArgumentException("Endpoint option names cannot be empty.", nameof(options));
+            }
+
+            if (!names.Add(endpoint.Name))
+            {
+                throw new ArgumentException($"Endpoint option '{endpoint.Name}' is configured more than once.", nameof(options));
+            }
+        }
+    }
+
+    private static void ValidateOptionalPositive(int? value, string paramName)
+    {
+        if (value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "The value must be positive.");
+        }
     }
 
     private static void ValidateOptionalQuantity(string? value, string paramName)

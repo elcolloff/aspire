@@ -3,6 +3,7 @@
 
 #pragma warning disable ASPIRECONTAINERRUNTIME001
 
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aspire.Hosting.Publishing;
@@ -19,6 +20,7 @@ internal sealed class AcrLoginService : IAcrLoginService
 {
     private const string AcrUsername = "00000000-0000-0000-0000-000000000000";
     private const string AcrScope = "https://containerregistry.azure.net/.default";
+    private const int MaxExchangeAttempts = 4;
 
     private static readonly JsonSerializerOptions s_jsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -119,29 +121,56 @@ internal sealed class AcrLoginService : IAcrLoginService
             ["access_token"] = aadAccessToken
         };
 
-        using var content = new FormUrlEncodedContent(formData);
-        var response = await httpClient.PostAsync(exchangeUrl, content, cancellationToken).ConfigureAwait(false);
-
-        // Read response body as string once
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
+        for (var attempt = 1; ; attempt++)
         {
-            var truncatedBody = responseBody.Length <= 1000 ? responseBody : responseBody[..1000] + "…";
-            throw new HttpRequestException(
-                $"POST /oauth2/exchange failed {(int)response.StatusCode} {response.ReasonPhrase}. Body: {truncatedBody}",
-                null,
-                response.StatusCode);
+            try
+            {
+                using var content = new FormUrlEncodedContent(formData);
+                var response = await httpClient.PostAsync(exchangeUrl, content, cancellationToken).ConfigureAwait(false);
+
+                // Read response body as string once
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var truncatedBody = responseBody.Length <= 1000 ? responseBody : responseBody[..1000] + "…";
+                    throw new HttpRequestException(
+                        $"POST /oauth2/exchange failed {(int)response.StatusCode} {response.ReasonPhrase}. Body: {truncatedBody}",
+                        null,
+                        response.StatusCode);
+                }
+
+                // Deserialize from the string we already read
+                var tokenResponse = JsonSerializer.Deserialize<AcrRefreshTokenResponse>(responseBody, s_jsonOptions);
+
+                if (string.IsNullOrEmpty(tokenResponse?.RefreshToken))
+                {
+                    throw new InvalidOperationException($"Response missing refresh_token.");
+                }
+
+                return tokenResponse.RefreshToken;
+            }
+            catch (HttpRequestException ex) when (IsTransientExchangeFailure(ex) && attempt < MaxExchangeAttempts)
+            {
+                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt - 1));
+                _logger.LogInformation(ex, "ACR refresh token exchange for registry {RegistryEndpoint} failed on attempt {Attempt}. Retrying in {DelaySeconds} second(s).",
+                    registryEndpoint,
+                    attempt,
+                    delay.TotalSeconds);
+
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
         }
+    }
 
-        // Deserialize from the string we already read
-        var tokenResponse = JsonSerializer.Deserialize<AcrRefreshTokenResponse>(responseBody, s_jsonOptions);
-
-        if (string.IsNullOrEmpty(tokenResponse?.RefreshToken))
-        {
-            throw new InvalidOperationException($"Response missing refresh_token.");
-        }
-
-        return tokenResponse.RefreshToken;
+    private static bool IsTransientExchangeFailure(HttpRequestException exception)
+    {
+        return exception.StatusCode is null ||
+            exception.StatusCode is HttpStatusCode.RequestTimeout or
+                HttpStatusCode.TooManyRequests or
+                HttpStatusCode.BadGateway or
+                HttpStatusCode.ServiceUnavailable or
+                HttpStatusCode.GatewayTimeout ||
+            (int)exception.StatusCode >= 500;
     }
 }

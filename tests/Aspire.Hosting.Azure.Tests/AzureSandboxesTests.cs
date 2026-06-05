@@ -59,7 +59,6 @@ public class AzureSandboxesTests
     public async Task WithRoleAssignmentsAddsSandboxGroupRoleAssignments()
     {
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
-        builder.Services.Configure<AzureProvisioningOptions>(options => options.SupportsTargetedRoleAssignments = true);
 
         var identity = builder.AddAzureUserAssignedIdentity("hostmi");
         var sandboxGroup = builder.AddAzureSandboxGroup("hostgroup");
@@ -75,6 +74,25 @@ public class AzureSandboxesTests
 
         await Verify(manifest.ToString(), "json")
             .AppendContentAsFile(bicep, "bicep");
+    }
+
+    [Fact]
+    public async Task AddAzureSandboxGroupSupportsExplicitManagedIdentities()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var identity = builder.AddAzureUserAssignedIdentity("nodeidentity");
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes")
+            .WithUserAssignedIdentity(identity);
+
+        builder.AddContainer("node", "node", "22-alpine")
+            .WithAzureUserAssignedIdentity(identity)
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .PublishAsSandbox(sandboxGroup);
+
+        using var app = builder.Build();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
     }
 
     [Fact]
@@ -103,6 +121,63 @@ public class AzureSandboxesTests
             connector.Operations,
             operation => Assert.Equal("mcp_TeamsServer", operation.Name),
             operation => Assert.Equal("mcp_TeamsChat", operation.Name));
+    }
+
+    [Fact]
+    public async Task AddConnectorTriggerConfigGeneratesAccessPolicyAndLateTriggerBicep()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var gateway = builder.AddAzureConnectorGateway("gateway");
+        var connection = gateway.AddConnection("sharepoint", "sharepointonline", connectionName: "sharepoint-conn");
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        var listener = builder.AddContainer("listener", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .PublishAsSandbox(sandboxGroup);
+
+        var trigger = connection.AddTriggerConfig(
+            "newfile",
+            "GetOnNewFileItems",
+            listener.GetEndpoint("http"),
+            callbackPath: "/webhook",
+            parameters:
+            [
+                new("dataset", "https://contoso.sharepoint.com/sites/demo"),
+                new("table", "Documents")
+            ],
+            description: "Post new SharePoint files to the sandbox listener.",
+            triggerName: "new-file");
+
+        using var app = builder.Build();
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        var accessPolicy = Assert.Single(connection.Resource.AccessPolicies);
+        Assert.Equal("gateway-acl", accessPolicy.PolicyName);
+        Assert.Equal(AzureConnectorGatewayConnectionAccessPolicyPrincipal.GatewayManagedIdentity, accessPolicy.Principal);
+
+        var triggerSteps = await CreateStepsAsync(app, trigger.Resource);
+        var triggerStep = Assert.Single(triggerSteps, step => step.Name == "provision-newfile");
+        Assert.Contains(AzureEnvironmentResource.CreateProvisioningContextStepName, triggerStep.DependsOnSteps);
+        Assert.Contains("deploy-listener-sandbox-container", triggerStep.DependsOnSteps);
+        Assert.Contains(WellKnownPipelineSteps.Deploy, triggerStep.RequiredBySteps);
+        Assert.Contains(WellKnownPipelineTags.ProvisionInfrastructure, triggerStep.Tags);
+
+        var (gatewayManifest, gatewayBicep) = await AzureManifestUtils.GetManifestWithBicep(model, gateway.Resource);
+        var triggerBicep = trigger.Resource.GetBicepTemplateString();
+        var stepSummary = JsonSerializer.Serialize(new
+        {
+            triggerStep.Name,
+            triggerStep.DependsOnSteps,
+            triggerStep.RequiredBySteps,
+            triggerStep.Tags
+        }, new JsonSerializerOptions { WriteIndented = true });
+
+        await Verify(gatewayManifest.ToString(), "json")
+            .AppendContentAsFile(gatewayBicep, "bicep")
+            .AppendContentAsFile(triggerBicep, "bicep")
+            .AppendContentAsFile(stepSummary, "json");
     }
 
     [Fact]
@@ -410,10 +485,26 @@ public class AzureSandboxesTests
             .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints()
             .WithVolume("cache", "/cache", isReadOnly: true)
-            .WithAzureSandboxResources(cpu: "2000m", memory: "4096Mi", disk: "32768Mi")
-            .WithAzureSandboxAutoSuspend(enabled: false, interval: 300, mode: "Disk")
-            .WithAzureSandboxAutoDelete(deleteIntervalInSeconds: 3600, trigger: "AfterSuspend")
-            .WithAzureSandboxEndpointAnonymousAccess("http", anonymous: false);
+            .PublishAsSandbox(sandboxGroup, new AzureSandboxOptions
+            {
+                Cpu = "2000m",
+                Memory = "4096Mi",
+                Disk = "32768Mi",
+                AutoSuspendEnabled = false,
+                AutoSuspendInterval = 300,
+                AutoSuspendMode = "Disk",
+                AutoDeleteEnabled = true,
+                AutoDeleteIntervalInSeconds = 3600,
+                AutoDeleteTrigger = "AfterSuspend",
+                Endpoints =
+                [
+                    new AzureSandboxEndpointOptions
+                    {
+                        Name = "http",
+                        Anonymous = false
+                    }
+                ]
+            });
 
         using var app = builder.Build();
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -458,7 +549,8 @@ public class AzureSandboxesTests
         builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
             .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints()
-            .AsHttp2Service();
+            .AsHttp2Service()
+            .PublishAsSandbox(sandboxGroup);
 
         using var app = builder.Build();
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -481,7 +573,17 @@ public class AzureSandboxesTests
         builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
             .WithHttpEndpoint(targetPort: 8080)
             .WithExternalHttpEndpoints()
-            .WithAzureSandboxEndpointAnonymousAccess("typo", anonymous: false);
+            .PublishAsSandbox(sandboxGroup, new AzureSandboxOptions
+            {
+                Endpoints =
+                [
+                    new AzureSandboxEndpointOptions
+                    {
+                        Name = "typo",
+                        Anonymous = false
+                    }
+                ]
+            });
 
         using var app = builder.Build();
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -492,7 +594,7 @@ public class AzureSandboxesTests
         var sandboxContainer = Assert.IsType<AzureSandboxContainerResource>(deploymentTarget?.DeploymentTarget);
 
         var exception = Assert.Throws<InvalidOperationException>(() => AzureSandboxContainerDeployment.ResolveSandboxEndpoints(sandboxContainer));
-        Assert.Contains("unknown endpoint", exception.Message);
+        Assert.Contains("endpoint options for endpoint(s) that are not exposed", exception.Message);
     }
 
     [Fact]
@@ -502,7 +604,8 @@ public class AzureSandboxesTests
 
         var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
         builder.AddContainer("cache", "redis", "latest")
-            .WithEndpoint(targetPort: 6379, scheme: "tcp");
+            .WithEndpoint(targetPort: 6379, scheme: "tcp", isExternal: true)
+            .PublishAsSandbox(sandboxGroup);
 
         using var app = builder.Build();
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -670,7 +773,7 @@ public class AzureSandboxesTests
         Assert.Equal(8080, sandboxEndpoint.TargetPort);
     }
 
-    private static async Task<List<PipelineStep>> CreateStepsAsync(DistributedApplication app, AzureSandboxGroupResource resource)
+    private static async Task<List<PipelineStep>> CreateStepsAsync(DistributedApplication app, IResource resource)
     {
         var pipelineContext = new PipelineContext(
             app.Services.GetRequiredService<DistributedApplicationModel>(),

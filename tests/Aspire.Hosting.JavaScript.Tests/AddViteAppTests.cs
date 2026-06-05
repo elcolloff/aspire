@@ -149,6 +149,7 @@ public class AddViteAppTests
         var env = await EnvironmentVariableEvaluator.GetEnvironmentVariablesAsync(nodeApp.Resource, DistributedApplicationOperation.Publish);
 
         Assert.Equal("true", env["YARP_ENABLE_STATIC_FILES"]);
+        Assert.Equal("http://0.0.0.0:5000", env["ASPNETCORE_URLS"]);
         // PORT is set by the endpoint — verify it's present
         Assert.True(env.ContainsKey("PORT"), "PORT should be set by the HTTP endpoint");
     }
@@ -177,6 +178,7 @@ public class AddViteAppTests
         var env = await EnvironmentVariableEvaluator.GetEnvironmentVariablesAsync(nodeApp.Resource, DistributedApplicationOperation.Publish);
 
         Assert.Equal("true", env["YARP_ENABLE_STATIC_FILES"]);
+        Assert.Equal("http://0.0.0.0:5000", env["ASPNETCORE_URLS"]);
         Assert.Equal("api", env["REVERSEPROXY__ROUTES__api__CLUSTERID"]);
         Assert.Equal("/api/{**catch-all}", env["REVERSEPROXY__ROUTES__api__MATCH__PATH"]);
         Assert.False(env.ContainsKey("REVERSEPROXY__ROUTES__api__TRANSFORMS__0__PATHREMOVEPREFIX"), "StripPrefix defaults to false");

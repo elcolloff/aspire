@@ -39,7 +39,8 @@ internal sealed class BicepProvisioner(
             return false;
         }
 
-        var currentCheckSum = await BicepUtilities.GetCurrentChecksumAsync(resource, section, cancellationToken).ConfigureAwait(false);
+        var valueProviderContext = new ValueProviderContext { ExecutionContext = executionContext };
+        var currentCheckSum = await BicepUtilities.GetCurrentChecksumAsync(resource, section, cancellationToken, valueProviderContext).ConfigureAwait(false);
         var configCheckSum = section["CheckSum"];
 
         if (currentCheckSum != configCheckSum)
@@ -161,10 +162,11 @@ internal sealed class BicepProvisioner(
         logger.LogDebug("Setting parameters and scope for resource {ResourceName}", resource.Name);
         // Convert the parameters to a JSON object
         var parameters = new JsonObject();
-        await BicepUtilities.SetParametersAsync(parameters, resource, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var valueProviderContext = new ValueProviderContext { ExecutionContext = executionContext };
+        await BicepUtilities.SetParametersAsync(parameters, resource, cancellationToken: cancellationToken, valueProviderContext: valueProviderContext).ConfigureAwait(false);
 
         var scope = new JsonObject();
-        await BicepUtilities.SetScopeAsync(scope, resource, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await BicepUtilities.SetScopeAsync(scope, resource, cancellationToken: cancellationToken, valueProviderContext: valueProviderContext).ConfigureAwait(false);
 
         var sw = Stopwatch.StartNew();
 
@@ -335,6 +337,15 @@ internal sealed class BicepProvisioner(
             ValidateUnknownPrincipalParameter(context);
 
             resource.Parameters[AzureBicepResource.KnownParameters.PrincipalId] = context.Principal.Id;
+        }
+
+        if (resource.Parameters.TryGetValue(AzureBicepResource.KnownParameters.UserPrincipalId, out var userPrincipalId) && userPrincipalId is null)
+        {
+            // userPrincipalId is the Azure environment's deployment-principal parameter.
+            // Published artifacts bind it from the outer main.bicep principalId parameter;
+            // direct `aspire deploy` has no outer template, so bind it from the current
+            // authenticated principal even though deploy runs with a publish execution context.
+            resource.Parameters[AzureBicepResource.KnownParameters.UserPrincipalId] = context.Principal.Id;
         }
 
         if (resource.Parameters.TryGetValue(AzureBicepResource.KnownParameters.PrincipalName, out var principalName) && principalName is null)

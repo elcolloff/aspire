@@ -160,10 +160,17 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
 
         var containerRegistry = ContainerRegistry ??
             throw new InvalidOperationException($"No container registry associated with Azure sandbox group '{Name}'. This should have been added automatically.");
+        var computeEnvironments = context.Model.Resources.OfType<IComputeEnvironmentResource>().ToList();
+        var canClaimUnassignedComputeResources = computeEnvironments.Count == 1 && ReferenceEquals(computeEnvironments[0], this);
 
         foreach (var resource in context.Model.GetComputeResources())
         {
             var resourceComputeEnvironment = resource.GetComputeEnvironment();
+            if (resourceComputeEnvironment is null && !canClaimUnassignedComputeResources)
+            {
+                continue;
+            }
+
             if (resourceComputeEnvironment is not null && resourceComputeEnvironment != this)
             {
                 continue;
@@ -204,7 +211,7 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
     {
         ArgumentNullException.ThrowIfNull(endpointReference);
 
-        throw CreateEndpointReferenceNotSupportedException(endpointReference.Resource.Name);
+        return GetEndpointPropertyExpression(endpointReference.Property(EndpointProperty.Host));
     }
 
     /// <inheritdoc/>
@@ -213,11 +220,17 @@ public sealed class AzureSandboxGroupResource : AzureProvisioningResource, IAzur
     {
         ArgumentNullException.ThrowIfNull(endpointReferenceExpression);
 
-        throw CreateEndpointReferenceNotSupportedException(endpointReferenceExpression.Endpoint.Resource.Name);
-    }
+        var endpointReference = endpointReferenceExpression.Endpoint;
+        var resource = endpointReference.Resource;
+        var deploymentTargetAnnotation = resource.GetDeploymentTargetAnnotation(this);
+        if (deploymentTargetAnnotation?.DeploymentTarget is not AzureSandboxContainerResource sandboxContainer)
+        {
+            throw new InvalidOperationException($"Resource '{resource.Name}' is not deployed to Azure sandbox group '{Name}'.");
+        }
 
-    private NotSupportedException CreateEndpointReferenceNotSupportedException(string resourceName) =>
-        new($"Endpoint references for resource '{resourceName}' deployed to Azure sandbox group '{Name}' are not supported because sandbox public URLs are assigned by the ACA data plane during deployment.");
+        var provider = new AzureSandboxEndpointPropertyValueProvider(sandboxContainer, endpointReferenceExpression);
+        return ReferenceExpression.Create($"{provider}");
+    }
 
     /// <inheritdoc/>
     public override ProvisionableResource AddAsExistingResource(AzureResourceInfrastructure infra)

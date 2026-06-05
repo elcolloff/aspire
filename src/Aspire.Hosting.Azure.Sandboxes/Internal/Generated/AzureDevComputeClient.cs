@@ -153,9 +153,10 @@ internal sealed class AzureDevComputeClient(HttpClient httpClient, TokenCredenti
                 return response;
             }
 
-            // Sandbox data-plane role grants can take a few seconds to propagate after
-            // `aca sandboxgroup role create` succeeds. Retry only 403s so real request
-            // shape errors and service failures still surface immediately.
+            // Sandbox data-plane role grants are ARM RBAC role assignments, but ADC authorizes
+            // requests through its own data-plane endpoint. The ARM deployment can complete a
+            // few seconds before ADC observes the new role assignment, so retry only 403s here;
+            // request shape errors and service failures should still surface immediately.
             response.Dispose();
             logger.LogInformation("ADC request {Method} {Path} returned 403. Retrying after sandbox role propagation delay.", method.Method, path);
             await Task.Delay(forbiddenRetryDelay ?? TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
@@ -306,6 +307,12 @@ internal sealed class AzureDevComputeSandboxRequest
 
     public IReadOnlyDictionary<string, string>? Environment { get; init; }
 
+    public List<AzureDevComputeIdentitySetting>? IdentitySettings { get; init; }
+
+    public bool? SkipEgressProxy { get; init; }
+
+    public AzureDevComputeSandboxEgressPolicy? EgressPolicy { get; init; }
+
     public required AzureDevComputeSandboxSource SourcesRef { get; init; }
 
     public required AzureDevComputeSandboxResources Resources { get; init; }
@@ -332,6 +339,20 @@ internal sealed class AzureDevComputeSandboxResources
     public string Memory { get; init; } = "2048Mi";
 
     public string Disk { get; init; } = "20480Mi";
+}
+
+internal sealed class AzureDevComputeIdentitySetting
+{
+    public required string Identity { get; init; }
+
+    public string Lifecycle { get; init; } = "All";
+}
+
+internal sealed class AzureDevComputeSandboxEgressPolicy
+{
+    public string DefaultAction { get; init; } = "Allow";
+
+    public string? TrafficInspection { get; init; }
 }
 
 internal sealed class AzureDevComputeSandboxVolume

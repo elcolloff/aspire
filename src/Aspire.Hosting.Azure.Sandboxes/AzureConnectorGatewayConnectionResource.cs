@@ -48,4 +48,6 @@ public sealed class AzureConnectorGatewayConnectionResource : Resource, IResourc
 
     /// <inheritdoc/>
     public AzureConnectorGatewayResource Parent { get; }
+
+    internal List<AzureConnectorGatewayConnectionAccessPolicyResource> AccessPolicies { get; } = [];
 }

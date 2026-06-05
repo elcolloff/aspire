@@ -9,6 +9,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -16,7 +17,6 @@ using System.Text.Json.Nodes;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Publishing;
-using Azure.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -26,10 +26,8 @@ internal static class AzureSandboxContainerDeployment
 {
     private const string SandboxStateParentSection = "Azure:Sandboxes";
     internal const string SandboxStateSectionPrefix = $"{SandboxStateParentSection}:";
-    private const string AzureManagementScope = "https://management.azure.com/.default";
-    private const string SandboxGroupDataOwnerRole = "Container Apps SandboxGroup Data Owner";
     private const int DiskImageReadyTimeoutSeconds = 600;
-    private const int PublicEndpointTimeoutSeconds = 60;
+    private const int PublicEndpointTimeoutSeconds = 180;
 
     public static IEnumerable<PipelineStep> CreatePipelineSteps(AzureSandboxContainerResource resource)
     {
@@ -133,11 +131,9 @@ internal static class AzureSandboxContainerDeployment
 
         var sandboxGroupName = GetRequiredOutput(resource.Parent, "name");
         var dataPlaneScope = new AzureDevComputeResourceScope(azureState.SubscriptionId, azureState.ResourceGroup, sandboxGroupName, azureState.Location);
-        var roleCommand = new AcaCommandContext(azureState.SubscriptionId, azureState.ResourceGroup, azureState.Location, sandboxGroupName);
         var client = CreateAzureDevComputeClient(context);
 
         var stateSection = await deploymentStateManager.AcquireSectionAsync(GetStateSectionName(resource), context.CancellationToken).ConfigureAwait(false);
-        await EnsureSandboxGroupDataOwnerAsync(context, roleCommand).ConfigureAwait(false);
 
         await DeleteExistingDeploymentAsync(context, client, dataPlaneScope, stateSection, throwOnError: false).ConfigureAwait(false);
         await deploymentStateManager.DeleteSectionAsync(stateSection, context.CancellationToken).ConfigureAwait(false);
@@ -152,12 +148,13 @@ internal static class AzureSandboxContainerDeployment
         {
             var imageReference = await ResolveContainerImageAsync(context, resource).ConfigureAwait(false);
             var imageMetadata = await ResolveContainerImageMetadataAsync(context, targetResource, imageReference).ConfigureAwait(false);
+            var diskImageReference = await ResolveContainerImageReferenceForDiskImageAsync(context, targetResource, imageReference).ConfigureAwait(false);
             var diskImageName = CreateSandboxResourceName(targetResource.Name, deployId);
 
             var diskTask = await context.ReportingStep.CreateTaskAsync($"Creating sandbox disk image for {targetResource.Name}", context.CancellationToken).ConfigureAwait(false);
             await using (diskTask.ConfigureAwait(false))
             {
-                var diskImage = await CreateDiskImageAsync(context, client, dataPlaneScope, resource, imageReference, diskImageName, deployId).ConfigureAwait(false);
+                var diskImage = await CreateDiskImageAsync(context, client, dataPlaneScope, resource, diskImageReference, diskImageName, deployId).ConfigureAwait(false);
                 diskImageId = diskImage.Id;
                 diskImage = await WaitForDiskImageReadyAsync(context, client, dataPlaneScope, diskImage).ConfigureAwait(false);
                 await diskTask.CompleteAsync($"Created sandbox disk image {diskImageId}", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
@@ -168,6 +165,7 @@ internal static class AzureSandboxContainerDeployment
             {
                 environmentVariables[key] = value;
             }
+            AddManagedIdentityEnvironmentVariables(targetResource, environmentVariables);
 
             var createTask = await context.ReportingStep.CreateTaskAsync($"Creating sandbox for {targetResource.Name}", context.CancellationToken).ConfigureAwait(false);
             await using (createTask.ConfigureAwait(false))
@@ -203,7 +201,7 @@ internal static class AzureSandboxContainerDeployment
                     var endpointUrl = addedPort.Url.ToString();
                     if (endpoint.IsExternal && endpoint.IsHttp)
                     {
-                        await WaitForPublicHttpAsync(endpointUrl, context.CancellationToken).ConfigureAwait(false);
+                        await WaitForPublicHttpAsync(endpointUrl, GetPublicEndpointReadyTimeout(resource), context.CancellationToken).ConfigureAwait(false);
                     }
 
                     portStates.Add(new JsonObject
@@ -402,12 +400,21 @@ internal static class AzureSandboxContainerDeployment
         ContainerImageMetadata imageMetadata,
         string deployId)
     {
+        var options = GetAzureSandboxContainerOptions(resource.TargetResource);
+
         return client.CreateSandboxAsync(
             scope,
             new AzureDevComputeSandboxRequest
             {
                 Labels = CreateLabels(resource, deployId),
                 Environment = environmentVariables.Count > 0 ? environmentVariables : null,
+                IdentitySettings = ResolveIdentitySettings(resource.TargetResource),
+                SkipEgressProxy = options?.EgressProxyEnabled == false ? true : null,
+                EgressPolicy = options?.EgressProxyEnabled == false || options?.EgressTrafficInspection is not null ? new AzureDevComputeSandboxEgressPolicy
+                {
+                    DefaultAction = "Allow",
+                    TrafficInspection = options?.EgressTrafficInspection ?? "None"
+                } : null,
                 Entrypoint = imageMetadata.Entrypoint.Count > 0 ? [.. imageMetadata.Entrypoint] : null,
                 Cmd = imageMetadata.Command.Count > 0 ? [.. imageMetadata.Command] : null,
                 SourcesRef = new AzureDevComputeSandboxSource
@@ -422,6 +429,38 @@ internal static class AzureSandboxContainerDeployment
                 Volumes = ResolveSandboxVolumes(resource.TargetResource)
             },
             context.CancellationToken);
+    }
+
+    private static List<AzureDevComputeIdentitySetting>? ResolveIdentitySettings(IResource resource)
+    {
+        if (!resource.TryGetLastAnnotation<AppIdentityAnnotation>(out var appIdentityAnnotation) ||
+            appIdentityAnnotation.IdentityResource is not AzureUserAssignedIdentityResource userAssignedIdentity)
+        {
+            return null;
+        }
+
+        var identityId = GetRequiredOutput(userAssignedIdentity, "id");
+        return
+        [
+            new AzureDevComputeIdentitySetting
+            {
+                // ADC serves this user-assigned identity through the sandbox managed-identity endpoint.
+                // "All" keeps it available during both startup and the main container lifetime.
+                Identity = identityId,
+                Lifecycle = "All"
+            }
+        ];
+    }
+
+    private static void AddManagedIdentityEnvironmentVariables(IResource resource, Dictionary<string, string> environmentVariables)
+    {
+        if (!resource.TryGetLastAnnotation<AppIdentityAnnotation>(out var appIdentityAnnotation) ||
+            appIdentityAnnotation.IdentityResource is not AzureUserAssignedIdentityResource userAssignedIdentity)
+        {
+            return;
+        }
+
+        environmentVariables.TryAdd("AZURE_CLIENT_ID", GetRequiredOutput(userAssignedIdentity, "clientId"));
     }
 
     internal static AzureDevComputeSandboxResources CreateSandboxResources(AzureSandboxContainerResource resource)
@@ -503,6 +542,101 @@ internal static class AzureSandboxContainerDeployment
         }
 
         throw new NotSupportedException($"Resource '{resource.TargetResource.Name}' cannot be deployed to Azure sandbox group '{resource.Parent.Name}' because it does not produce or reference a container image.");
+    }
+
+    private static async Task<string> ResolveContainerImageReferenceForDiskImageAsync(PipelineStepContext context, IResource resource, string imageReference)
+    {
+        if (!resource.RequiresImageBuildAndPush() ||
+            imageReference.Contains('@', StringComparison.Ordinal))
+        {
+            return imageReference;
+        }
+
+        var manifest = await InspectContainerImageManifestAsync(context, imageReference).ConfigureAwait(false);
+        return ResolveLinuxAmd64ManifestReference(manifest, imageReference);
+    }
+
+    private static async Task<string> InspectContainerImageManifestAsync(PipelineStepContext context, string imageReference)
+    {
+        var runtime = await context.Services.GetRequiredService<IContainerRuntimeResolver>().ResolveAsync(context.CancellationToken).ConfigureAwait(false);
+        var runtimeExecutable = runtime.Name switch
+        {
+            var name when string.Equals(name, "Docker", StringComparison.OrdinalIgnoreCase) => "docker",
+            var name when string.Equals(name, "Podman", StringComparison.OrdinalIgnoreCase) => "podman",
+            _ => throw new InvalidOperationException($"Unsupported container runtime '{runtime.Name}'.")
+        };
+
+        return await RunProcessAsync(
+            context,
+            runtimeExecutable,
+            ["manifest", "inspect", imageReference],
+            workingDirectory: null,
+            logOutput: false).ConfigureAwait(false);
+    }
+
+    internal static string ResolveLinuxAmd64ManifestReference(string manifestJson, string imageReference)
+    {
+        JsonNode? manifest;
+        try
+        {
+            manifest = JsonNode.Parse(manifestJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Container runtime returned invalid image manifest for '{imageReference}'.", ex);
+        }
+
+        if (manifest is not JsonObject manifestObject ||
+            manifestObject["manifests"] is not JsonArray manifests)
+        {
+            return imageReference;
+        }
+
+        // `docker manifest inspect` returns image indexes as:
+        //   { "manifests": [
+        //     { "digest": "sha256:...", "platform": { "os": "linux", "architecture": "amd64" } },
+        //     { "digest": "sha256:...", "platform": { "os": "unknown", "architecture": "unknown" } }
+        //   ] }
+        // The unknown/unknown entry is a provenance attestation. ADC disk-image conversion currently
+        // accepts the tag but can boot a sandbox without a usable root filesystem, so pass the concrete
+        // linux/amd64 manifest digest instead of the index tag.
+        foreach (var item in manifests)
+        {
+            if (item is not JsonObject descriptor ||
+                descriptor["platform"] is not JsonObject platform)
+            {
+                continue;
+            }
+
+            var os = platform["os"]?.GetValue<string>();
+            var architecture = platform["architecture"]?.GetValue<string>();
+            if (!string.Equals(os, "linux", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(architecture, "amd64", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (descriptor["digest"]?.GetValue<string>() is { Length: > 0 } digest)
+            {
+                return CreateDigestImageReference(imageReference, digest);
+            }
+        }
+
+        throw new InvalidOperationException($"Container image '{imageReference}' is an image index but does not contain a linux/amd64 manifest.");
+    }
+
+    private static string CreateDigestImageReference(string imageReference, string digest)
+    {
+        if (imageReference.Contains('@', StringComparison.Ordinal))
+        {
+            return imageReference;
+        }
+
+        var lastSlash = imageReference.LastIndexOf('/');
+        var lastColon = imageReference.LastIndexOf(':');
+        var repository = lastColon > lastSlash ? imageReference[..lastColon] : imageReference;
+
+        return $"{repository}@{digest}";
     }
 
     private static async Task<ContainerImageMetadata> ResolveContainerImageMetadataAsync(PipelineStepContext context, IResource resource, string imageReference)
@@ -665,6 +799,8 @@ internal static class AzureSandboxContainerDeployment
 
     private static async Task<string> ResolveValueAsync(PipelineStepContext context, IResource resource, object? value)
     {
+        var currentComputeEnvironment = resource.GetComputeEnvironment() ?? resource.GetDeploymentTargetAnnotation()?.ComputeEnvironment;
+
         while (true)
         {
             switch (value)
@@ -676,6 +812,14 @@ internal static class AzureSandboxContainerDeployment
                 case IResourceWithConnectionString connectionStringResource:
                     value = connectionStringResource.ConnectionStringExpression;
                     continue;
+                case EndpointReference endpointReference
+                    when TryResolveEndpointReferenceValue(endpointReference, currentComputeEnvironment, out var endpointExpression):
+                    value = endpointExpression;
+                    continue;
+                case EndpointReferenceExpression endpointReferenceExpression
+                    when TryResolveEndpointReferenceValue(endpointReferenceExpression, currentComputeEnvironment, out var endpointExpression):
+                    value = endpointExpression;
+                    continue;
                 case IValueProvider valueProvider:
                     return await valueProvider
                         .GetValueAsync(new ValueProviderContext { ExecutionContext = context.ExecutionContext, Caller = resource }, context.CancellationToken)
@@ -684,6 +828,16 @@ internal static class AzureSandboxContainerDeployment
                     return value.ToString() ?? string.Empty;
             }
         }
+    }
+
+    internal static bool TryResolveEndpointReferenceValue(EndpointReference endpointReference, IComputeEnvironmentResource? currentComputeEnvironment, [NotNullWhen(true)] out ReferenceExpression? expression)
+    {
+        return ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(endpointReference, [currentComputeEnvironment], out expression);
+    }
+
+    internal static bool TryResolveEndpointReferenceValue(EndpointReferenceExpression endpointReferenceExpression, IComputeEnvironmentResource? currentComputeEnvironment, [NotNullWhen(true)] out ReferenceExpression? expression)
+    {
+        return ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(endpointReferenceExpression, [currentComputeEnvironment], out expression);
     }
 
     private static async Task DestroyAsync(PipelineStepContext context, AzureSandboxContainerResource resource)
@@ -753,17 +907,26 @@ internal static class AzureSandboxContainerDeployment
         ArgumentNullException.ThrowIfNull(resource);
 
         var options = GetAzureSandboxContainerOptions(resource.TargetResource);
-        var unmatchedEndpointOptions = options is null ? null : new HashSet<string>(options.Endpoints.Keys, StringComparer.Ordinal);
+        var endpointOptions = options?.Endpoints?.ToDictionary(
+            static endpoint => endpoint.Name!,
+            StringComparer.Ordinal);
+        var unmatchedEndpointOptions = endpointOptions is null ? null : new HashSet<string>(endpointOptions.Keys, StringComparer.Ordinal);
         var endpoints = new Dictionary<int, SandboxEndpoint>();
         foreach (var resolvedEndpoint in resource.TargetResource.ResolveEndpoints())
         {
+            if (!resolvedEndpoint.Endpoint.IsExternal)
+            {
+                continue;
+            }
+
             if (resolvedEndpoint.TargetPort.Value is not int targetPort)
             {
                 throw new InvalidOperationException($"Endpoint '{resolvedEndpoint.Endpoint.Name}' on resource '{resource.TargetResource.Name}' does not have a target port. Configure a target port before deploying it to an Azure sandbox.");
             }
 
             var protocol = ResolveSandboxPortProtocol(resource.TargetResource, resolvedEndpoint.Endpoint);
-            var endpointOptions = options?.Endpoints.GetValueOrDefault(resolvedEndpoint.Endpoint.Name);
+            AzureSandboxEndpointOptions? resolvedEndpointOptions = null;
+            endpointOptions?.TryGetValue(resolvedEndpoint.Endpoint.Name, out resolvedEndpointOptions);
             unmatchedEndpointOptions?.Remove(resolvedEndpoint.Endpoint.Name);
             var endpoint = new SandboxEndpoint(
                 resolvedEndpoint.Endpoint.Name,
@@ -771,7 +934,7 @@ internal static class AzureSandboxContainerDeployment
                 resolvedEndpoint.Endpoint.IsExternal,
                 IsHttp: true,
                 protocol,
-                endpointOptions?.Anonymous);
+                resolvedEndpointOptions?.Anonymous);
 
             if (endpoints.TryGetValue(targetPort, out var existingEndpoint))
             {
@@ -795,7 +958,7 @@ internal static class AzureSandboxContainerDeployment
 
         if (unmatchedEndpointOptions is { Count: > 0 })
         {
-            throw new InvalidOperationException($"Resource '{resource.TargetResource.Name}' has Azure sandbox endpoint options for unknown endpoint(s): {string.Join(", ", unmatchedEndpointOptions)}.");
+            throw new InvalidOperationException($"Resource '{resource.TargetResource.Name}' has Azure sandbox endpoint options for endpoint(s) that are not exposed by EndpointAnnotation: {string.Join(", ", unmatchedEndpointOptions)}.");
         }
 
         return [.. endpoints.Values.OrderBy(static endpoint => endpoint.TargetPort)];
@@ -862,76 +1025,16 @@ internal static class AzureSandboxContainerDeployment
         }
     }
 
-    private static async Task EnsureSandboxGroupDataOwnerAsync(PipelineStepContext context, AcaCommandContext command)
+    private static TimeSpan GetPublicEndpointReadyTimeout(AzureSandboxContainerResource resource)
     {
-        var roleTask = await context.ReportingStep.CreateTaskAsync("Ensuring sandbox group data-plane access", context.CancellationToken).ConfigureAwait(false);
-        await using (roleTask.ConfigureAwait(false))
-        {
-            var principalId = await GetCurrentAzurePrincipalIdAsync(context).ConfigureAwait(false);
-
-            await RunAcaAsync(
-                context,
-                command,
-                [
-                    "sandboxgroup", "role", "create",
-                    "--role", SandboxGroupDataOwnerRole,
-                    "--principal-id", principalId
-                ]).ConfigureAwait(false);
-
-            await roleTask.CompleteAsync("Sandbox group data-plane access is ready", CompletionState.Completed, context.CancellationToken).ConfigureAwait(false);
-        }
+        var timeoutSeconds = GetAzureSandboxContainerOptions(resource.TargetResource)?.PublicEndpointReadyTimeoutSeconds ?? PublicEndpointTimeoutSeconds;
+        return TimeSpan.FromSeconds(timeoutSeconds);
     }
 
-    private static async Task<string> GetCurrentAzurePrincipalIdAsync(PipelineStepContext context)
-    {
-        var tokenCredentialProvider = context.Services.GetRequiredService<ITokenCredentialProvider>();
-        var accessToken = await tokenCredentialProvider.TokenCredential.GetTokenAsync(
-            new TokenRequestContext([AzureManagementScope]),
-            context.CancellationToken).ConfigureAwait(false);
-
-        return GetPrincipalIdFromAccessToken(accessToken.Token);
-    }
-
-    private static string GetPrincipalIdFromAccessToken(string accessToken)
-    {
-        var parts = accessToken.Split('.');
-        if (parts.Length < 2)
-        {
-            throw new InvalidOperationException("Azure Dev Compute access token is not a JWT.");
-        }
-
-        // Azure access tokens are JWTs with the current user's object ID in the payload:
-        //   <base64url header>.<base64url {"oid":"<principal-id>",...}>.<signature>
-        // Use an ARM-audience token for this lookup so we don't cache an ADC token before
-        // the sandbox data-plane role has been assigned. Never log the token.
-        var payload = parts[1].Replace('-', '+').Replace('_', '/');
-        payload = payload.PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
-
-        byte[] payloadBytes;
-        try
-        {
-            payloadBytes = Convert.FromBase64String(payload);
-        }
-        catch (FormatException ex)
-        {
-            throw new InvalidOperationException("Azure Dev Compute access token has an invalid JWT payload.", ex);
-        }
-
-        using var document = JsonDocument.Parse(payloadBytes);
-        if (!document.RootElement.TryGetProperty("oid", out var oidElement) ||
-            oidElement.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(oidElement.GetString()))
-        {
-            throw new InvalidOperationException("Azure Dev Compute access token did not contain an 'oid' principal claim.");
-        }
-
-        return oidElement.GetString()!;
-    }
-
-    private static async Task WaitForPublicHttpAsync(string publicUrl, CancellationToken cancellationToken)
+    private static async Task WaitForPublicHttpAsync(string publicUrl, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(PublicEndpointTimeoutSeconds);
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
         Exception? lastException = null;
         HttpStatusCode? lastStatusCode = null;
 
@@ -958,7 +1061,7 @@ internal static class AzureSandboxContainerDeployment
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TimeoutException($"Sandbox public URL '{publicUrl}' was not ready after {PublicEndpointTimeoutSeconds} seconds (last HTTP status: '{lastStatusCode}').", lastException);
+        throw new TimeoutException($"Sandbox public URL '{publicUrl}' was not ready after {timeout.TotalSeconds} seconds (last HTTP status: '{lastStatusCode}').", lastException);
     }
 
     private static async Task DeleteSandboxAsync(
@@ -1010,21 +1113,6 @@ internal static class AzureSandboxContainerDeployment
         {
             context.Logger.LogWarning(ex, "Failed to delete sandbox disk image '{DiskImageId}'.", diskImageId);
         }
-    }
-
-    private static Task<string> RunAcaAsync(PipelineStepContext context, AcaCommandContext command, IReadOnlyList<string> arguments, bool throwOnError = true)
-    {
-        var fullArguments = new List<string>
-        {
-            "--subscription", command.SubscriptionId,
-            "--resource-group", command.ResourceGroup,
-            "--sandbox-group", command.SandboxGroup,
-            "--region", command.Region,
-            "--output", "json"
-        };
-        fullArguments.AddRange(arguments);
-
-        return RunProcessAsync(context, "aca", fullArguments, workingDirectory: null, throwOnError);
     }
 
     private static async Task<string> RunProcessAsync(
@@ -1180,9 +1268,9 @@ internal static class AzureSandboxContainerDeployment
         return $"{normalized}-volume-{index}";
     }
 
-    private static AzureSandboxContainerOptionsAnnotation? GetAzureSandboxContainerOptions(IResource resource)
+    private static AzureSandboxOptions? GetAzureSandboxContainerOptions(IResource resource)
     {
-        return resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault();
+        return resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault()?.Options;
     }
 
     private static string FormatProcessArgumentsForDisplay(IReadOnlyList<string> arguments)
@@ -1249,7 +1337,7 @@ internal static class AzureSandboxContainerDeployment
 
     private static string GetStaleCleanupStepName(AzureSandboxGroupResource resource) => $"destroy-stale-azure-sandboxes-{resource.Name}";
 
-    private static string GetDeployStepName(AzureSandboxContainerResource resource) => $"deploy-{resource.Name}";
+    internal static string GetDeployStepName(AzureSandboxContainerResource resource) => $"deploy-{resource.Name}";
 
     private static string GetDestroyStepName(AzureSandboxContainerResource resource) => $"destroy-{resource.Name}";
 
@@ -1259,5 +1347,4 @@ internal static class AzureSandboxContainerDeployment
 
     private sealed record AzureDeploymentState(string SubscriptionId, string ResourceGroup, string Location);
 
-    private sealed record AcaCommandContext(string SubscriptionId, string ResourceGroup, string Region, string SandboxGroup);
 }

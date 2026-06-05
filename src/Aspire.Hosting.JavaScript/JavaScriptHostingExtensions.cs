@@ -843,6 +843,7 @@ public static class JavaScriptHostingExtensions
         builder.WithEnvironment(ctx =>
         {
             ctx.EnvironmentVariables["YARP_ENABLE_STATIC_FILES"] = "true";
+            ctx.EnvironmentVariables["ASPNETCORE_URLS"] = "http://0.0.0.0:5000";
 
             if (apiPath is not null && apiTarget is not null)
             {
