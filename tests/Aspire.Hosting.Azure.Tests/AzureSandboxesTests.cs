@@ -586,6 +586,33 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public async Task SandboxEndpointResolutionSupportsSameSandboxGroupReferences()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+
+        var sandboxGroup = builder.AddAzureSandboxGroup("sandboxes");
+        var api = builder.AddContainer("api", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 8080)
+            .WithExternalHttpEndpoints()
+            .PublishAsSandbox(sandboxGroup);
+
+        builder.AddContainer("frontend", "mcr.microsoft.com/dotnet/runtime-deps", "10.0")
+            .WithHttpEndpoint(targetPort: 3000)
+            .WithExternalHttpEndpoints()
+            .PublishAsSandbox(sandboxGroup);
+
+        using var app = builder.Build();
+        await AzureManifestUtils.ExecuteBeforeStartHooksAsync(app, default);
+
+        Assert.True(AzureSandboxContainerDeployment.TryResolveEndpointReferenceValue(api.GetEndpoint("http"), sandboxGroup.Resource, out var urlExpression));
+        Assert.Equal("{api-sandbox-container.endpoints.http.url}", urlExpression.ValueExpression);
+
+        Assert.True(AzureSandboxContainerDeployment.TryResolveEndpointReferenceValue(api.GetEndpoint("http").Property(EndpointProperty.TargetPort), sandboxGroup.Resource, out var targetPortExpression));
+        Assert.Equal("{api-sandbox-container.endpoints.http.targetport}", targetPortExpression.ValueExpression);
+        Assert.Equal("8080", await targetPortExpression.GetValueAsync(default));
+    }
+
+    [Fact]
     public async Task SandboxContainerEndpointResolutionRejectsUnknownEndpointOptions()
     {
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);

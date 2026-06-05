@@ -5,6 +5,7 @@
 #pragma warning disable ASPIREPIPELINES002
 #pragma warning disable ASPIREPIPELINES004
 #pragma warning disable ASPIREAZURE001
+#pragma warning disable ASPIRECOMPUTE002
 #pragma warning disable ASPIRECONTAINERRUNTIME001
 
 using System.Diagnostics.CodeAnalysis;
@@ -800,11 +801,19 @@ internal static class AzureSandboxContainerDeployment
 
     internal static bool TryResolveEndpointReferenceValue(EndpointReference endpointReference, IComputeEnvironmentResource? currentComputeEnvironment, [NotNullWhen(true)] out ReferenceExpression? expression)
     {
-        return ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(endpointReference, [currentComputeEnvironment], out expression);
+        return TryResolveEndpointReferenceValue(endpointReference.Property(EndpointProperty.Url), currentComputeEnvironment, out expression);
     }
 
     internal static bool TryResolveEndpointReferenceValue(EndpointReferenceExpression endpointReferenceExpression, IComputeEnvironmentResource? currentComputeEnvironment, [NotNullWhen(true)] out ReferenceExpression? expression)
     {
+        if (currentComputeEnvironment is AzureSandboxGroupResource sandboxGroup &&
+            ComputeEnvironmentEndpointResolver.TryGetEffectiveComputeEnvironment(endpointReferenceExpression.Endpoint.Resource, out var owningComputeEnvironment) &&
+            ReferenceEquals(owningComputeEnvironment, sandboxGroup))
+        {
+            expression = sandboxGroup.GetEndpointPropertyExpression(endpointReferenceExpression);
+            return true;
+        }
+
         return ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(endpointReferenceExpression, [currentComputeEnvironment], out expression);
     }
 
