@@ -5678,7 +5678,7 @@ export interface InteractionInputLoadContext {
     /**
      * Gets the current value of an input in the prompt by name.
      * @param inputName The name of the input to read.
-     * @returns The input value, or `null` when the input has no value or does not exist.
+     * @returns The input value, or an empty string when the input has no value or no input with that name exists.
      */
     getInputValue(inputName: string): Promise<string>;
     /**
@@ -5702,7 +5702,7 @@ export interface InteractionInputLoadContextPromise extends PromiseLike<Interact
     /**
      * Gets the current value of an input in the prompt by name.
      * @param inputName The name of the input to read.
-     * @returns The input value, or `null` when the input has no value or does not exist.
+     * @returns The input value, or an empty string when the input has no value or no input with that name exists.
      */
     getInputValue(inputName: string): Promise<string>;
     /**
@@ -5743,7 +5743,7 @@ class InteractionInputLoadContextImpl implements InteractionInputLoadContext {
     /**
      * Gets the current value of an input in the prompt by name.
      * @param inputName The name of the input to read.
-     * @returns The input value, or `null` when the input has no value or does not exist.
+     * @returns The input value, or an empty string when the input has no value or no input with that name exists.
      */
     async getInputValue(inputName: string): Promise<string> {
         const rpcArgs: Record<string, unknown> = { context: this._handle, inputName };

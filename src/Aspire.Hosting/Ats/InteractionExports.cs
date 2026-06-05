@@ -141,7 +141,8 @@ internal static class InteractionExports
         var interactionInputs = new InteractionInput[inputs.Length];
         for (var i = 0; i < inputs.Length; i++)
         {
-            interactionInputs[i] = inputs[i].Input;
+            var input = inputs[i] ?? throw new ArgumentException($"The input at index {i} cannot be null.", nameof(inputs));
+            interactionInputs[i] = input.Input;
         }
 
         var result = await interactionService.PromptInputsAsync(title, message, interactionInputs, BuildDialogOptions(options, validationCallback), cancellationToken).ConfigureAwait(false);
@@ -388,13 +389,13 @@ internal sealed class InteractionInputLoadContext
     /// Gets the current value of an input in the prompt by name.
     /// </summary>
     /// <param name="inputName">The name of the input to read.</param>
-    /// <returns>The input value, or <see langword="null"/> when the input has no value or does not exist.</returns>
+    /// <returns>The input value, or an empty string when the input has no value or no input with that name exists.</returns>
     [AspireExport]
-    public string? GetInputValue(string inputName)
+    public string GetInputValue(string inputName)
     {
         ArgumentNullException.ThrowIfNull(inputName);
 
-        return _inner.AllInputs.TryGetByName(inputName, out var input) ? input.Value : null;
+        return _inner.AllInputs.TryGetByName(inputName, out var input) ? input.Value ?? string.Empty : string.Empty;
     }
 
     /// <summary>
