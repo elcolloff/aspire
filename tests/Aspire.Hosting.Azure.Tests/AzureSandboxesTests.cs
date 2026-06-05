@@ -394,6 +394,23 @@ public class AzureSandboxesTests
     }
 
     [Fact]
+    public void SandboxUrlSummaryIncludesRetainedUrlWhenDifferent()
+    {
+        var currentUrl = "https://current--8080.westus3.adcproxy.io/";
+        var retainedUrl = "https://previous--8080.westus3.adcproxy.io/";
+
+        Assert.Equal(
+            $"Current: [{currentUrl}]({currentUrl}); retained for references configured before sandbox deployment: [{retainedUrl}]({retainedUrl})",
+            AzureSandboxContainerDeployment.CreateSandboxUrlSummary(currentUrl, retainedUrl));
+        Assert.Equal(
+            $"[{currentUrl}]({currentUrl})",
+            AzureSandboxContainerDeployment.CreateSandboxUrlSummary(currentUrl, currentUrl));
+        Assert.Equal(
+            $"[{currentUrl}]({currentUrl})",
+            AzureSandboxContainerDeployment.CreateSandboxUrlSummary(currentUrl, retainedUrl: null));
+    }
+
+    [Fact]
     public async Task AzureDevComputeClientRetriesForbiddenResponses()
     {
         var attempts = 0;

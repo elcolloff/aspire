@@ -242,7 +242,7 @@ internal static class AzureSandboxContainerDeployment
 
             if (portStates.FirstOrDefault() is JsonObject firstPort && firstPort["Url"]?.GetValue<string>() is { } publicUrl)
             {
-                context.Summary.Add(resource.Name, new MarkdownString($"[{publicUrl}]({publicUrl})"));
+                context.Summary.Add(resource.Name, new MarkdownString(CreateSandboxUrlSummary(publicUrl, GetFirstStateUrl(previousStateSection))));
             }
             else
             {
@@ -1094,6 +1094,35 @@ internal static class AzureSandboxContainerDeployment
         return sectionName.StartsWith(SandboxStateSectionPrefix, StringComparison.Ordinal)
             ? sectionName[SandboxStateSectionPrefix.Length..]
             : sectionName;
+    }
+
+    internal static string CreateSandboxUrlSummary(string currentUrl, string? retainedUrl)
+    {
+        if (string.IsNullOrWhiteSpace(retainedUrl) ||
+            string.Equals(currentUrl, retainedUrl, StringComparison.Ordinal))
+        {
+            return $"[{currentUrl}]({currentUrl})";
+        }
+
+        return $"Current: [{currentUrl}]({currentUrl}); retained for references configured before sandbox deployment: [{retainedUrl}]({retainedUrl})";
+    }
+
+    private static string? GetFirstStateUrl(DeploymentStateSection stateSection)
+    {
+        if (stateSection.Data["Ports"] is not JsonArray ports)
+        {
+            return null;
+        }
+
+        foreach (var port in ports.OfType<JsonObject>())
+        {
+            if (port["Url"]?.GetValue<string>() is { Length: > 0 } url)
+            {
+                return url;
+            }
+        }
+
+        return null;
     }
 
     private static IReadOnlySet<string> GetExcludedDeployIds(string deployId, DeploymentStateSection previousStateSection)
