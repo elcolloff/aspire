@@ -11,6 +11,7 @@ using Aspire.Hosting.Azure.Provisioning.Internal;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Utils;
 using Azure.Core;
+using Azure.Provisioning.Authorization;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -153,6 +154,22 @@ public class AzureBicepProvisionerTests
         PopulateWellKnownParameters(resource, context);
 
         Assert.Equal(principalId, resource.Parameters[AzureBicepResource.KnownParameters.UserPrincipalId]);
+    }
+
+    [Fact]
+    public void PopulateWellKnownParameters_BindsPrincipalTypeFromCurrentPrincipal()
+    {
+        var resource = new AzureBicepResource("sandbox-group", templateString: "output id string = 'ok'");
+        resource.Parameters[AzureBicepResource.KnownParameters.UserPrincipalId] = null;
+        resource.Parameters[AzureBicepResource.KnownParameters.PrincipalType] = null;
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            principal: new UserPrincipal(Guid.NewGuid(), "app", RoleManagementPrincipalType.ServicePrincipal),
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish));
+
+        PopulateWellKnownParameters(resource, context);
+
+        Assert.Equal("ServicePrincipal", resource.Parameters[AzureBicepResource.KnownParameters.PrincipalType]);
     }
 
     [Fact]

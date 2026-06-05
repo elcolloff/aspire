@@ -3,6 +3,8 @@ param location string = resourceGroup().location
 
 param userPrincipalId string
 
+param principalType string
+
 param gateway_principalId string
 
 resource hostgroup 'Microsoft.App/sandboxGroups@2026-02-01-preview' = {
@@ -18,7 +20,7 @@ resource hostgroup_deploymentPrincipalDataOwner 'Microsoft.Authorization/roleAss
   properties: {
     principalId: userPrincipalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'c24cf47c-5077-412d-a19c-45202126392c')
-    principalType: 'User'
+    principalType: principalType
   }
   scope: hostgroup
 }

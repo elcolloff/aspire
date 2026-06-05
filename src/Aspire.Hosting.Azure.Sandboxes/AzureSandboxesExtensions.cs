@@ -620,14 +620,16 @@ public static class AzureSandboxesExtensions
         var role = AzureSandboxGroupBuiltInRole.SandboxGroupDataOwner;
         var roleId = role.ToString();
         var principalId = new ProvisioningParameter(AzureBicepResource.KnownParameters.UserPrincipalId, typeof(Guid));
+        var principalType = new ProvisioningParameter(AzureBicepResource.KnownParameters.PrincipalType, typeof(string));
         infrastructure.Add(principalId);
+        infrastructure.Add(principalType);
 
         // Sandbox deployment creates disk images, sandboxes, lifecycle settings, and public
         // ports through the Azure Dev Compute data-plane API after the sandbox group ARM
         // resource is provisioned. Model the deployment-principal grant in the sandbox
         // group's own Azure.Provisioning module, just like other Azure deployment targets
         // model environment-owned RBAC in their environment resource. The publish pipeline
-        // wires this well-known userPrincipalId parameter from the outer Azure environment,
+        // wires these well-known principal parameters from the outer Azure environment,
         // while direct `aspire deploy` fills it from the current Azure principal.
         // https://learn.microsoft.com/azure/templates/microsoft.authorization/2022-04-01/roleassignments
         infrastructure.Add(new RoleAssignment($"{sandboxGroup.BicepIdentifier}_deploymentPrincipalDataOwner")
@@ -637,7 +639,7 @@ public static class AzureSandboxesExtensions
                 principalId,
                 BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)),
             Scope = new IdentifierExpression(sandboxGroup.BicepIdentifier),
-            PrincipalType = RoleManagementPrincipalType.User,
+            PrincipalType = principalType,
             PrincipalId = principalId,
             RoleDefinitionId = BicepFunction.GetSubscriptionResourceId("Microsoft.Authorization/roleDefinitions", roleId)
         });

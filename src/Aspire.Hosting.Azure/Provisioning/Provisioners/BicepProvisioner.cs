@@ -357,9 +357,12 @@ internal sealed class BicepProvisioner(
 
         if (resource.Parameters.TryGetValue(AzureBicepResource.KnownParameters.PrincipalType, out var principalType) && principalType is null)
         {
-            ValidateUnknownPrincipalParameter(context);
+            if (!resource.Parameters.ContainsKey(AzureBicepResource.KnownParameters.UserPrincipalId))
+            {
+                ValidateUnknownPrincipalParameter(context);
+            }
 
-            resource.Parameters[AzureBicepResource.KnownParameters.PrincipalType] = "User";
+            resource.Parameters[AzureBicepResource.KnownParameters.PrincipalType] = context.Principal.Type.ToString();
         }
 
         // Always specify the location

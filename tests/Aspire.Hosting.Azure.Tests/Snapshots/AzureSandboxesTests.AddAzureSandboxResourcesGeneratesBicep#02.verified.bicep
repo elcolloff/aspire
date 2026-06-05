@@ -3,6 +3,8 @@ param location string = resourceGroup().location
 
 param userPrincipalId string
 
+param principalType string
+
 resource workergroup 'Microsoft.App/sandboxGroups@2026-02-01-preview' = {
   name: take('workergroup${uniqueString(resourceGroup().id)}', 24)
   location: resourceGroup().location
@@ -16,7 +18,7 @@ resource workergroup_deploymentPrincipalDataOwner 'Microsoft.Authorization/roleA
   properties: {
     principalId: userPrincipalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'c24cf47c-5077-412d-a19c-45202126392c')
-    principalType: 'User'
+    principalType: principalType
   }
   scope: workergroup
 }

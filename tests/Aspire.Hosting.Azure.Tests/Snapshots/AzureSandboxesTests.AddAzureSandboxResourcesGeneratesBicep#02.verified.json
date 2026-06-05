@@ -2,6 +2,7 @@
   "type": "azure.bicep.v0",
   "path": "workergroup.module.bicep",
   "params": {
-    "userPrincipalId": ""
+    "userPrincipalId": "",
+    "principalType": ""
   }
 }
