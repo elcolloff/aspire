@@ -179,7 +179,12 @@ internal abstract partial class BaseProvisioningContextProvider(
 
         var principal = await _userPrincipalProvider.GetUserPrincipalAsync(cancellationToken).ConfigureAwait(false);
 
-        await SaveProvisioningOptionsAsync(resourceGroupName, azureStateSection, cancellationToken).ConfigureAwait(false);
+        await SaveProvisioningOptionsAsync(
+            resourceGroupName,
+            tenantResource.TenantId?.ToString() ?? _options.TenantId,
+            tenantResource.DefaultDomain,
+            azureStateSection,
+            cancellationToken).ConfigureAwait(false);
 
         return new ProvisioningContext(
                     credential,
@@ -197,19 +202,37 @@ internal abstract partial class BaseProvisioningContextProvider(
     protected async Task SaveProvisioningOptionsAsync(string resourceGroupName, CancellationToken cancellationToken = default)
     {
         var azureStateSection = await _deploymentStateManager.AcquireSectionAsync("Azure", cancellationToken).ConfigureAwait(false);
-        await SaveProvisioningOptionsAsync(resourceGroupName, azureStateSection, cancellationToken).ConfigureAwait(false);
+        await SaveProvisioningOptionsAsync(resourceGroupName, _options.TenantId, tenantDomain: null, azureStateSection, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task SaveProvisioningOptionsAsync(string resourceGroupName, DeploymentStateSection azureStateSection, CancellationToken cancellationToken)
+    private async Task SaveProvisioningOptionsAsync(
+        string resourceGroupName,
+        string? tenantId,
+        string? tenantDomain,
+        DeploymentStateSection azureStateSection,
+        CancellationToken cancellationToken)
     {
         var azureSection = azureStateSection.Data;
         azureSection["Location"] = _options.Location;
         azureSection["SubscriptionId"] = _options.SubscriptionId;
         azureSection["ResourceGroup"] = resourceGroupName;
 
-        if (!string.IsNullOrEmpty(_options.TenantId))
+        if (!string.IsNullOrEmpty(tenantId))
         {
-            azureSection["TenantId"] = _options.TenantId;
+            azureSection["TenantId"] = tenantId;
+        }
+        else
+        {
+            azureSection.Remove("TenantId");
+        }
+
+        if (!string.IsNullOrEmpty(tenantDomain))
+        {
+            azureSection["Tenant"] = tenantDomain;
+        }
+        else
+        {
+            azureSection.Remove("Tenant");
         }
 
         if (_options.AllowResourceGroupCreation.HasValue)

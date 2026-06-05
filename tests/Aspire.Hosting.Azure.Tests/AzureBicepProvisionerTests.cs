@@ -17,7 +17,6 @@ using Azure.ResourceManager.Resources;
 using Azure.ResourceManager.Resources.Models;
 using Azure.Security.KeyVault.Secrets;
 using System.Text.Json.Nodes;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -207,13 +206,45 @@ public class AzureBicepProvisionerTests
     }
 
     [Fact]
-    public async Task ConfigureResourceAsync_DoesNotReuseOverrideOnlyDeploymentState()
+    public async Task GetOrCreateResourceAsync_PublishesSubscriptionScopedPredictedDeploymentIdAndUrlWhileWaiting()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
         builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
         using var services = builder.Services.BuildServiceProvider();
 
-        var configuration = new ConfigurationBuilder().Build();
+        var resource = new AzureBicepResource("subscriptionDeployment", templateString: "output name string = 'subscriptionDeployment'")
+        {
+            Scope = new("test-rg", "test-subscription")
+        };
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            services.GetRequiredService<IDeploymentStateManager>(),
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(subscription: new WaitingThrowingSubscriptionResource());
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        var notifications = services.GetRequiredService<ResourceNotificationService>();
+        Assert.True(notifications.TryGetCurrentState(resource.Name, out var resourceEvent));
+        var expectedDeploymentId = "/subscriptions/12345678-1234-1234-1234-123456789012/providers/Microsoft.Resources/deployments/subscriptionDeployment";
+        Assert.Equal("87654321-4321-4321-4321-210987654321", resourceEvent.Snapshot.Properties.Single(p => p.Name == "azure.tenant.id").Value?.ToString());
+        Assert.Equal(expectedDeploymentId, resourceEvent.Snapshot.Properties.Single(p => p.Name == CustomResourceKnownProperties.Source).Value?.ToString());
+        Assert.Equal(BicepProvisioner.GetDeploymentUrl(new ResourceIdentifier(expectedDeploymentId)), resourceEvent.Snapshot.Urls.Single(u => u.Name == "deployment").Url);
+    }
+
+    [Fact]
+    public async Task ConfigureResourceAsync_DoesNotReuseOverrideOnlyDeploymentState()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
 
         var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
         var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
@@ -232,35 +263,32 @@ public class AzureBicepProvisionerTests
             services.GetRequiredService<IFileSystemService>(),
             NullLogger<BicepProvisioner>.Instance);
 
-        var reused = await provisioner.ConfigureResourceAsync(configuration, resource, CancellationToken.None);
+        var reused = await provisioner.ConfigureResourceAsync(resource, CancellationToken.None);
 
         Assert.False(reused);
         Assert.Empty(resource.Outputs);
     }
 
     [Fact]
-    public async Task ConfigureResourceAsync_PublishesAzureIdentityPropertiesFromCachedDeploymentState()
+    public async Task ConfigureResourceAsync_PublishesAzureIdentityPropertiesFromDeploymentState()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
         builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
         using var services = builder.Services.BuildServiceProvider();
-
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012",
-                ["Azure:ResourceGroup"] = "test-rg",
-                ["Azure:TenantId"] = "87654321-4321-4321-4321-210987654321",
-                ["Azure:Tenant"] = "microsoft.onmicrosoft.com",
-                ["Azure:Location"] = "westus2"
-            })
-            .Build();
 
         var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
         var parameters = new JsonObject();
         var checksum = BicepUtilities.GetChecksum(resource, parameters, scope: null);
 
         var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var azureSection = await deploymentStateManager.AcquireSectionAsync("Azure", CancellationToken.None);
+        azureSection.Data["SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        azureSection.Data["ResourceGroup"] = "test-rg";
+        azureSection.Data["TenantId"] = "87654321-4321-4321-4321-210987654321";
+        azureSection.Data["Tenant"] = "microsoft.onmicrosoft.com";
+        azureSection.Data["Location"] = "westus2";
+        await deploymentStateManager.SaveSectionAsync(azureSection, CancellationToken.None);
+
         var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
         section.Data["Id"] = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Resources/deployments/storage2";
         section.Data["Parameters"] = parameters.ToJsonString();
@@ -278,7 +306,7 @@ public class AzureBicepProvisionerTests
             services.GetRequiredService<IFileSystemService>(),
             NullLogger<BicepProvisioner>.Instance);
 
-        var reused = await provisioner.ConfigureResourceAsync(configuration, resource, CancellationToken.None);
+        var reused = await provisioner.ConfigureResourceAsync(resource, CancellationToken.None);
 
         Assert.True(reused);
 
@@ -513,6 +541,58 @@ public class AzureBicepProvisionerTests
             await Task.CompletedTask;
             yield break;
         }
+    }
+
+    private sealed class WaitingThrowingSubscriptionResource : ISubscriptionResource
+    {
+        public ResourceIdentifier Id { get; } = new("/subscriptions/12345678-1234-1234-1234-123456789012");
+
+        public string? DisplayName => "Test Subscription";
+
+        public Guid? TenantId => Guid.Parse("87654321-4321-4321-4321-210987654321");
+
+        public IResourceGroupCollection GetResourceGroups() => new TestResourceGroupCollection();
+
+        public IArmDeploymentCollection GetArmDeployments() => new WaitingThrowingArmDeploymentCollection();
+    }
+
+    private sealed class WaitingThrowingArmDeploymentCollection : IArmDeploymentCollection
+    {
+        public Task<ArmOperation<ArmDeploymentResource>> CreateOrUpdateAsync(
+            WaitUntil waitUntil,
+            string deploymentName,
+            ArmDeploymentContent content,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<ArmOperation<ArmDeploymentResource>>(new WaitingThrowingArmDeploymentOperation());
+    }
+
+    private sealed class WaitingThrowingArmDeploymentOperation : ArmOperation<ArmDeploymentResource>
+    {
+        public override string Id { get; } = Guid.NewGuid().ToString();
+
+        public override ArmDeploymentResource Value => throw new InvalidOperationException("The deployment did not complete successfully.");
+
+        public override bool HasCompleted => false;
+
+        public override bool HasValue => false;
+
+        public override Response GetRawResponse() => new MockResponse(200);
+
+        public override Response UpdateStatus(CancellationToken cancellationToken = default) => new MockResponse(200);
+
+        public override ValueTask<Response> UpdateStatusAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult<Response>(new MockResponse(200));
+
+        public override ValueTask<Response<ArmDeploymentResource>> WaitForCompletionAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<Response<ArmDeploymentResource>>(new RequestFailedException(409, "Deployment wait failed."));
+
+        public override ValueTask<Response<ArmDeploymentResource>> WaitForCompletionAsync(TimeSpan pollingInterval, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<Response<ArmDeploymentResource>>(new RequestFailedException(409, "Deployment wait failed."));
+
+        public override Response<ArmDeploymentResource> WaitForCompletion(CancellationToken cancellationToken = default) =>
+            throw new RequestFailedException(409, "Deployment wait failed.");
+
+        public override Response<ArmDeploymentResource> WaitForCompletion(TimeSpan pollingInterval, CancellationToken cancellationToken = default) =>
+            throw new RequestFailedException(409, "Deployment wait failed.");
     }
 
     private sealed class ThrowingArmDeploymentCollection : IArmDeploymentCollection

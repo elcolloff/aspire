@@ -48,7 +48,8 @@ namespace Aspire.Hosting.Azure;
 /// <para>
 /// The controller tracks lightweight in-memory state (AzureControllerState) under a lock. This state drives
 /// command enablement in the dashboard (commands are disabled while an operation targeting the same resources
-/// is running) and provides the Azure identity properties shown on the AzureEnvironmentResource.
+/// is running). Azure identity properties shown on the AzureEnvironmentResource are read from persisted
+/// context when the environment state is published.
 /// </para>
 /// <para>
 /// Location overrides let a user deploy a single resource to a different Azure region. Overrides are persisted
@@ -403,7 +404,8 @@ internal sealed class AzureProvisioningController(
             throw new MissingConfigurationException("Azure resource location can't be changed because the interaction service is unavailable.");
         }
 
-        var currentLocation = await GetEffectiveResourceLocationAsync(resourceName, cancellationToken).ConfigureAwait(false);
+        var targetResources = GetTargetAzureResources(model, resourceName);
+        var currentLocation = await GetEffectiveResourceLocationAsync(GetDeploymentStateResourceName(targetResources[0]), cancellationToken).ConfigureAwait(false);
         var locationOptions = await GetLocationOptionsAsync(cancellationToken).ConfigureAwait(false);
         var useChoiceInput = locationOptions.Count > 0;
 
@@ -524,7 +526,7 @@ internal sealed class AzureProvisioningController(
             SubscriptionId: arguments.GetString(SubscriptionIdArgumentName),
             ResourceGroup: arguments.GetString(ResourceGroupArgumentName),
             Location: location,
-            TenantId: arguments.GetString(TenantIdArgumentName));
+            TenantId: arguments.TryGetByName(TenantIdArgumentName, out var tenantInput) ? tenantInput.Value : null);
 
         return await ChangeAzureContextAsync(model, options, cancellationToken).ConfigureAwait(false);
     }
@@ -647,7 +649,8 @@ internal sealed class AzureProvisioningController(
         DistributedApplicationModel model,
         IReadOnlyCollection<(IResource Resource, IAzureResource AzureResource)> azureResources,
         bool preserveOverrides,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preserveInferredLocationOverrides = true)
     {
         var parentChildLookup = model.Resources.OfType<IResourceWithParent>().ToLookup(r => r.Parent);
         var environmentLocation = preserveOverrides
@@ -661,7 +664,7 @@ internal sealed class AzureProvisioningController(
                 continue;
             }
 
-            var currentLocationOverride = preserveOverrides
+            var currentLocationOverride = preserveOverrides && preserveInferredLocationOverrides
                 ? TryGetCurrentResourceLocationOverride(bicepResource, environmentLocation)
                 : null;
 
@@ -669,8 +672,12 @@ internal sealed class AzureProvisioningController(
             {
                 bicepResource.Parameters[AzureBicepResource.KnownParameters.Location] = currentLocationOverride;
             }
+            else if (!preserveOverrides || !preserveInferredLocationOverrides)
+            {
+                bicepResource.Parameters.Remove(AzureBicepResource.KnownParameters.Location);
+            }
 
-            await ClearCachedDeploymentStateAsync(bicepResource, preserveOverrides, environmentLocation, currentLocationOverride, cancellationToken).ConfigureAwait(false);
+            await ClearCachedDeploymentStateAsync(bicepResource, preserveOverrides, environmentLocation, currentLocationOverride, preserveInferredLocationOverrides, cancellationToken).ConfigureAwait(false);
 
             bicepResource.Outputs.Clear();
             bicepResource.SecretOutputs.Clear();
@@ -994,7 +1001,7 @@ internal sealed class AzureProvisioningController(
             await provisioningOptionsManager.ApplyProvisioningOptionsAsync(intent.Options, cancellationToken).ConfigureAwait(false);
         }
 
-        await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken).ConfigureAwait(false);
+        await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken, preserveInferredLocationOverrides: false).ConfigureAwait(false);
         await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
         return await EnsureProvisionedCoreAsync(model, GetProvisionableAzureResources(model), cancellationToken).ConfigureAwait(false);
     }
@@ -1020,14 +1027,50 @@ internal sealed class AzureProvisioningController(
             new ResourceStateSnapshot("Deleting", KnownResourceStateStyles.Info),
             cancellationToken).ConfigureAwait(false);
 
-        var provisioningContext = await provisioningContextProvider.CreateProvisioningContextAsync(cancellationToken).ConfigureAwait(false);
-        await provisioningContext.ResourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken).ConfigureAwait(false);
+        var resourceGroupName = await DeleteCurrentResourceGroupIfExistsAsync(cancellationToken).ConfigureAwait(false);
 
         await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken).ConfigureAwait(false);
         await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Deleted Azure resource group {ResourceGroup}.", provisioningContext.ResourceGroup.Name);
+        if (string.IsNullOrEmpty(resourceGroupName))
+        {
+            _logger.LogInformation("Azure deployment state reset without deleting a resource group because no Azure resource group was configured.");
+        }
+        else
+        {
+            _logger.LogInformation("Azure resource group {ResourceGroup} was deleted or was already absent.", resourceGroupName);
+        }
+
         return null;
+    }
+
+    private async Task<string?> DeleteCurrentResourceGroupIfExistsAsync(CancellationToken cancellationToken)
+    {
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure", cancellationToken).ConfigureAwait(false);
+        var subscriptionId = section.Data["SubscriptionId"]?.GetValue<string>();
+        var resourceGroupName = section.Data["ResourceGroup"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(subscriptionId) ||
+            string.IsNullOrWhiteSpace(resourceGroupName))
+        {
+            return null;
+        }
+
+        var armClientProvider = serviceProvider.GetRequiredService<IArmClientProvider>();
+        var tokenCredentialProvider = serviceProvider.GetRequiredService<ITokenCredentialProvider>();
+        var armClient = armClientProvider.GetArmClient(tokenCredentialProvider.TokenCredential, subscriptionId);
+        var (subscription, _) = await armClient.GetSubscriptionAndTenantAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            var response = await subscription.GetResourceGroups().GetAsync(resourceGroupName, cancellationToken).ConfigureAwait(false);
+            await response.Value.DeleteAsync(WaitUntil.Completed, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            _logger.LogInformation("Azure resource group {ResourceGroup} was already absent.", resourceGroupName);
+        }
+
+        return resourceGroupName;
     }
 
     private async Task<bool> ExecuteChangeResourceLocationAsync(DistributedApplicationModel model, ChangeResourceLocationIntent intent, CancellationToken cancellationToken)
@@ -1036,9 +1079,8 @@ internal sealed class AzureProvisioningController(
         if (targetResources[0].AzureResource is AzureBicepResource targetBicepResource)
         {
             await DeleteCachedResourceForLocationChangeAsync(targetBicepResource, intent.Location, cancellationToken).ConfigureAwait(false);
+            await SetResourceLocationOverrideAsync(targetBicepResource.Name, intent.Location, cancellationToken).ConfigureAwait(false);
         }
-
-        await SetResourceLocationOverrideAsync(intent.ResourceName, intent.Location, cancellationToken).ConfigureAwait(false);
         await ResetResourcesAsync(model, targetResources, preserveOverrides: true, cancellationToken).ConfigureAwait(false);
         return await EnsureProvisionedCoreAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
     }
@@ -1135,14 +1177,8 @@ internal sealed class AzureProvisioningController(
         }
     }
 
-    private AzureControllerState CreateControllerState(AzureIntent? currentIntent)
-        => new(CreateControllerSpec(), new AzureControllerStatus(currentIntent));
-
-    private AzureControllerSpec CreateControllerSpec()
-    {
-        var options = provisionerOptions.Value;
-        return new(options.SubscriptionId, options.ResourceGroup, options.Location, options.TenantId);
-    }
+    private static AzureControllerState CreateControllerState(AzureIntent? currentIntent)
+        => new(new AzureControllerStatus(currentIntent));
 
     private static async Task<ExecuteCommandResult> ExecuteCommandAsync(Func<Task> action, string successMessage, Func<Task<CommandResultData>> createResultData)
     {
@@ -1181,8 +1217,9 @@ internal sealed class AzureProvisioningController(
     private async Task<CommandResultData> CreateResourceCommandResultDataAsync(string commandName, DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken)
     {
         var json = await CreateCommandResultJsonAsync(commandName, resourceName, cancellationToken).ConfigureAwait(false);
-        json["resourceCount"] = GetTargetAzureResources(model, resourceName).Count;
-        json["location"] = await GetEffectiveResourceLocationAsync(resourceName, cancellationToken).ConfigureAwait(false);
+        var targetResources = GetTargetAzureResources(model, resourceName);
+        json["resourceCount"] = targetResources.Count;
+        json["location"] = await GetEffectiveResourceLocationAsync(GetDeploymentStateResourceName(targetResources[0]), cancellationToken).ConfigureAwait(false);
         return CreateJsonResultData(json);
     }
 
@@ -1196,7 +1233,7 @@ internal sealed class AzureProvisioningController(
         var targetResource = targetResources[0];
         var json = await CreateCommandResultJsonAsync(GetAzureResourceCommandName, resourceName, cancellationToken).ConfigureAwait(false);
         json["resourceCount"] = targetResources.Count;
-        json["location"] = await GetEffectiveResourceLocationAsync(resourceName, cancellationToken).ConfigureAwait(false);
+        json["location"] = await GetEffectiveResourceLocationAsync(GetDeploymentStateResourceName(targetResource), cancellationToken).ConfigureAwait(false);
 
         if (targetResource.AzureResource is AzureBicepResource bicepResource)
         {
@@ -1400,6 +1437,9 @@ internal sealed class AzureProvisioningController(
         await deploymentStateManager.SaveSectionAsync(section, cancellationToken).ConfigureAwait(false);
     }
 
+    private static string GetDeploymentStateResourceName((IResource Resource, IAzureResource AzureResource) resource)
+        => resource.AzureResource is AzureBicepResource bicepResource ? bicepResource.Name : resource.Resource.Name;
+
     private string? TryGetCurrentResourceLocationOverride(AzureBicepResource resource, string? environmentLocation)
     {
         var currentLocationValue = TryGetCurrentResourceLocation(resource);
@@ -1435,7 +1475,7 @@ internal sealed class AzureProvisioningController(
 
     private string? TryGetPreservedLocationOverride(AzureBicepResource resource, DeploymentStateSection section, string? environmentLocation)
     {
-        if (section.Data[LocationOverrideKey]?.GetValue<string>() is { Length: > 0 } locationOverride)
+        if (TryGetExplicitLocationOverride(section) is { } locationOverride)
         {
             return locationOverride;
         }
@@ -1466,6 +1506,9 @@ internal sealed class AzureProvisioningController(
 
         return TryGetCurrentResourceLocationOverride(resource, environmentLocation);
     }
+
+    private static string? TryGetExplicitLocationOverride(DeploymentStateSection section)
+        => section.Data[LocationOverrideKey]?.GetValue<string>() is { Length: > 0 } locationOverride ? locationOverride : null;
 
     private static string NormalizeLocation(string location, IReadOnlyList<KeyValuePair<string, string>> locationOptions)
     {
@@ -1660,11 +1703,14 @@ internal sealed class AzureProvisioningController(
         bool preserveOverrides,
         string? environmentLocation,
         string? currentLocationOverride,
+        bool preserveInferredLocationOverrides,
         CancellationToken cancellationToken)
     {
         var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{resource.Name}", cancellationToken).ConfigureAwait(false);
         var locationOverride = preserveOverrides
-            ? currentLocationOverride ?? TryGetPreservedLocationOverride(resource, section, environmentLocation)
+            ? currentLocationOverride ?? (preserveInferredLocationOverrides
+                ? TryGetPreservedLocationOverride(resource, section, environmentLocation)
+                : TryGetExplicitLocationOverride(section))
             : null;
 
         section.Data.Clear();
@@ -1876,10 +1922,11 @@ internal sealed class AzureProvisioningController(
                         preserveOverrides: true,
                         environmentLocation: (await GetCurrentAzureContextAsync(cancellationToken).ConfigureAwait(false)).Location,
                         currentLocationOverride: null,
+                        preserveInferredLocationOverrides: true,
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                if (await bicepProvisioner.ConfigureResourceAsync(configuration, bicepResource, cancellationToken).ConfigureAwait(false))
+                if (await bicepProvisioner.ConfigureResourceAsync(bicepResource, cancellationToken).ConfigureAwait(false))
                 {
                     CompleteProvisioning(resource.AzureResource);
                     resourceLogger.LogInformation("Using connection information stored in user secrets for {resourceName}.", resource.AzureResource.Name);
@@ -2045,19 +2092,23 @@ internal sealed class AzureProvisioningController(
     private async Task PublishAzureEnvironmentStateAsync(
         DistributedApplicationModel model,
         ResourceStateSnapshot state,
-        CancellationToken _)
+        CancellationToken cancellationToken)
     {
         if (model.Resources.OfType<AzureEnvironmentResource>().SingleOrDefault() is not { } azureEnvironmentResource)
         {
             return;
         }
 
+        var azureEnvironmentProperties = state.Text == KnownResourceStates.NotStarted
+            ? ImmutableArray<ResourcePropertySnapshot>.Empty
+            : BuildAzureEnvironmentProperties(await GetCurrentAzureContextAsync(cancellationToken).ConfigureAwait(false));
+
         await notificationService.PublishUpdateAsync(azureEnvironmentResource, existingState => existingState with
         {
             State = state,
             Properties = state.Text == KnownResourceStates.NotStarted
                 ? FilterProperties(existingState.Properties)
-                : FilterProperties(existingState.Properties).SetResourcePropertyRange(BuildAzureEnvironmentProperties(ReadControllerState().Spec)),
+                : FilterProperties(existingState.Properties).SetResourcePropertyRange(azureEnvironmentProperties),
             Urls = state.Text == KnownResourceStates.NotStarted ? [] : existingState.Urls,
             CreationTimeStamp = state.Text == KnownResourceStates.NotStarted ? null : existingState.CreationTimeStamp,
             StartTimeStamp = state.Text == KnownResourceStates.NotStarted ? null : existingState.StartTimeStamp,
@@ -2070,36 +2121,28 @@ internal sealed class AzureProvisioningController(
         }
     }
 
-    private AzureControllerState ReadControllerState()
-    {
-        lock (_operationStateLock)
-        {
-            return _state;
-        }
-    }
-
-    private static ImmutableArray<ResourcePropertySnapshot> BuildAzureEnvironmentProperties(AzureControllerSpec spec)
+    private static ImmutableArray<ResourcePropertySnapshot> BuildAzureEnvironmentProperties(AzureContextState context)
     {
         var properties = ImmutableArray<ResourcePropertySnapshot>.Empty;
 
-        if (!string.IsNullOrEmpty(spec.SubscriptionId))
+        if (!string.IsNullOrEmpty(context.SubscriptionId))
         {
-            properties = properties.SetResourceProperty("azure.subscription.id", spec.SubscriptionId);
+            properties = properties.SetResourceProperty("azure.subscription.id", context.SubscriptionId);
         }
 
-        if (!string.IsNullOrEmpty(spec.ResourceGroup))
+        if (!string.IsNullOrEmpty(context.ResourceGroup))
         {
-            properties = properties.SetResourceProperty("azure.resource.group", spec.ResourceGroup);
+            properties = properties.SetResourceProperty("azure.resource.group", context.ResourceGroup);
         }
 
-        if (!string.IsNullOrEmpty(spec.Location))
+        if (!string.IsNullOrEmpty(context.Location))
         {
-            properties = properties.SetResourceProperty("azure.location", spec.Location);
+            properties = properties.SetResourceProperty("azure.location", context.Location);
         }
 
-        if (!string.IsNullOrEmpty(spec.TenantId))
+        if (!string.IsNullOrEmpty(context.TenantId))
         {
-            properties = properties.SetResourceProperty("azure.tenant.id", spec.TenantId);
+            properties = properties.SetResourceProperty("azure.tenant.id", context.TenantId);
         }
 
         return properties;
@@ -2118,12 +2161,10 @@ internal sealed class AzureProvisioningController(
         public static AzureOperationState Resource(string resourceName, string displayName) => new(displayName, false, new HashSet<string>([resourceName], StringComparer.Ordinal));
     }
 
-    private sealed record AzureControllerState(AzureControllerSpec Spec, AzureControllerStatus Status)
+    private sealed record AzureControllerState(AzureControllerStatus Status)
     {
-        public static AzureControllerState Empty { get; } = new(new(null, null, null, null), new(null));
+        public static AzureControllerState Empty { get; } = new(new AzureControllerStatus(null));
     }
-
-    private sealed record AzureControllerSpec(string? SubscriptionId, string? ResourceGroup, string? Location, string? TenantId);
 
     private sealed record AzureControllerStatus(AzureIntent? CurrentIntent);
 

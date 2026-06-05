@@ -12,7 +12,6 @@ using Aspire.Hosting.Pipelines;
 using Azure;
 using Azure.Core;
 using Azure.ResourceManager.Resources.Models;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting.Azure.Provisioning;
@@ -30,7 +29,7 @@ internal sealed class BicepProvisioner(
     ILogger<BicepProvisioner> logger) : IBicepProvisioner
 {
     /// <inheritdoc />
-    public async Task<bool> ConfigureResourceAsync(IConfiguration configuration, AzureBicepResource resource, CancellationToken cancellationToken)
+    public async Task<bool> ConfigureResourceAsync(AzureBicepResource resource, CancellationToken cancellationToken)
     {
         var stateSection = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{resource.Name}", cancellationToken).ConfigureAwait(false);
         if (stateSection.Data.Count == 0)
@@ -54,8 +53,6 @@ internal sealed class BicepProvisioner(
         }
 
         logger.LogDebug("Configuring resource {ResourceName} from existing deployment state.", resource.Name);
-
-        var configuredLocation = GetConfiguredLocation(stateSection, configuration);
 
         if (stateSection.Data["Outputs"]?.GetValue<string>() is { Length: > 0 } outputJson)
         {
@@ -91,23 +88,28 @@ internal sealed class BicepProvisioner(
         var portalUrls = new List<UrlSnapshot>();
 
         string? deploymentId = null;
+        ResourceIdentifier? deploymentResourceId = null;
         if (stateSection.Data["Id"]?.GetValue<string>() is { Length: > 0 } configuredDeploymentId &&
             ResourceIdentifier.TryParse(configuredDeploymentId, out var id) &&
             id is not null)
         {
             deploymentId = configuredDeploymentId;
+            deploymentResourceId = id;
             portalUrls.Add(new(Name: "deployment", Url: GetDeploymentUrl(id), IsInternal: false));
         }
+
+        var azureContext = await GetCurrentAzureContextAsync(deploymentResourceId, cancellationToken).ConfigureAwait(false);
+        var configuredLocation = GetConfiguredLocation(stateSection, azureContext.Location);
 
         await notificationService.PublishUpdateAsync(resource, state =>
         {
             // Reused deployment state should expose the same Azure identity metadata as a freshly provisioned resource
             // so agents and commands can reliably locate the backing Azure deployment.
             var props = state.Properties.SetResourcePropertyRange([
-                new("azure.subscription.id", configuration["Azure:SubscriptionId"]),
-                new("azure.resource.group", configuration["Azure:ResourceGroup"]),
-                new("azure.tenant.id", configuration["Azure:TenantId"]),
-                new("azure.tenant.domain", configuration["Azure:Tenant"]),
+                new("azure.subscription.id", azureContext.SubscriptionId),
+                new("azure.resource.group", azureContext.ResourceGroup),
+                new("azure.tenant.id", azureContext.TenantId),
+                new("azure.tenant.domain", azureContext.TenantDomain),
                 new("azure.location", configuredLocation),
                 new(CustomResourceKnownProperties.Source, deploymentId)
             ]);
@@ -180,12 +182,13 @@ internal sealed class BicepProvisioner(
         var scope = new JsonObject();
         await BicepUtilities.SetScopeAsync(scope, resource, cancellationToken: cancellationToken).ConfigureAwait(false);
 
+        var isSubscriptionScopedDeployment = resource.Scope?.Subscription != null;
         // Resources with a Subscription scope should use a subscription-level deployment.
-        var deployments = resource.Scope?.Subscription != null
+        var deployments = isSubscriptionScopedDeployment
             ? context.Subscription.GetArmDeployments()
             : resourceGroup.GetArmDeployments();
         var deploymentName = executionContext.IsPublishMode ? $"{resource.Name}-{DateTimeOffset.Now.ToUnixTimeSeconds()}" : resource.Name;
-        var deploymentId = GetDeploymentId(context, resourceGroup, deploymentName);
+        var deploymentId = GetDeploymentId(context, resourceGroup, deploymentName, isSubscriptionScopedDeployment);
         var sw = Stopwatch.StartNew();
 
         await notificationService.PublishUpdateAsync(resource, state =>
@@ -210,7 +213,7 @@ internal sealed class BicepProvisioner(
         var operation = await deployments.CreateOrUpdateAsync(WaitUntil.Started, deploymentName, deploymentContent, cancellationToken).ConfigureAwait(false);
 
         // Resolve the deployment URL before waiting for the operation to complete
-        var url = GetDeploymentUrl(context, resourceGroup, resource.Name);
+        var url = GetDeploymentUrl(deploymentId);
 
         resourceLogger.LogInformation("Deployment started: {Url}", url);
 
@@ -386,20 +389,34 @@ internal sealed class BicepProvisioner(
         }
     }
 
-    private static string GetDeploymentUrl(ProvisioningContext provisioningContext, IResourceGroupResource resourceGroup, string deploymentName)
-    {
-        var subId = provisioningContext.Subscription.Id.ToString();
-        var rgName = resourceGroup.Name;
-        return AzurePortalUrls.GetDeploymentUrl(subId, rgName, deploymentName);
-    }
-
     public static string GetDeploymentUrl(ResourceIdentifier deploymentId) =>
         AzurePortalUrls.GetDeploymentUrl(deploymentId);
 
-    private static ResourceIdentifier GetDeploymentId(ProvisioningContext provisioningContext, IResourceGroupResource resourceGroup, string deploymentName)
-        => new($"{provisioningContext.Subscription.Id}/resourceGroups/{resourceGroup.Name}/providers/Microsoft.Resources/deployments/{deploymentName}");
+    private static ResourceIdentifier GetDeploymentId(ProvisioningContext provisioningContext, IResourceGroupResource resourceGroup, string deploymentName, bool isSubscriptionScopedDeployment)
+    {
+        var deploymentPath = isSubscriptionScopedDeployment
+            ? $"{provisioningContext.Subscription.Id}/providers/Microsoft.Resources/deployments/{deploymentName}"
+            : $"{provisioningContext.Subscription.Id}/resourceGroups/{resourceGroup.Name}/providers/Microsoft.Resources/deployments/{deploymentName}";
 
-    private static string GetConfiguredLocation(DeploymentStateSection section, IConfiguration configuration)
+        return new(deploymentPath);
+    }
+
+    private async Task<AzureContextState> GetCurrentAzureContextAsync(ResourceIdentifier? deploymentId, CancellationToken cancellationToken)
+    {
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure", cancellationToken).ConfigureAwait(false);
+
+        return new AzureContextState(
+            GetStateValue(section, "SubscriptionId") ?? deploymentId?.SubscriptionId,
+            GetStateValue(section, "ResourceGroup") ?? deploymentId?.ResourceGroupName,
+            GetStateValue(section, "TenantId"),
+            GetStateValue(section, "Tenant"),
+            GetStateValue(section, "Location"));
+    }
+
+    private static string? GetStateValue(DeploymentStateSection section, string key) =>
+        section.Data[key]?.GetValue<string>() is { Length: > 0 } value ? value : null;
+
+    private static string GetConfiguredLocation(DeploymentStateSection section, string? fallbackLocation)
     {
         if (section.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>() is { Length: > 0 } locationOverride)
         {
@@ -420,11 +437,13 @@ internal sealed class BicepProvisioner(
             }
         }
 
-        return configuration["Azure:Location"] ?? string.Empty;
+        return fallbackLocation ?? string.Empty;
     }
 
     private static string GetEffectiveLocation(AzureBicepResource resource, ProvisioningContext context) =>
         resource.Parameters.TryGetValue(AzureBicepResource.KnownParameters.Location, out var location) && location is not null
             ? location.ToString() ?? context.Location.ToString()
             : context.Location.ToString();
+
+    private sealed record AzureContextState(string? SubscriptionId, string? ResourceGroup, string? TenantId, string? TenantDomain, string? Location);
 }

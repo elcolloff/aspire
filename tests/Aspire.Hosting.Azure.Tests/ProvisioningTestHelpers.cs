@@ -65,6 +65,7 @@ internal static class ProvisioningTestHelpers
     public static IArmClientProvider CreateArmClientProvider(Func<string, Dictionary<string, object>> deploymentOutputsProvider) => new TestArmClientProvider(deploymentOutputsProvider);
     public static IArmClientProvider CreateArmClientProvider(IEnumerable<string> existingResourceIds) => new TestArmClientProvider(existingResourceIds: existingResourceIds);
     public static IArmClientProvider CreateArmClientProvider(IEnumerable<string> existingResourceIds, List<string> deletedResourceIds) => new TestArmClientProvider(existingResourceIds: existingResourceIds, deletedResourceIds: deletedResourceIds);
+    public static IArmClientProvider CreateArmClientProviderForMissingResourceGroup() => new TestArmClientProvider(resourceGroupLookupReturnsNotFound: true);
     public static ITokenCredentialProvider CreateTokenCredentialProvider() => new TestTokenCredentialProvider();
     public static ISecretClientProvider CreateSecretClientProvider() => new TestSecretClientProvider(CreateTokenCredentialProvider());
     public static IBicepCompiler CreateBicepCompiler() => new TestBicepCompiler();
@@ -188,13 +189,15 @@ internal sealed class TestArmClient : IArmClient
     private readonly TestResourceGroupResource? _resourceGroup;
     private readonly HashSet<string>? _existingResourceIds;
     private readonly List<string>? _deletedResourceIds;
+    private readonly bool _resourceGroupLookupReturnsNotFound;
 
     public TestRoleAssignmentCollection RoleAssignments { get; } = new();
 
-    public TestArmClient(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null)
+    public TestArmClient(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null, bool resourceGroupLookupReturnsNotFound = false)
     {
         _deploymentOutputs = deploymentOutputs;
         _resourceGroup = resourceGroup;
+        _resourceGroupLookupReturnsNotFound = resourceGroupLookupReturnsNotFound;
     }
 
     public TestArmClient(Func<string, Dictionary<string, object>> deploymentOutputsProvider)
@@ -221,7 +224,7 @@ internal sealed class TestArmClient : IArmClient
         }
         else
         {
-            subscription = new TestSubscriptionResource(_deploymentOutputs!, _resourceGroup);
+            subscription = new TestSubscriptionResource(_deploymentOutputs!, _resourceGroup, _resourceGroupLookupReturnsNotFound);
         }
         var tenant = new TestTenantResource();
         return Task.FromResult<(ISubscriptionResource, ITenantResource)>((subscription, tenant));
@@ -307,11 +310,13 @@ internal sealed class TestSubscriptionResource : ISubscriptionResource
     private readonly Dictionary<string, object>? _deploymentOutputs;
     private readonly Func<string, Dictionary<string, object>>? _deploymentOutputsProvider;
     private readonly TestResourceGroupResource? _resourceGroup;
+    private readonly bool _resourceGroupLookupReturnsNotFound;
 
-    public TestSubscriptionResource(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null)
+    public TestSubscriptionResource(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null, bool resourceGroupLookupReturnsNotFound = false)
     {
         _deploymentOutputs = deploymentOutputs;
         _resourceGroup = resourceGroup;
+        _resourceGroupLookupReturnsNotFound = resourceGroupLookupReturnsNotFound;
     }
 
     public TestSubscriptionResource(Func<string, Dictionary<string, object>> deploymentOutputsProvider)
@@ -342,7 +347,7 @@ internal sealed class TestSubscriptionResource : ISubscriptionResource
         {
             return new TestResourceGroupCollection(_deploymentOutputsProvider);
         }
-        return new TestResourceGroupCollection(_deploymentOutputs!, _resourceGroup);
+        return new TestResourceGroupCollection(_deploymentOutputs!, _resourceGroup, _resourceGroupLookupReturnsNotFound);
     }
 }
 
@@ -354,11 +359,13 @@ internal sealed class TestResourceGroupCollection : IResourceGroupCollection
     private readonly Dictionary<string, object>? _deploymentOutputs;
     private readonly Func<string, Dictionary<string, object>>? _deploymentOutputsProvider;
     private readonly TestResourceGroupResource? _resourceGroup;
+    private readonly bool _resourceGroupLookupReturnsNotFound;
 
-    public TestResourceGroupCollection(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null)
+    public TestResourceGroupCollection(Dictionary<string, object> deploymentOutputs, TestResourceGroupResource? resourceGroup = null, bool resourceGroupLookupReturnsNotFound = false)
     {
         _deploymentOutputs = deploymentOutputs;
         _resourceGroup = resourceGroup;
+        _resourceGroupLookupReturnsNotFound = resourceGroupLookupReturnsNotFound;
     }
 
     public TestResourceGroupCollection(Func<string, Dictionary<string, object>> deploymentOutputsProvider)
@@ -372,6 +379,11 @@ internal sealed class TestResourceGroupCollection : IResourceGroupCollection
 
     public Task<Response<IResourceGroupResource>> GetAsync(string resourceGroupName, CancellationToken cancellationToken = default)
     {
+        if (_resourceGroupLookupReturnsNotFound)
+        {
+            throw new RequestFailedException(404, $"Resource group '{resourceGroupName}' was not found.");
+        }
+
         if (_resourceGroup is not null)
         {
             return Task.FromResult(Response.FromValue<IResourceGroupResource>(_resourceGroup, new MockResponse(200)));
@@ -647,6 +659,7 @@ internal sealed class TestArmClientProvider : IArmClientProvider
     private readonly TestResourceGroupResource? _resourceGroup;
     private readonly IEnumerable<string>? _existingResourceIds;
     private readonly List<string>? _deletedResourceIds;
+    private readonly bool _resourceGroupLookupReturnsNotFound;
 
     public TestArmClientProvider(Dictionary<string, object> deploymentOutputs)
     {
@@ -661,6 +674,12 @@ internal sealed class TestArmClientProvider : IArmClientProvider
     public TestArmClientProvider(TestResourceGroupResource resourceGroup)
     {
         _resourceGroup = resourceGroup;
+        _deploymentOutputs = [];
+    }
+
+    public TestArmClientProvider(bool resourceGroupLookupReturnsNotFound)
+    {
+        _resourceGroupLookupReturnsNotFound = resourceGroupLookupReturnsNotFound;
         _deploymentOutputs = [];
     }
 
@@ -684,7 +703,7 @@ internal sealed class TestArmClientProvider : IArmClientProvider
         {
             return new TestArmClient(_existingResourceIds, _deletedResourceIds);
         }
-        return new TestArmClient(_deploymentOutputs!, _resourceGroup);
+        return new TestArmClient(_deploymentOutputs!, _resourceGroup, _resourceGroupLookupReturnsNotFound);
     }
 
     public IArmClient GetArmClient(TokenCredential credential)

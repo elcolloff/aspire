@@ -163,10 +163,7 @@ internal sealed class RunModeProvisioningContextProvider(
                 _options.Location = options.Location;
             }
 
-            if (!string.IsNullOrWhiteSpace(options.TenantId))
-            {
-                _options.TenantId = options.TenantId;
-            }
+            _options.TenantId = string.IsNullOrWhiteSpace(options.TenantId) ? null : options.TenantId;
 
             _options.AllowResourceGroupCreation = true;
 
