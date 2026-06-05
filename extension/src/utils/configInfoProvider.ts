@@ -67,21 +67,24 @@ export class ConfigInfoProvider {
     async getConfigInfo(options?: { suppressErrors?: boolean; forceRefresh?: boolean }): Promise<ConfigInfo | null> {
         if (options?.forceRefresh) {
             this._cachedConfigInfo = undefined;
+            this._inFlight = undefined;
         }
 
         if (this._cachedConfigInfo) {
             return this._cachedConfigInfo;
         }
 
-        this._inFlight ??= this._fetchConfigInfo(options?.suppressErrors ?? false);
+        const inFlight = this._inFlight ??= this._fetchConfigInfo(options?.suppressErrors ?? false);
         try {
-            const result = await this._inFlight;
-            if (result) {
+            const result = await inFlight;
+            if (result && this._inFlight === inFlight) {
                 this._cachedConfigInfo = result;
             }
             return result;
         } finally {
-            this._inFlight = undefined;
+            if (this._inFlight === inFlight) {
+                this._inFlight = undefined;
+            }
         }
     }
 
