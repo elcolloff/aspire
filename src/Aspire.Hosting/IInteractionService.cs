@@ -5,6 +5,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting;
@@ -101,17 +102,17 @@ public interface IInteractionService
     Task<InteractionResult<bool>> PromptNotificationAsync(string title, string message, NotificationInteractionOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Registers a dynamic page in the dashboard that renders markdown content.
+    /// Registers a dynamic page in the dashboard that renders content.
     /// </summary>
     /// <remarks>
-    /// Each visitor to the page triggers the <see cref="PageContext.OnVisit"/> callback independently,
-    /// allowing per-visitor streaming of markdown content via <see cref="PageVisitContext.SendMarkdownAsync"/>.
+    /// Each visitor to a content page triggers the <see cref="ContentPageOptions.OnVisit"/> callback independently,
+    /// allowing per-visitor rendering via <see cref="PageVisitContext.RenderAsync"/>.
     /// Dispose the returned <see cref="IDisposable"/> to remove the page from the dashboard.
     /// </remarks>
     /// <param name="route">The route path for the page (e.g., "my-page"). The page will be accessible at <c>/pages/{route}</c> in the dashboard.</param>
-    /// <param name="context">The page context containing visit and leave callbacks.</param>
+    /// <param name="options">The page options.</param>
     /// <returns>An <see cref="IDisposable"/> that, when disposed, removes the page from the dashboard.</returns>
-    IDisposable RegisterPage(string route, PageContext context);
+    IDisposable RegisterPage(string route, PageOptions options);
 
     /// <summary>
     /// Registers a navigation menu button in the dashboard sidebar.
@@ -858,10 +859,10 @@ public class InteractionResult<T>
 }
 
 /// <summary>
-/// Provides context for a dynamic page registered via <see cref="IInteractionService.RegisterPage"/>.
+/// Provides options for a dynamic page registered via <see cref="IInteractionService.RegisterPage"/>.
 /// </summary>
 [Experimental(InteractionService.DiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
-public sealed class PageContext
+public abstract class PageOptions
 {
     /// <summary>
     /// Gets or sets the title of the page, displayed in the browser tab.
@@ -869,16 +870,23 @@ public sealed class PageContext
     public string? Title { get; set; }
 
     /// <summary>
+    /// Gets or sets the named actions that can be invoked from this page.
+    /// Page actions are typically triggered by dashboard buttons rendered by the page content or iframe.
+    /// </summary>
+    public IReadOnlyDictionary<string, Func<ActionContext, Task>>? Actions { get; set; }
+}
+
+/// <summary>
+/// Provides options for a dynamic content page registered via <see cref="IInteractionService.RegisterPage"/>.
+/// </summary>
+[Experimental(InteractionService.DiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
+public sealed class ContentPageOptions : PageOptions
+{
+    /// <summary>
     /// Gets or sets the callback invoked when a visitor navigates to the page. Each visitor session
     /// invokes this callback independently, allowing per-visitor content streaming.
     /// </summary>
     public Func<PageVisitContext, Task>? OnVisit { get; set; }
-
-    /// <summary>
-    /// Gets or sets the named actions that can be invoked from this page.
-    /// Page actions are typically triggered by dashboard buttons rendered by the page content.
-    /// </summary>
-    public IReadOnlyDictionary<string, Func<ActionContext, Task>>? Actions { get; set; }
 
     /// <summary>
     /// Gets or sets the stylesheet asset routes to include when the page is displayed.
@@ -894,14 +902,44 @@ public sealed class PageContext
 
     /// <summary>
     /// Gets or sets a value indicating whether HTML rendering is enabled for this page.
-    /// When <see langword="true"/>, the content sent via <see cref="PageVisitContext.SendMarkdownAsync"/> is treated
-    /// as raw HTML and rendered directly without markdown processing.
+    /// When <see langword="true"/>, the content sent via <see cref="PageVisitContext.RenderAsync"/> is treated
+    /// as raw HTML and rendered directly without Markdown processing.
     /// </summary>
     public bool EnableHtml { get; set; }
 }
 
 /// <summary>
-/// Provides context for a page visit, including the ability to send markdown content to the visitor.
+/// Provides options for a dynamic iframe page registered via <see cref="IInteractionService.RegisterPage"/>.
+/// </summary>
+[Experimental(InteractionService.DiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
+public sealed class IFramePageOptions : PageOptions
+{
+    /// <summary>
+    /// Gets or sets the URL to render as a full-page iframe instead of content.
+    /// </summary>
+    /// <remarks>
+    /// Set either <see cref="IFrameUrl"/> or <see cref="IFrameEndpoint"/>, but not both.
+    /// </remarks>
+    public string? IFrameUrl { get; set; }
+
+    /// <summary>
+    /// Gets or sets the resource endpoint to resolve and render as a full-page iframe instead of content.
+    /// </summary>
+    /// <remarks>
+    /// Set either <see cref="IFrameUrl"/> or <see cref="IFrameEndpoint"/>, but not both.
+    /// </remarks>
+    public EndpointReference? IFrameEndpoint { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the iframe should persist across page navigations.
+    /// When <see langword="true"/>, the iframe DOM element is kept alive and hidden when the user navigates away,
+    /// preserving its state. Defaults to <see langword="true"/>.
+    /// </summary>
+    public bool Persistent { get; set; } = true;
+}
+
+/// <summary>
+/// Provides context for a page visit, including the ability to render content for the visitor.
 /// </summary>
 [Experimental(InteractionService.DiagnosticId, UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
 public sealed class PageVisitContext
@@ -930,12 +968,12 @@ public sealed class PageVisitContext
     public required CancellationToken CancellationToken { get; init; }
 
     /// <summary>
-    /// Sends markdown content to the visitor's page. Can be called multiple times to update
-    /// the rendered content. Each call replaces the previously displayed markdown.
-    /// The first argument is the markdown content, the second is a cancellation token.
+    /// Renders content on the visitor's page. Can be called multiple times to update
+    /// the rendered content. Each call replaces the previously displayed content.
+    /// The first argument is the content, the second is a cancellation token.
     /// </summary>
     /// <returns>A task that completes when the content has been sent to the dashboard.</returns>
-    public required Func<string, CancellationToken, Task> SendMarkdownAsync { get; init; }
+    public required Func<string, CancellationToken, Task> RenderAsync { get; init; }
 }
 
 /// <summary>

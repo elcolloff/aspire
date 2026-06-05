@@ -48,7 +48,7 @@ internal sealed class TodoInteraction
         var todoCss = LoadEmbeddedTextResource("TodoStyles.css");
         interactionService.RegisterAsset(TodoCssRoute, "text/css", Encoding.UTF8.GetBytes(todoCss));
 
-        interactionService.RegisterPage("todo", new PageContext
+        interactionService.RegisterPage("todo", new ContentPageOptions
         {
             Title = "Todo",
             StyleIncludes = [TodoCssRoute],
@@ -62,7 +62,7 @@ internal sealed class TodoInteraction
                 while (!visitContext.CancellationToken.IsCancellationRequested)
                 {
                     var (markdown, version) = BuildTodoMarkdown();
-                    await visitContext.SendMarkdownAsync(markdown, visitContext.CancellationToken);
+                    await visitContext.RenderAsync(markdown, visitContext.CancellationToken);
 
                     await WaitForTodoChangeAsync(version, visitContext.CancellationToken);
                 }

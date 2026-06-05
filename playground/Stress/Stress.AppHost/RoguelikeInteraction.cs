@@ -11,30 +11,32 @@ using Microsoft.Extensions.DependencyInjection;
 internal sealed class RoguelikeInteraction
 {
     private const int MapWidth = 15;
-    private const int MapHeight = 10;
-    private const int MaxHealth = 10;
-    private static readonly TimeSpan s_deathMessageDelay = TimeSpan.FromSeconds(3);
+    private const int MapHeight = 9;
+    private const int MaxHealth = 12;
     private const string CssRoute = "roguelike-styles.css";
     private const string JsRoute = "roguelike-controls.js";
 
+    private readonly IResource _parentResource;
+    private readonly IDistributedApplicationBuilder _builder;
     private readonly object _sessionsLock = new();
     private readonly Dictionary<string, GameSession> _sessions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _resourceColors = new(StringComparer.OrdinalIgnoreCase);
 
-    private IDistributedApplicationBuilder? _builder;
     private ResourceCommandService? _commandService;
-    private ResourceNotificationService? _resourceNotificationService;
+
+    public RoguelikeInteraction(IResourceBuilder<ProjectResource> parentResource)
+    {
+        _parentResource = parentResource.Resource;
+        _builder = parentResource.ApplicationBuilder;
+        AssignResourceColors();
+    }
 
     public void Register(IDistributedApplicationBuilder builder)
     {
-        _builder = builder;
-        AssignResourceColors(builder);
-
         builder.OnBeforeStart((@event, ct) =>
         {
             var interactionService = @event.Services.GetRequiredService<IInteractionService>();
             _commandService = @event.Services.GetRequiredService<ResourceCommandService>();
-            _resourceNotificationService = @event.Services.GetRequiredService<ResourceNotificationService>();
             RegisterPage(interactionService);
 
             return Task.CompletedTask;
@@ -61,7 +63,7 @@ internal sealed class RoguelikeInteraction
                 ["move-down"] = context => Move(context, 0, 1),
                 ["move-left"] = context => Move(context, -1, 0),
                 ["move-right"] = context => Move(context, 1, 0),
-                ["new-run"] = async context =>
+                ["new-run"] = context =>
                 {
                     context.CancellationToken.ThrowIfCancellationRequested();
                     if (TryGetSession(context, out var game))
@@ -69,7 +71,7 @@ internal sealed class RoguelikeInteraction
                         StartNewRun(game, notify: true);
                     }
 
-                    await StartAllResourcesAsync(context.CancellationToken).ConfigureAwait(false);
+                    return Task.CompletedTask;
                 }
             },
             OnVisit = async visitContext =>
@@ -133,8 +135,6 @@ internal sealed class RoguelikeInteraction
             return Task.CompletedTask;
         }
 
-        int? deathSequenceId = null;
-
         lock (game.Lock)
         {
             if (game.Health <= 0)
@@ -160,9 +160,9 @@ internal sealed class RoguelikeInteraction
 
                     if (game.Potion == game.Player)
                     {
-                        game.Health = Math.Min(MaxHealth, game.Health + 5);
+                        game.Health = Math.Min(MaxHealth, game.Health + 3);
                         game.Potion = null;
-                        AddLog(game, "💖 You drink a glowing potion and recover five hearts.");
+                        AddLog(game, "💖 You drink a glowing potion and recover three hearts.");
                     }
 
                     if (game.Tiles[game.Player.X, game.Player.Y] == Tile.Stairs)
@@ -184,18 +184,12 @@ internal sealed class RoguelikeInteraction
                 // Monsters take their turn after the player (if still alive).
                 if (game.Health > 0)
                 {
-                    deathSequenceId = MoveMonsters(game);
+                    MoveMonsters(game);
                 }
             }
         }
 
         game.NotifyChanged();
-
-        if (deathSequenceId is { } sequenceId)
-        {
-            _ = RevealDeathMessageAsync(game, sequenceId);
-        }
-
         return Task.CompletedTask;
     }
 
@@ -203,7 +197,6 @@ internal sealed class RoguelikeInteraction
     {
         var damage = game.Random.Next(2, 5);
         monster.Health -= damage;
-        RequestMapShake(game);
         AddMonsterLog(game, monster, $"⚔️ You hit the {monster.Name} for {damage}.");
 
         if (monster.Health <= 0)
@@ -228,47 +221,11 @@ internal sealed class RoguelikeInteraction
     {
         if (_commandService is { } commandService)
         {
-            await commandService.ExecuteCommandAsync(resourceName, KnownResourceCommands.StopCommand).ConfigureAwait(false);
+            await commandService.ExecuteCommandAsync(resourceName, "stop").ConfigureAwait(false);
         }
     }
 
-    private async Task StartAllResourcesAsync(CancellationToken cancellationToken)
-    {
-        if (_commandService is not { } commandService || _resourceNotificationService is not { } resourceNotificationService)
-        {
-            return;
-        }
-
-        var builder = GetBuilder();
-        var resourceIds = builder.Resources
-            .Where(static r => !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
-                && !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
-            .Select(static r => r.Name)
-            .Where(resourceId => CanStartResource(resourceNotificationService, resourceId))
-            .ToList();
-
-        await Task.WhenAll(resourceIds.Select(resourceId => StartResourceAsync(commandService, resourceId, cancellationToken))).ConfigureAwait(false);
-    }
-
-    private static bool CanStartResource(ResourceNotificationService resourceNotificationService, string resourceId)
-    {
-        return resourceNotificationService.TryGetCurrentState(resourceId, out var resourceEvent)
-            && resourceEvent.Snapshot.Commands.Any(static command => command.Name == KnownResourceCommands.StartCommand && command.State == ResourceCommandState.Enabled);
-    }
-
-    private static async Task StartResourceAsync(ResourceCommandService commandService, string resourceId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await commandService.ExecuteCommandAsync(resourceId, KnownResourceCommands.StartCommand, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Some resources may not expose a start command in their current state; New Game is best-effort.
-        }
-    }
-
-    private int? MoveMonsters(GameSession game)
+    private void MoveMonsters(GameSession game)
     {
         // Iterate over a snapshot so removals during iteration are safe.
         foreach (var monster in game.Monsters.ToArray())
@@ -316,14 +273,13 @@ internal sealed class RoguelikeInteraction
             {
                 // Monster attacks the player.
                 game.Health -= monster.Attack;
-                RequestMapShake(game);
                 AddMonsterLog(game, monster, $"🩸 The {monster.Name} attacks you for {monster.Attack}.");
 
                 if (game.Health <= 0)
                 {
                     game.Health = 0;
                     AddLog(game, "💀 You were killed.");
-                    return StartDeathSequence(game, monster);
+                    break;
                 }
             }
             else if (FindMonster(game, target) is null)
@@ -331,49 +287,12 @@ internal sealed class RoguelikeInteraction
                 monster.Position = target;
             }
         }
-
-        return null;
-    }
-
-    private static int StartDeathSequence(GameSession game, Monster monster)
-    {
-        game.DeathMessageVisible = false;
-        game.KillerEmoji = monster.Emoji;
-        game.KillerName = monster.Name;
-        game.KillerResourceName = monster.ResourceName;
-        return ++game.DeathSequenceId;
-    }
-
-    private static async Task RevealDeathMessageAsync(GameSession game, int deathSequenceId)
-    {
-        await Task.Delay(s_deathMessageDelay).ConfigureAwait(false);
-
-        var changed = false;
-        lock (game.Lock)
-        {
-            if (game.Health <= 0 && game.DeathSequenceId == deathSequenceId && !game.DeathMessageVisible)
-            {
-                game.DeathMessageVisible = true;
-                changed = true;
-            }
-        }
-
-        if (changed)
-        {
-            game.NotifyChanged();
-        }
     }
 
     private void StartNewRun(GameSession game, bool notify)
     {
         lock (game.Lock)
         {
-            game.MapShakeRequested = false;
-            game.DeathSequenceId++;
-            game.DeathMessageVisible = false;
-            game.KillerEmoji = null;
-            game.KillerName = null;
-            game.KillerResourceName = null;
             game.Level = 1;
             game.Turn = 0;
             game.Health = MaxHealth;
@@ -410,11 +329,11 @@ internal sealed class RoguelikeInteraction
 
         game.Potion = PickOpenCell(game);
 
-        var builder = GetBuilder();
         // Get resource names to use as monster labels.
-        // Exclude aspire-prefixed resources and hidden resources.
-        var resourceNames = builder.Resources
-            .Where(r => !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
+        // Exclude the parent resource, aspire-prefixed resources, and hidden resources.
+        var resourceNames = _builder.Resources
+            .Where(r => r != _parentResource
+                && !r.Name.StartsWith("aspire", StringComparison.OrdinalIgnoreCase)
                 && !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
             .Select(r => r.Name)
             .ToList();
@@ -479,16 +398,12 @@ internal sealed class RoguelikeInteraction
         lock (game.Lock)
         {
             var sb = new StringBuilder();
-            var mapFrameClass = game.MapShakeRequested ? "roguelike-map-frame roguelike-map-shake" : "roguelike-map-frame";
-            game.MapShakeRequested = false;
-
             sb.AppendLine("## 🗡️ Roguelike Dungeon");
             sb.Append("<div class=\"roguelike\">");
             sb.Append("<div class=\"roguelike-layout\">");
 
             // Map (top-left)
-            sb.Append(CultureInfo.InvariantCulture, $"<div class=\"{mapFrameClass}\">");
-            sb.Append(CultureInfo.InvariantCulture, $"<div class=\"roguelike-map\" style=\"{GetMapStyle(game)}\">");
+            sb.Append("<div class=\"roguelike-map\">");
             for (var y = 0; y < MapHeight; y++)
             {
                 sb.Append("<div class=\"row\">");
@@ -498,13 +413,6 @@ internal sealed class RoguelikeInteraction
                 }
                 sb.Append("</div>");
             }
-            sb.Append("</div>");
-
-            if (game.DeathMessageVisible)
-            {
-                sb.Append(CultureInfo.InvariantCulture, $"<div class=\"roguelike-death-message\"><div>💀 You were killed by a {game.KillerEmoji} {RenderMonsterNameHtml(game.KillerName ?? "a monster", game.KillerResourceName)}</div></div>");
-            }
-
             sb.Append("</div>");
 
             // Sidebar
@@ -560,21 +468,6 @@ internal sealed class RoguelikeInteraction
         }
     }
 
-    private static string GetMapStyle(GameSession game)
-    {
-        if (game.Health > 0)
-        {
-            return "opacity: 1";
-        }
-
-        if (!game.DeathMessageVisible)
-        {
-            return "opacity: 1; --roguelike-map-death-opacity: 0.2; animation: roguelike-map-death-fade 3s ease forwards";
-        }
-
-        return "opacity: 0.2";
-    }
-
     private static string GetCellEmoji(GameSession game, Cell cell)
     {
         if (cell == game.Player)
@@ -625,11 +518,6 @@ internal sealed class RoguelikeInteraction
         }
     }
 
-    private static void RequestMapShake(GameSession game)
-    {
-        game.MapShakeRequested = true;
-    }
-
     /// <summary>
     /// Adds a combat log entry that includes the monster's name rendered with a colored resource badge.
     /// The message should contain the monster's plain-text Name; it will be replaced with the HTML version.
@@ -656,32 +544,21 @@ internal sealed class RoguelikeInteraction
     /// </summary>
     private string RenderMonsterNameHtml(Monster monster)
     {
-        return RenderMonsterNameHtml(monster.Name, monster.ResourceName);
-    }
-
-    private string RenderMonsterNameHtml(string name, string? resourceName)
-    {
-        if (resourceName is null)
+        if (monster.ResourceName is null)
         {
-            return HtmlEncode(name);
+            return HtmlEncode(monster.Name);
         }
 
         // Name format is "creature (resourceName)" — render the resource part as a colored badge.
-        var resourceStart = name.IndexOf('(');
-        var creatureName = resourceStart > 1 ? name.AsSpan(0, resourceStart - 1).ToString() : name;
-        var color = _resourceColors.GetValueOrDefault(resourceName, "var(--accent-teal)");
-        return string.Create(CultureInfo.InvariantCulture, $"{HtmlEncode(creatureName)} <span class=\"resource-badge\" style=\"background:{color}\">{HtmlEncode(resourceName)}</span>");
+        var creatureName = monster.Name.AsSpan(0, monster.Name.IndexOf('(') - 1);
+        var color = _resourceColors.GetValueOrDefault(monster.ResourceName, "var(--accent-teal)");
+        return string.Create(CultureInfo.InvariantCulture, $"{HtmlEncode(creatureName.ToString())} <span class=\"resource-badge\" style=\"background:{color}\">{HtmlEncode(monster.ResourceName)}</span>");
     }
 
     /// <summary>
     /// Assigns colors to resource names using the same palette order as the dashboard's ColorGenerator.
     /// </summary>
-    private IDistributedApplicationBuilder GetBuilder()
-    {
-        return _builder ?? throw new InvalidOperationException("Roguelike interaction must be registered before use.");
-    }
-
-    private void AssignResourceColors(IDistributedApplicationBuilder builder)
+    private void AssignResourceColors()
     {
         // Same palette used by Aspire.Dashboard's ColorGenerator for visual consistency.
         string[] palette =
@@ -695,7 +572,7 @@ internal sealed class RoguelikeInteraction
             "var(--accent-jade)", "var(--accent-olive)"
         ];
 
-        var names = builder.Resources
+        var names = _builder.Resources
             .Where(r => !r.Annotations.Any(a => a.GetType().Name == "HiddenAnnotation"))
             .Select(r => r.Name)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
@@ -709,8 +586,7 @@ internal sealed class RoguelikeInteraction
 
     private static string LoadEmbeddedTextResource(string fileName)
     {
-        var assemblyName = Assembly.GetExecutingAssembly().GetName().Name;
-        var resourceName = $"{assemblyName}.Resources.{fileName}";
+        var resourceName = $"Stress.AppHost.Resources.{fileName}";
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"{fileName} embedded resource not found.");
         using var reader = new StreamReader(stream);
@@ -740,12 +616,6 @@ internal sealed class RoguelikeInteraction
         public int Health { get; set; }
         public int Level { get; set; }
         public int Turn { get; set; }
-        public bool DeathMessageVisible { get; set; }
-        public bool MapShakeRequested { get; set; }
-        public int DeathSequenceId { get; set; }
-        public string? KillerEmoji { get; set; }
-        public string? KillerName { get; set; }
-        public string? KillerResourceName { get; set; }
         public int Version { get; private set; }
 
         public Task WaitForChangeAsync(int observedVersion, CancellationToken cancellationToken)
@@ -801,8 +671,8 @@ internal sealed class RoguelikeInteraction
             new("bug", "🐛", 1, 1),
             new("scorpion", "🦂", 3, 1),
             new("lizard", "🦎", 3, 1),
-            new("eagle", "🦅", 3, 1),
-            new("bear", "🐻", 5, 2),
+            new("eagle", "🦅", 4, 2),
+            new("bear", "🐻", 6, 3),
             new("demon", "😈", 5, 3),
             new("alien", "👾", 3, 2),
             new("troll", "🧌", 6, 2),

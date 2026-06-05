@@ -22,7 +22,7 @@ internal static class InteractionPages
 
     private static void RegisterCounterPage(IInteractionService interactionService)
     {
-        interactionService.RegisterPage("counter", new PageContext
+        interactionService.RegisterPage("counter", new ContentPageOptions
         {
             Title = "Counter",
             OnVisit = async visitContext =>
@@ -42,7 +42,7 @@ internal static class InteractionPages
                         resets++;
                     }
 
-                    await visitContext.SendMarkdownAsync(
+                    await visitContext.RenderAsync(
                         $"""
                         # Counter
 
@@ -70,12 +70,12 @@ internal static class InteractionPages
     {
         var markdownShowcase = LoadEmbeddedTextResource("MarkdownShowcase.txt");
 
-        interactionService.RegisterPage("markdown", new PageContext
+        interactionService.RegisterPage("markdown", new ContentPageOptions
         {
             Title = "Markdown Showcase",
             OnVisit = async visitContext =>
             {
-                await visitContext.SendMarkdownAsync(markdownShowcase, visitContext.CancellationToken);
+                await visitContext.RenderAsync(markdownShowcase, visitContext.CancellationToken);
             }
         });
 
@@ -93,12 +93,12 @@ internal static class InteractionPages
         var logoBytes = LoadEmbeddedBinaryResource("AspireLogo.svg");
         interactionService.RegisterAsset(LogoAssetRoute, "image/svg+xml", logoBytes);
 
-        interactionService.RegisterPage("image-asset", new PageContext
+        interactionService.RegisterPage("image-asset", new ContentPageOptions
         {
             Title = "Image Asset",
             OnVisit = async visitContext =>
             {
-                await visitContext.SendMarkdownAsync(
+                await visitContext.RenderAsync(
                     $"""
                     # Image Asset
 

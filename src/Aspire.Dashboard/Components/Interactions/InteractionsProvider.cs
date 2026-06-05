@@ -524,11 +524,13 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                                 item.InteractionId,
                                 page.Route,
                                 page.SessionId,
-                                page.MarkdownContent,
+                                page.Content,
                                 page.Title,
                                 page.CssRoutes.ToList(),
                                 page.ScriptRoutes.ToList(),
-                                page.EnableHtml);
+                                page.EnableHtml,
+                                page.IframeUrl,
+                                page.IframePersistent);
                         }
                         break;
                     default:

@@ -221,6 +221,24 @@ namespace Aspire.Dashboard.Resources {
                 return ResourceManager.GetString("CustomPageUnavailableTitle", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Loading page content....
+        /// </summary>
+        public static string CustomPageIframeLoading {
+            get {
+                return ResourceManager.GetString("CustomPageIframeLoading", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to The embedded page failed to load. It may be unavailable or refusing to connect..
+        /// </summary>
+        public static string CustomPageIframeError {
+            get {
+                return ResourceManager.GetString("CustomPageIframeError", resourceCulture);
+            }
+        }
         
         /// <summary>
         ///   Looks up a localized string similar to {0} ({1} ago).

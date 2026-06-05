@@ -432,22 +432,26 @@ message InteractionNotification {
 message InteractionInputsDialog {
     repeated InteractionInput input_items = 1;
 }
-// Represents a dynamic page that renders markdown content in the dashboard.
+// Represents a dynamic page that renders content or an iframe in the dashboard.
 message InteractionPage {
     // The route path for the page, accessible at /pages/{route}.
     string route = 1;
     // The session ID of the visitor this content update is for.
     string session_id = 2;
-    // The markdown content to render. Updated on each content push.
-    string markdown_content = 3;
+    // The content to render. Updated on each content push.
+    string content = 3;
     // The title of the page, displayed in the browser tab.
     string title = 4;
     // CSS stylesheet asset routes to include when the page is displayed.
     repeated string css_routes = 5;
     // JavaScript module asset routes to include when the page is displayed.
     repeated string script_routes = 6;
-    // When true, markdown_content is treated as raw HTML and rendered without markdown processing.
+    // When true, content is treated as raw HTML and rendered without Markdown processing.
     bool enable_html = 7;
+    // The iframe URL to render for the page. When set, the dashboard renders this URL instead of content.
+    string iframe_url = 8;
+    // Whether the iframe should persist across page navigations.
+    bool iframe_persistent = 9;
 }
 // Represents an action invoked from a dynamic page.
 message InteractionPageAction {

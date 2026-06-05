@@ -15,6 +15,8 @@ using static Aspire.Hosting.Interaction;
 
 namespace Aspire.Hosting.Dashboard;
 
+#pragma warning disable ASPIREINTERACTION001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
 /// <summary>
 /// Implements a gRPC service that a dashboard can consume.
 /// </summary>
@@ -200,31 +202,37 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                         else if (interaction.InteractionInfo is PageInteractionInfo pageInfo)
                         {
                             string? markdown;
-                            lock (pageInfo.Session.Lock)
+                            string? iframeUrl;
+                            bool iframePersistent;
+                            lock (pageInfo.Lock)
                             {
-                                markdown = pageInfo.Session.Markdown;
+                                markdown = pageInfo.Content;
+                                iframeUrl = pageInfo.IframeUrl;
+                                iframePersistent = pageInfo.IframePersistent;
                             }
 
-                            if (markdown is null)
+                            if (markdown is null && iframeUrl is null)
                             {
                                 continue;
                             }
 
-                            change.Page = new InteractionPage
-                            {
-                                Route = pageInfo.Route,
-                                SessionId = pageInfo.SessionId,
-                                MarkdownContent = markdown,
-                                Title = pageInfo.PageContext.Title ?? pageInfo.Route,
-                                EnableHtml = pageInfo.PageContext.EnableHtml
-                            };
+                                change.Page = new InteractionPage
+                                {
+                                    Route = pageInfo.Route,
+                                    SessionId = pageInfo.SessionId,
+                                    Content = markdown ?? string.Empty,
+                                    Title = pageInfo.PageOptions.Title ?? pageInfo.Route,
+                                    EnableHtml = pageInfo.PageOptions is ContentPageOptions { EnableHtml: true },
+                                    IframeUrl = iframeUrl ?? string.Empty,
+                                    IframePersistent = iframePersistent
+                                };
 
-                            if (pageInfo.PageContext.StyleIncludes is { } styleIncludes)
+                                if (pageInfo.PageOptions is ContentPageOptions { StyleIncludes: { } styleIncludes })
                             {
                                 change.Page.CssRoutes.AddRange(styleIncludes);
                             }
 
-                            if (pageInfo.PageContext.ScriptIncludes is { } scriptIncludes)
+                                if (pageInfo.PageOptions is ContentPageOptions { ScriptIncludes: { } scriptIncludes })
                             {
                                 change.Page.ScriptRoutes.AddRange(scriptIncludes);
                             }
@@ -653,3 +661,5 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
         }
     }
 }
+
+#pragma warning restore ASPIREINTERACTION001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.

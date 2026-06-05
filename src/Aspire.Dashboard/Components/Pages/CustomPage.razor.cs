@@ -21,7 +21,9 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
 
     private readonly string _sessionId = Guid.NewGuid().ToString("N");
     private MarkdownProcessor _markdownProcessor = default!;
-    private string? _markdownContent;
+    private string? _content;
+    private string? _iframeUrl;
+    private bool _iframePersistent;
     private string _pageTitle = "Page";
     private bool _pageNotFound;
     private bool _interactionStarted;
@@ -85,7 +87,8 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
         {
             await CompletePageInteractionAsync().ConfigureAwait(false);
             _interactionStarted = false;
-            _markdownContent = null;
+            _content = null;
+            _iframeUrl = null;
             _pageInteraction = null;
             _pendingPageContentUpdate = null;
             _styleIncludes = [];
@@ -110,7 +113,8 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             if (pageInteraction is null)
             {
                 _pageNotFound = true;
-                _markdownContent = null;
+                _content = null;
+                _iframeUrl = null;
                 _pageInteraction = null;
                 _pendingPageContentUpdate = null;
                 _styleIncludes = [];
@@ -177,7 +181,16 @@ public partial class CustomPage : ComponentBase, IAsyncDisposable
             }
 
             _pageAssetsChanged |= assetsChanged;
-            _markdownContent = update.MarkdownContent;
+            _content = update.Content;
+            _iframeUrl = string.IsNullOrEmpty(update.IframeUrl) ? null : update.IframeUrl;
+            _iframePersistent = update.IframePersistent;
+
+            // Register iframe as persistent so it survives navigating away and back.
+            if (_iframeUrl is not null && Route is not null && update.IframePersistent)
+            {
+                CustomInteractionState.SetPersistentIframe(Route, _iframeUrl);
+            }
+
             return true;
         }
 

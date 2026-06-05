@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -278,11 +279,16 @@ internal class InteractionService : IInteractionService
         }
     }
 
-    public IDisposable RegisterPage(string route, PageContext context)
+    public IDisposable RegisterPage(string route, PageOptions options)
     {
         ArgumentNullException.ThrowIfNull(route);
-        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(options);
         EnsureServiceAvailable();
+
+        if (options is IFramePageOptions { IFrameUrl: not null, IFrameEndpoint: not null })
+        {
+            throw new InvalidOperationException($"Only one of {nameof(IFramePageOptions.IFrameUrl)} or {nameof(IFramePageOptions.IFrameEndpoint)} can be specified.");
+        }
 
         lock (_onInteractionUpdatedLock)
         {
@@ -291,7 +297,7 @@ internal class InteractionService : IInteractionService
                 throw new InvalidOperationException($"A page with route '{route}' is already registered.");
             }
 
-            var registeredPage = new RegisteredPage(route, context, new CancellationTokenSource());
+            var registeredPage = new RegisteredPage(route, options, new CancellationTokenSource());
             _pageRegistrations.Add(route, registeredPage);
 
             return new PageRegistration(this, registeredPage);
@@ -316,9 +322,8 @@ internal class InteractionService : IInteractionService
         }
 
         var visitorCts = CancellationTokenSource.CreateLinkedTokenSource(registeredPage.Cts.Token, cancellationToken);
-        var sessionContext = new Interaction.SessionContext(visitorCts);
-        var pageInfo = new Interaction.PageInteractionInfo(registeredPage.Route, registeredPage.Context, sessionId, new Dictionary<string, string>(queryParameters, StringComparer.Ordinal), sessionContext);
-        var newState = new Interaction(registeredPage.Context.Title ?? registeredPage.Route, null, InteractionOptions.Default, pageInfo, visitorCts.Token);
+        var pageInfo = new Interaction.PageInteractionInfo(registeredPage.Route, registeredPage.Options, sessionId, new Dictionary<string, string>(queryParameters, StringComparer.Ordinal), visitorCts);
+        var newState = new Interaction(registeredPage.Options.Title ?? registeredPage.Route, null, InteractionOptions.Default, pageInfo, visitorCts.Token);
 
         AddInteraction(newState);
 
@@ -462,13 +467,13 @@ internal class InteractionService : IInteractionService
     {
         try
         {
-            pageInfo.Session.Cts.Cancel();
+            pageInfo.Cts.Cancel();
         }
         catch (ObjectDisposedException)
         {
         }
 
-        pageInfo.Session.Cts.Dispose();
+        pageInfo.Cts.Dispose();
     }
 
     private sealed class InteractionRegistration(InteractionService service, Interaction interaction, CancellationTokenSource cts) : IDisposable
@@ -639,13 +644,13 @@ internal class InteractionService : IInteractionService
                 return;
             }
 
-            if (pageInfo.PageContext.Actions is null)
+            if (pageInfo.PageOptions.Actions is not { } actions)
             {
                 _logger.LogDebug("Page interaction {InteractionId} does not define actions for page action '{ActionName}'.", interactionId, actionName);
                 return;
             }
 
-            foreach (var (name, callback) in pageInfo.PageContext.Actions)
+            foreach (var (name, callback) in actions)
             {
                 if (string.Equals(name, actionName, StringComparison.OrdinalIgnoreCase))
                 {
@@ -661,7 +666,7 @@ internal class InteractionService : IInteractionService
             }
 
             sessionId = pageInfo.SessionId;
-            sessionToken = pageInfo.Session.Cts.Token;
+            sessionToken = pageInfo.Cts.Token;
         }
 
         var actionArguments = new Dictionary<string, string>(arguments, StringComparer.Ordinal);
@@ -700,7 +705,38 @@ internal class InteractionService : IInteractionService
 
     private async Task ProcessPageInteractionAsync(Interaction interactionState, Interaction.PageInteractionInfo pageInfo)
     {
-        if (pageInfo.PageContext.OnVisit is not { } onVisit)
+        if (pageInfo.PageOptions is IFramePageOptions iframePageOptions)
+        {
+            try
+            {
+            var iframeUrl = iframePageOptions.IFrameUrl;
+            if (iframeUrl is null && iframePageOptions.IFrameEndpoint is { } endpoint)
+                {
+                    iframeUrl = await EndpointHostHelpers.GetUrlWithTargetHostAsync(endpoint, pageInfo.Cts.Token).ConfigureAwait(false);
+                }
+
+                if (!string.IsNullOrEmpty(iframeUrl))
+                {
+                    lock (pageInfo.Lock)
+                    {
+                        pageInfo.IframeUrl = iframeUrl;
+                        pageInfo.IframePersistent = iframePageOptions.Persistent;
+                    }
+
+                    UpdateInteraction(interactionState);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when visitor leaves or page is removed.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resolving iframe URL for page session '{SessionId}'.", pageInfo.SessionId);
+            }
+        }
+
+        if (pageInfo.PageOptions is not ContentPageOptions { OnVisit: { } onVisit })
         {
             return;
         }
@@ -710,14 +746,14 @@ internal class InteractionService : IInteractionService
             SessionId = pageInfo.SessionId,
             Services = _serviceProvider,
             QueryParameters = pageInfo.QueryParameters,
-            CancellationToken = pageInfo.Session.Cts.Token,
-            SendMarkdownAsync = (markdown, ct) =>
+            CancellationToken = pageInfo.Cts.Token,
+            RenderAsync = (content, ct) =>
             {
                 ct.ThrowIfCancellationRequested();
 
-                lock (pageInfo.Session.Lock)
+                lock (pageInfo.Lock)
                 {
-                    pageInfo.Session.Markdown = markdown;
+                    pageInfo.Content = content;
                 }
 
                 UpdateInteraction(interactionState);
@@ -900,7 +936,7 @@ internal class InteractionService : IInteractionService
 
 internal sealed record RegisteredAsset(string ContentType, AssetContext Context);
 
-internal sealed record RegisteredPage(string Route, PageContext Context, CancellationTokenSource Cts);
+internal sealed record RegisteredPage(string Route, PageOptions Options, CancellationTokenSource Cts);
 
 internal sealed record StartedPageInteraction(int InteractionId);
 
@@ -987,27 +1023,24 @@ internal class Interaction
 
     internal sealed class PageInteractionInfo : InteractionInfoBase
     {
-        public PageInteractionInfo(string route, PageContext pageContext, string sessionId, IReadOnlyDictionary<string, string> queryParameters, SessionContext session)
+        public PageInteractionInfo(string route, PageOptions pageOptions, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationTokenSource cts)
         {
             Route = route;
-            PageContext = pageContext;
+            PageOptions = pageOptions;
             SessionId = sessionId;
             QueryParameters = queryParameters;
-            Session = session;
+            Cts = cts;
         }
 
+        public object Lock { get; } = new();
         public string Route { get; }
-        public PageContext PageContext { get; }
+        public PageOptions PageOptions { get; }
         public string SessionId { get; }
         public IReadOnlyDictionary<string, string> QueryParameters { get; }
-        public SessionContext Session { get; }
-    }
-
-    internal sealed class SessionContext(CancellationTokenSource cts)
-    {
-        public object Lock { get; } = new();
-        public CancellationTokenSource Cts { get; } = cts;
-        public string? Markdown { get; set; }
+        public CancellationTokenSource Cts { get; }
+        public string? Content { get; set; }
+        public string? IframeUrl { get; set; }
+        public bool IframePersistent { get; set; }
     }
 
     internal sealed class MenuButtonInteractionInfo : InteractionInfoBase

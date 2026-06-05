@@ -881,12 +881,12 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         var session1Ready = new TaskCompletionSource();
         var session2Ready = new TaskCompletionSource();
 
-        interactionService.RegisterPage("multi-session", new PageContext
+        interactionService.RegisterPage("multi-session", new ContentPageOptions
         {
             Title = "Multi",
             OnVisit = async ctx =>
             {
-                await ctx.SendMarkdownAsync($"Hello {ctx.SessionId}", ctx.CancellationToken);
+                await ctx.RenderAsync($"Hello {ctx.SessionId}", ctx.CancellationToken);
                 if (ctx.SessionId == "s1")
                 {
                     session1Ready.SetResult();
@@ -929,10 +929,10 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         Assert.All(sessionMessages, msg => Assert.Equal(WatchInteractionsResponseUpdate.KindOneofCase.Page, msg.KindCase));
 
         var s1Msg = sessionMessages.Single(m => m.Page.SessionId == "s1");
-        Assert.Equal("Hello s1", s1Msg.Page.MarkdownContent);
+        Assert.Equal("Hello s1", s1Msg.Page.Content);
 
         var s2Msg = sessionMessages.Single(m => m.Page.SessionId == "s2");
-        Assert.Equal("Hello s2", s2Msg.Page.MarkdownContent);
+        Assert.Equal("Hello s2", s2Msg.Page.Content);
 
         await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
     }
@@ -953,7 +953,7 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
         var actionCalled = new TaskCompletionSource<ActionContext>();
-        interactionService.RegisterPage("action-page", new PageContext
+        interactionService.RegisterPage("action-page", new ContentPageOptions
         {
             Actions = new Dictionary<string, Func<ActionContext, Task>>
             {
@@ -991,6 +991,51 @@ public class DashboardServiceTests(ITestOutputHelper testOutputHelper)
         Assert.Equal("session-1", actionContext.SessionId);
         Assert.Equal("42", actionContext.Arguments["id"]);
         Assert.Single(interactionService.GetCurrentInteractions());
+
+        await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
+    }
+
+    [Fact]
+    public async Task WatchInteractions_IframePage_SendsIframeUrl()
+    {
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Trace);
+            builder.AddXunit(testOutputHelper);
+        });
+
+        var interactionService = new InteractionService(
+            loggerFactory.CreateLogger<InteractionService>(),
+            new DistributedApplicationOptions(),
+            new ServiceCollection().BuildServiceProvider(),
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+
+        interactionService.RegisterPage("frontend", new IFramePageOptions
+        {
+            Title = "Frontend",
+            IFrameUrl = "https://example.com"
+        });
+
+        var startedPage = interactionService.StartPageInteraction("frontend", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        using var dashboardServiceData = CreateDashboardServiceData(loggerFactory: loggerFactory, interactionService: interactionService);
+        var dashboardService = new DashboardServiceImpl(dashboardServiceData, new TestHostEnvironment(), new TestHostApplicationLifetime(), new ConfigurationBuilder().Build(), loggerFactory.CreateLogger<DashboardServiceImpl>());
+
+        var cts = new CancellationTokenSource();
+        var context = TestServerCallContext.Create(cancellationToken: cts.Token);
+        var writer = new TestServerStreamWriter<WatchInteractionsResponseUpdate>(context);
+        var reader = new TestAsyncStreamReader<WatchInteractionsRequestUpdate>(context);
+
+        var task = dashboardService.WatchInteractions(reader, writer, context);
+        var message = await writer.ReadNextAsync().DefaultTimeout();
+
+        Assert.Equal(WatchInteractionsResponseUpdate.KindOneofCase.Page, message.KindCase);
+        Assert.Equal("frontend", message.Page.Route);
+        Assert.Equal("session-1", message.Page.SessionId);
+        Assert.Equal("Frontend", message.Page.Title);
+        Assert.Equal("https://example.com", message.Page.IframeUrl);
+        Assert.Empty(message.Page.Content);
 
         await CancelTokenAndAwaitTask(cts, task).DefaultTimeout();
     }

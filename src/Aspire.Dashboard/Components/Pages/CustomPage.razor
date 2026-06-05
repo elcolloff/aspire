@@ -17,11 +17,25 @@
             <p>@ResourcesLoc[nameof(DashboardResources.CustomPageUnavailableMessage)]</p>
         </div>
     }
-    else if (_markdownContent is not null)
+    else if (_content is not null)
     {
-        <div class="custom-page-content">
-            <MarkdownRenderer Markdown="@_markdownContent" MarkdownProcessor="@_markdownProcessor" SuppressParagraphOnNewLines="false" />
-        </div>
+        @if (_iframeUrl is not null)
+        {
+            @if (_iframePersistent)
+            {
+                @* Iframe is rendered by PersistentIframeContainer in the layout to preserve state across navigations. *@
+            }
+            else
+            {
+                <iframe class="custom-page-iframe" src="@_iframeUrl" title="@_pageTitle"></iframe>
+            }
+        }
+        else
+        {
+            <div class="custom-page-content">
+                <MarkdownRenderer Markdown="@_content" MarkdownProcessor="@_markdownProcessor" SuppressParagraphOnNewLines="false" />
+            </div>
+        }
     }
     else
     {
