@@ -11,6 +11,8 @@ using Aspire.Hosting.Azure.Provisioning.Internal;
 using Aspire.Hosting.Pipelines;
 using Azure;
 using Azure.Core;
+using Azure.ResourceManager;
+using Azure.ResourceManager.Resources;
 using Azure.ResourceManager.Resources.Models;
 using Microsoft.Extensions.Logging;
 
@@ -223,7 +225,26 @@ internal sealed class BicepProvisioner(
             Parameters = BinaryData.FromObjectAsJson(parameters),
             DebugSettingDetailLevel = "ResponseContent"
         });
-        var operation = await deployments.CreateOrUpdateAsync(WaitUntil.Started, deploymentName, deploymentContent, cancellationToken).ConfigureAwait(false);
+        ArmOperation<ArmDeploymentResource> operation;
+        try
+        {
+            operation = await deployments.CreateOrUpdateAsync(WaitUntil.Started, deploymentName, deploymentContent, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            if (context.ExecutionContext.IsRunMode &&
+                await TryCancelDeploymentAsync(deployments, deploymentName, resourceLogger, treatMissingOrInactiveAsCanceled: false).ConfigureAwait(false))
+            {
+                var sectionName = $"Azure:Deployments:{resource.Name}";
+                var canceledStateSection = await deploymentStateManager.AcquireSectionAsync(sectionName, CancellationToken.None).ConfigureAwait(false);
+                var canceledLocationOverride = canceledStateSection.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>();
+                UpdateDeploymentState(canceledStateSection, canceledLocationOverride, deploymentId, parameters, outputObj: null, scope, checksum, effectiveLocation, DeploymentStateProvisioningStateCanceled);
+                await deploymentStateManager.SaveSectionAsync(canceledStateSection, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+
         var statePersistenceCancellationToken = context.ExecutionContext.IsRunMode ? CancellationToken.None : cancellationToken;
         DeploymentStateSection? stateSection = null;
         string? locationOverride = null;
@@ -259,7 +280,7 @@ internal sealed class BicepProvisioner(
         }
         catch (OperationCanceledException)
         {
-            if (await TryCancelDeploymentAsync(deployments, deploymentName, resourceLogger).ConfigureAwait(false) &&
+            if (await TryCancelDeploymentAsync(deployments, deploymentName, resourceLogger, treatMissingOrInactiveAsCanceled: true).ConfigureAwait(false) &&
                 stateSection is not null)
             {
                 UpdateDeploymentState(stateSection, locationOverride, deploymentId, parameters, outputObj: null, scope, checksum, effectiveLocation, DeploymentStateProvisioningStateCanceled);
@@ -346,12 +367,18 @@ internal sealed class BicepProvisioner(
         .ConfigureAwait(false);
     }
 
-    private async Task<bool> TryCancelDeploymentAsync(IArmDeploymentCollection deployments, string deploymentName, ILogger resourceLogger)
+    private async Task<bool> TryCancelDeploymentAsync(IArmDeploymentCollection deployments, string deploymentName, ILogger resourceLogger, bool treatMissingOrInactiveAsCanceled)
     {
         try
         {
             await deployments.CancelAsync(deploymentName, CancellationToken.None).ConfigureAwait(false);
             resourceLogger.LogInformation("Cancellation requested for Azure deployment {DeploymentName}.", deploymentName);
+            return true;
+        }
+        catch (RequestFailedException ex) when (treatMissingOrInactiveAsCanceled && (ex.Status == 404 || ex.Status == 409))
+        {
+            logger.LogInformation(ex, "Azure deployment {DeploymentName} was already absent or no longer active during cancellation.", deploymentName);
+            resourceLogger.LogInformation("Azure deployment {DeploymentName} was already absent or no longer active during cancellation.", deploymentName);
             return true;
         }
         catch (RequestFailedException ex)

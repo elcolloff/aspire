@@ -489,6 +489,71 @@ public class AzureBicepProvisionerTests
     }
 
     [Fact]
+    public async Task GetOrCreateResourceAsync_CancelsPendingDeploymentWhenStartIsCanceled()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var deploymentCollection = new PendingCancelArmDeploymentCollection();
+        var resourceGroup = new DeploymentCollectionResourceGroupResource(deploymentCollection);
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(resourceGroup: resourceGroup);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        Assert.Equal(1, deploymentCollection.CancelCallCount);
+        Assert.Equal("storage2", deploymentCollection.CanceledDeploymentName);
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateCanceled, section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_PersistsCanceledStateWhenCancelFindsAlreadyInactiveDeployment()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var deploymentCollection = new AlreadyCanceledArmDeploymentCollection();
+        var resourceGroup = new DeploymentCollectionResourceGroupResource(deploymentCollection);
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(resourceGroup: resourceGroup);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None));
+
+        Assert.Equal(1, deploymentCollection.CancelCallCount);
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateCanceled, section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
+    }
+
+    [Fact]
     public async Task GetOrCreateResourceAsync_SavesTerminalDeploymentStateWhenDeploymentFails()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
@@ -807,6 +872,44 @@ public class AzureBicepProvisionerTests
 
         public override Response<ArmDeploymentResource> WaitForCompletion(TimeSpan pollingInterval, CancellationToken cancellationToken = default) =>
             throw new OperationCanceledException(cancellationToken);
+    }
+
+    private sealed class PendingCancelArmDeploymentCollection : IArmDeploymentCollection
+    {
+        public int CancelCallCount { get; private set; }
+        public string? CanceledDeploymentName { get; private set; }
+
+        public Task<ArmOperation<ArmDeploymentResource>> CreateOrUpdateAsync(
+            WaitUntil waitUntil,
+            string deploymentName,
+            ArmDeploymentContent content,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<ArmOperation<ArmDeploymentResource>>(new OperationCanceledException(cancellationToken));
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default)
+        {
+            CancelCallCount++;
+            CanceledDeploymentName = deploymentName;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class AlreadyCanceledArmDeploymentCollection : IArmDeploymentCollection
+    {
+        public int CancelCallCount { get; private set; }
+
+        public Task<ArmOperation<ArmDeploymentResource>> CreateOrUpdateAsync(
+            WaitUntil waitUntil,
+            string deploymentName,
+            ArmDeploymentContent content,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<ArmOperation<ArmDeploymentResource>>(new CancelingArmDeploymentOperation());
+
+        public Task CancelAsync(string deploymentName, CancellationToken cancellationToken = default)
+        {
+            CancelCallCount++;
+            throw new RequestFailedException(409, "The deployment is already canceled.");
+        }
     }
 
     private sealed class FailingArmDeploymentCollection : IArmDeploymentCollection
