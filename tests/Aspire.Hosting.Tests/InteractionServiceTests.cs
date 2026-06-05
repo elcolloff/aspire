@@ -3,6 +3,7 @@
 
 using System.Threading.Channels;
 using Aspire.Hosting.Dashboard;
+using Aspire.Hosting.Tests.Utils;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -1814,14 +1815,320 @@ public class InteractionServiceTests
         Assert.StartsWith("Update ", pageInfo.Content);
     }
 
-    private static InteractionService CreateInteractionService(DistributedApplicationOptions? options = null)
+    [Fact]
+    public async Task StartPageInteraction_IFrameWithStaticUrl_SetsIframeUrl()
+    {
+        var interactionService = CreateInteractionService();
+        var iframeReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscription = interactionService.SubscribeInteractionUpdates();
+        var readTask = Task.Run(async () =>
+        {
+            await foreach (var interaction in subscription.WithCancellation(CancellationToken.None))
+            {
+                var info = interaction.InteractionInfo as Interaction.PageInteractionInfo;
+                if (info?.IframeUrl is not null)
+                {
+                    iframeReady.TrySetResult();
+                    break;
+                }
+            }
+        });
+
+        interactionService.RegisterPage("iframe-page", new IFramePageOptions
+        {
+            Title = "My IFrame",
+            IFrameUrl = "http://localhost:5000"
+        });
+
+        var startedPage = interactionService.StartPageInteraction("iframe-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        await iframeReady.Task.DefaultTimeout();
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("http://localhost:5000", pageInfo.IframeUrl);
+        Assert.True(pageInfo.IframePersistent);
+    }
+
+    [Fact]
+    public async Task StartPageInteraction_IFrameWithStaticUrl_NonPersistent_SetsIframePersistentFalse()
+    {
+        var interactionService = CreateInteractionService();
+        var iframeReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscription = interactionService.SubscribeInteractionUpdates();
+        var readTask = Task.Run(async () =>
+        {
+            await foreach (var interaction in subscription.WithCancellation(CancellationToken.None))
+            {
+                var info = interaction.InteractionInfo as Interaction.PageInteractionInfo;
+                if (info?.IframeUrl is not null)
+                {
+                    iframeReady.TrySetResult();
+                    break;
+                }
+            }
+        });
+
+        interactionService.RegisterPage("iframe-page", new IFramePageOptions
+        {
+            Title = "My IFrame",
+            IFrameUrl = "http://localhost:5000",
+            Persistent = false
+        });
+
+        var startedPage = interactionService.StartPageInteraction("iframe-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        await iframeReady.Task.DefaultTimeout();
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("http://localhost:5000", pageInfo.IframeUrl);
+        Assert.False(pageInfo.IframePersistent);
+    }
+
+    [Fact]
+    public async Task StartPageInteraction_IFrameWithEndpoint_WaitsForHealthThenSetsIframeUrl()
+    {
+        var resourceNotificationService = ResourceNotificationServiceTestHelpers.Create();
+        var serviceProvider = new TestServiceProvider()
+            .AddService(resourceNotificationService);
+
+        var interactionService = CreateInteractionService(serviceProvider: serviceProvider);
+
+        var resource = new TestResourceWithEndpoints("my-resource");
+        var endpointAnnotation = new EndpointAnnotation(System.Net.Sockets.ProtocolType.Tcp, uriScheme: "http", name: "http");
+        resource.Annotations.Add(endpointAnnotation);
+        endpointAnnotation.AllocatedEndpoint = new AllocatedEndpoint(endpointAnnotation, "localhost", 8080);
+
+        var endpoint = new EndpointReference(resource, endpointAnnotation);
+
+        var waitingContentReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var iframeReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscription = interactionService.SubscribeInteractionUpdates();
+        var readTask = Task.Run(async () =>
+        {
+            await foreach (var interaction in subscription.WithCancellation(CancellationToken.None))
+            {
+                var info = interaction.InteractionInfo as Interaction.PageInteractionInfo;
+                if (info is null)
+                {
+                    continue;
+                }
+
+                if (info.IframeUrl is not null)
+                {
+                    iframeReady.TrySetResult();
+                    break;
+                }
+                else if (info.IsWaitingForEndpoint)
+                {
+                    waitingContentReady.TrySetResult();
+                }
+            }
+        });
+
+        interactionService.RegisterPage("iframe-page", new IFramePageOptions
+        {
+            Title = "My IFrame",
+            IFrameEndpoint = endpoint
+        });
+
+        var startedPage = interactionService.StartPageInteraction("iframe-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        // Before the resource is healthy, the iframe URL should not be set yet.
+        await waitingContentReady.Task.DefaultTimeout();
+        var interactionBeforeHealthy = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfoBeforeHealthy = Assert.IsType<Interaction.PageInteractionInfo>(interactionBeforeHealthy.InteractionInfo);
+        Assert.Null(pageInfoBeforeHealthy.IframeUrl);
+        Assert.True(pageInfoBeforeHealthy.IsWaitingForEndpoint);
+
+        // Publish the resource as running + healthy.
+        await resourceNotificationService.PublishUpdateAsync(resource, snapshot => snapshot with
+        {
+            ResourceType = "Container",
+            Properties = [],
+            State = KnownResourceStates.Running,
+            ResourceReadyEvent = new EventSnapshot(Task.CompletedTask)
+        });
+
+        await iframeReady.Task.DefaultTimeout();
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("http://localhost:8080", pageInfo.IframeUrl);
+        Assert.True(pageInfo.IframePersistent);
+    }
+
+    [Fact]
+    public async Task StartPageInteraction_IFrameWithEndpoint_ResourceBecomesUnhealthy_RemovesIframeAndWaitsAgain()
+    {
+        var resourceNotificationService = ResourceNotificationServiceTestHelpers.Create();
+        var serviceProvider = new TestServiceProvider()
+            .AddService(resourceNotificationService);
+
+        var interactionService = CreateInteractionService(serviceProvider: serviceProvider);
+
+        var resource = new TestResourceWithEndpoints("my-resource");
+        var endpointAnnotation = new EndpointAnnotation(System.Net.Sockets.ProtocolType.Tcp, uriScheme: "http", name: "http");
+        resource.Annotations.Add(endpointAnnotation);
+        endpointAnnotation.AllocatedEndpoint = new AllocatedEndpoint(endpointAnnotation, "localhost", 8080);
+
+        var endpoint = new EndpointReference(resource, endpointAnnotation);
+
+        var updateCount = 0;
+        var iframeSetSecondTime = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var iframeSetFirstTime = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var iframeRemovedAfterUnhealthy = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscription = interactionService.SubscribeInteractionUpdates();
+        var readTask = Task.Run(async () =>
+        {
+            await foreach (var interaction in subscription.WithCancellation(CancellationToken.None))
+            {
+                var info = interaction.InteractionInfo as Interaction.PageInteractionInfo;
+                if (info is null)
+                {
+                    continue;
+                }
+
+                if (info.IframeUrl is not null)
+                {
+                    updateCount++;
+                    if (updateCount == 1)
+                    {
+                        iframeSetFirstTime.TrySetResult();
+                    }
+                    else if (updateCount == 2)
+                    {
+                        iframeSetSecondTime.TrySetResult();
+                        break;
+                    }
+                }
+                else if (updateCount == 1 && info.IsWaitingForEndpoint)
+                {
+                    iframeRemovedAfterUnhealthy.TrySetResult();
+                }
+            }
+        });
+
+        interactionService.RegisterPage("iframe-page", new IFramePageOptions
+        {
+            Title = "My IFrame",
+            IFrameEndpoint = endpoint
+        });
+
+        var startedPage = interactionService.StartPageInteraction("iframe-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        // Make the resource healthy.
+        await resourceNotificationService.PublishUpdateAsync(resource, snapshot => snapshot with
+        {
+            ResourceType = "Container",
+            Properties = [],
+            State = KnownResourceStates.Running,
+            ResourceReadyEvent = new EventSnapshot(Task.CompletedTask)
+        });
+
+        await iframeSetFirstTime.Task.DefaultTimeout();
+
+        // Make the resource unhealthy — should trigger re-waiting.
+        await resourceNotificationService.PublishUpdateAsync(resource, snapshot => snapshot with
+        {
+            State = KnownResourceStates.Starting
+        });
+
+        await iframeRemovedAfterUnhealthy.Task.DefaultTimeout();
+
+        // Verify the iframe URL was cleared and is waiting for the endpoint.
+        var interactionWhileWaiting = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfoWhileWaiting = Assert.IsType<Interaction.PageInteractionInfo>(interactionWhileWaiting.InteractionInfo);
+        Assert.Null(pageInfoWhileWaiting.IframeUrl);
+        Assert.True(pageInfoWhileWaiting.IsWaitingForEndpoint);
+
+        // Make the resource healthy again.
+        await resourceNotificationService.PublishUpdateAsync(resource, snapshot => snapshot with
+        {
+            State = KnownResourceStates.Running,
+            ResourceReadyEvent = new EventSnapshot(Task.CompletedTask)
+        });
+
+        await iframeSetSecondTime.Task.DefaultTimeout();
+
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.Equal("http://localhost:8080", pageInfo.IframeUrl);
+    }
+
+    [Fact]
+    public async Task StartPageInteraction_IFrameWithEndpoint_CancellationStopsMonitoring()
+    {
+        var resourceNotificationService = ResourceNotificationServiceTestHelpers.Create();
+        var serviceProvider = new TestServiceProvider()
+            .AddService(resourceNotificationService);
+
+        var interactionService = CreateInteractionService(serviceProvider: serviceProvider);
+
+        var resource = new TestResourceWithEndpoints("my-resource");
+        var endpointAnnotation = new EndpointAnnotation(System.Net.Sockets.ProtocolType.Tcp, uriScheme: "http", name: "http");
+        resource.Annotations.Add(endpointAnnotation);
+        endpointAnnotation.AllocatedEndpoint = new AllocatedEndpoint(endpointAnnotation, "localhost", 8080);
+
+        var endpoint = new EndpointReference(resource, endpointAnnotation);
+
+        var waitingContentReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscription = interactionService.SubscribeInteractionUpdates();
+        var readTask = Task.Run(async () =>
+        {
+            await foreach (var interaction in subscription.WithCancellation(CancellationToken.None))
+            {
+                var info = interaction.InteractionInfo as Interaction.PageInteractionInfo;
+                if (info is { IsWaitingForEndpoint: true })
+                {
+                    waitingContentReady.TrySetResult();
+                    break;
+                }
+            }
+        });
+
+        interactionService.RegisterPage("iframe-page", new IFramePageOptions
+        {
+            Title = "My IFrame",
+            IFrameEndpoint = endpoint
+        });
+
+        var startedPage = interactionService.StartPageInteraction("iframe-page", "session-1", new Dictionary<string, string>(), CancellationToken.None);
+        Assert.NotNull(startedPage);
+
+        // Verify the interaction is waiting for the resource.
+        await waitingContentReady.Task.DefaultTimeout();
+        var interaction = Assert.Single(interactionService.GetCurrentInteractions());
+        var pageInfo = Assert.IsType<Interaction.PageInteractionInfo>(interaction.InteractionInfo);
+        Assert.True(pageInfo.IsWaitingForEndpoint);
+
+        // Complete the page interaction (simulates visitor leaving).
+        await interactionService.ProcessInteractionFromClientAsync(
+            startedPage.InteractionId,
+            (_, _, _) => new InteractionCompletionState { Complete = true },
+            CancellationToken.None);
+
+        // The interaction should be removed after completion.
+        Assert.Empty(interactionService.GetCurrentInteractions());
+    }
+
+    private static InteractionService CreateInteractionService(DistributedApplicationOptions? options = null, IServiceProvider? serviceProvider = null)
     {
         var configuration = new ConfigurationBuilder().Build();
         return new InteractionService(
             NullLogger<InteractionService>.Instance,
             options ?? new DistributedApplicationOptions(),
-            new ServiceCollection().BuildServiceProvider(),
+            serviceProvider ?? new ServiceCollection().BuildServiceProvider(),
             configuration);
+    }
+
+    private sealed class TestResourceWithEndpoints(string name) : Resource(name), IResourceWithEndpoints
+    {
     }
 }
 

@@ -724,6 +724,7 @@ internal class InteractionService : IInteractionService
                         {
                             pageInfo.Content = $"Waiting for **{endpoint.Resource.Name}** to be ready...";
                             pageInfo.IframeUrl = null;
+                            pageInfo.IsWaitingForEndpoint = true;
                         }
                         UpdateInteraction(interactionState);
 
@@ -741,6 +742,7 @@ internal class InteractionService : IInteractionService
                                 pageInfo.Content = string.Empty;
                                 pageInfo.IframeUrl = iframeUrl;
                                 pageInfo.IframePersistent = iframePageOptions.Persistent;
+                                pageInfo.IsWaitingForEndpoint = false;
                             }
                             UpdateInteraction(interactionState);
                         }
@@ -1092,6 +1094,7 @@ internal class Interaction
         public string? Content { get; set; }
         public string? IframeUrl { get; set; }
         public bool IframePersistent { get; set; }
+        public bool IsWaitingForEndpoint { get; set; }
     }
 
     internal sealed class MenuButtonInteractionInfo : InteractionInfoBase
