@@ -7,11 +7,8 @@
 #pragma warning disable ASPIREAZURE001
 #pragma warning disable ASPIRECONTAINERRUNTIME001
 
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aspire.Hosting.ApplicationModel;
@@ -552,26 +549,9 @@ internal static class AzureSandboxContainerDeployment
             return imageReference;
         }
 
-        var manifest = await InspectContainerImageManifestAsync(context, imageReference).ConfigureAwait(false);
-        return ResolveLinuxAmd64ManifestReference(manifest, imageReference);
-    }
-
-    private static async Task<string> InspectContainerImageManifestAsync(PipelineStepContext context, string imageReference)
-    {
         var runtime = await context.Services.GetRequiredService<IContainerRuntimeResolver>().ResolveAsync(context.CancellationToken).ConfigureAwait(false);
-        var runtimeExecutable = runtime.Name switch
-        {
-            var name when string.Equals(name, "Docker", StringComparison.OrdinalIgnoreCase) => "docker",
-            var name when string.Equals(name, "Podman", StringComparison.OrdinalIgnoreCase) => "podman",
-            _ => throw new InvalidOperationException($"Unsupported container runtime '{runtime.Name}'.")
-        };
-
-        return await RunProcessAsync(
-            context,
-            runtimeExecutable,
-            ["manifest", "inspect", imageReference],
-            workingDirectory: null,
-            logOutput: false).ConfigureAwait(false);
+        var manifest = await runtime.InspectImageManifestAsync(imageReference, context.CancellationToken).ConfigureAwait(false);
+        return ResolveLinuxAmd64ManifestReference(manifest, imageReference);
     }
 
     internal static string ResolveLinuxAmd64ManifestReference(string manifestJson, string imageReference)
@@ -692,19 +672,7 @@ internal static class AzureSandboxContainerDeployment
     private static async Task<ContainerImageMetadata> InspectLocalContainerImageAsync(PipelineStepContext context, string imageReference)
     {
         var runtime = await context.Services.GetRequiredService<IContainerRuntimeResolver>().ResolveAsync(context.CancellationToken).ConfigureAwait(false);
-        var runtimeExecutable = runtime.Name switch
-        {
-            var name when string.Equals(name, "Docker", StringComparison.OrdinalIgnoreCase) => "docker",
-            var name when string.Equals(name, "Podman", StringComparison.OrdinalIgnoreCase) => "podman",
-            _ => throw new InvalidOperationException($"Unsupported container runtime '{runtime.Name}'.")
-        };
-
-        var output = await RunProcessAsync(
-            context,
-            runtimeExecutable,
-            ["image", "inspect", imageReference, "--format", "{{json .Config}}"],
-            workingDirectory: null,
-            logOutput: false).ConfigureAwait(false);
+        var output = await runtime.InspectImageConfigAsync(imageReference, context.CancellationToken).ConfigureAwait(false);
 
         return ParseContainerImageMetadata(output, imageReference);
     }
@@ -1115,97 +1083,6 @@ internal static class AzureSandboxContainerDeployment
         }
     }
 
-    private static async Task<string> RunProcessAsync(
-        PipelineStepContext context,
-        string fileName,
-        IReadOnlyList<string> arguments,
-        string? workingDirectory,
-        bool throwOnError = true,
-        bool logOutput = true,
-        bool includeOutputInException = true)
-    {
-        using var process = new Process();
-        process.StartInfo.FileName = fileName;
-        process.StartInfo.WorkingDirectory = workingDirectory ?? string.Empty;
-        process.StartInfo.RedirectStandardOutput = true;
-        process.StartInfo.RedirectStandardError = true;
-        process.StartInfo.UseShellExecute = false;
-        process.StartInfo.CreateNoWindow = true;
-
-        foreach (var argument in arguments)
-        {
-            process.StartInfo.ArgumentList.Add(argument);
-        }
-
-        context.Logger.LogInformation("Running command: {Command} {Arguments}", fileName, FormatProcessArgumentsForDisplay(arguments));
-
-        try
-        {
-            process.Start();
-        }
-        catch (Win32Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to start '{fileName}'. Ensure it is installed and available on PATH.", ex);
-        }
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-
-        try
-        {
-            await process.WaitForExitAsync(context.CancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
-        {
-            await TerminateProcessOnCancellationAsync(context, process, fileName).ConfigureAwait(false);
-            throw;
-        }
-
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
-
-        if (logOutput && !string.IsNullOrWhiteSpace(stdout))
-        {
-            context.Logger.LogInformation("{Command} stdout: {Stdout}", fileName, stdout.Trim());
-        }
-
-        if (logOutput && !string.IsNullOrWhiteSpace(stderr))
-        {
-            context.Logger.LogWarning("{Command} stderr: {Stderr}", fileName, stderr.Trim());
-        }
-
-        if (throwOnError && process.ExitCode != 0)
-        {
-            var output = includeOutputInException
-                ? string.IsNullOrWhiteSpace(stderr) ? stdout : stderr
-                : string.Empty;
-            throw new InvalidOperationException($"Command '{fileName}' failed with exit code {process.ExitCode}.{Environment.NewLine}{output}");
-        }
-
-        return stdout;
-    }
-
-    private static async Task TerminateProcessOnCancellationAsync(PipelineStepContext context, Process process, string fileName)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                context.Logger.LogInformation("Terminating cancelled command: {Command}", fileName);
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            // The process can exit between HasExited and Kill/WaitForExitAsync.
-        }
-        catch (Win32Exception ex)
-        {
-            context.Logger.LogWarning(ex, "Failed to terminate cancelled command: {Command}", fileName);
-        }
-    }
-
     private static async Task<AzureDeploymentState> GetAzureStateAsync(IDeploymentStateManager deploymentStateManager, CancellationToken cancellationToken)
     {
         var azureState = await deploymentStateManager.AcquireSectionAsync("Azure", cancellationToken).ConfigureAwait(false);
@@ -1271,66 +1148,6 @@ internal static class AzureSandboxContainerDeployment
     private static AzureSandboxOptions? GetAzureSandboxContainerOptions(IResource resource)
     {
         return resource.Annotations.OfType<AzureSandboxContainerOptionsAnnotation>().SingleOrDefault()?.Options;
-    }
-
-    private static string FormatProcessArgumentsForDisplay(IReadOnlyList<string> arguments)
-    {
-        var formattedArguments = new string[arguments.Count];
-        for (var i = 0; i < arguments.Count; i++)
-        {
-            formattedArguments[i] = i > 0 && string.Equals(arguments[i - 1], "--token", StringComparison.OrdinalIgnoreCase) ? "******" :
-                i > 0 && string.Equals(arguments[i - 1], "--env", StringComparison.OrdinalIgnoreCase) ? FormatEnvironmentArgumentForDisplay(arguments[i]) :
-                FormatProcessArgumentForDisplay(arguments[i]);
-        }
-
-        return string.Join(' ', formattedArguments);
-    }
-
-    private static string FormatEnvironmentArgumentForDisplay(string argument)
-    {
-        var equalsIndex = argument.IndexOf('=');
-        return equalsIndex > 0
-            ? FormatProcessArgumentForDisplay($"{argument[..(equalsIndex + 1)]}******")
-            : "******";
-    }
-
-    private static string FormatProcessArgumentForDisplay(string argument)
-    {
-        if (argument.Length > 0 && !argument.Any(static c => char.IsWhiteSpace(c) || c == '"'))
-        {
-            return argument;
-        }
-
-        var builder = new StringBuilder(argument.Length + 2);
-        builder.Append('"');
-
-        var backslashCount = 0;
-        foreach (var c in argument)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-                continue;
-            }
-
-            if (c == '"')
-            {
-                builder.Append('\\', backslashCount * 2 + 1);
-                builder.Append('"');
-            }
-            else
-            {
-                builder.Append('\\', backslashCount);
-                builder.Append(c);
-            }
-
-            backslashCount = 0;
-        }
-
-        builder.Append('\\', backslashCount * 2);
-        builder.Append('"');
-
-        return builder.ToString();
     }
 
     internal static string GetStateSectionName(AzureSandboxContainerResource resource) => $"{SandboxStateSectionPrefix}{resource.Name}";
