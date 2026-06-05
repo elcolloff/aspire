@@ -408,12 +408,12 @@ func (d *InteractionChoiceOption) ToMap() map[string]any {
 
 // CreateInteractionInputOptions represents CreateInteractionInputOptions.
 type CreateInteractionInputOptions struct {
-	Label string `json:"Label,omitempty"`
-	Description string `json:"Description,omitempty"`
+	Label *string `json:"Label,omitempty"`
+	Description *string `json:"Description,omitempty"`
 	EnableDescriptionMarkdown *bool `json:"EnableDescriptionMarkdown,omitempty"`
 	Required *bool `json:"Required,omitempty"`
-	Placeholder string `json:"Placeholder,omitempty"`
-	Value string `json:"Value,omitempty"`
+	Placeholder *string `json:"Placeholder,omitempty"`
+	Value *string `json:"Value,omitempty"`
 	AllowCustomChoice *bool `json:"AllowCustomChoice,omitempty"`
 	Disabled *bool `json:"Disabled,omitempty"`
 	MaxLength *float64 `json:"MaxLength,omitempty"`
@@ -422,12 +422,12 @@ type CreateInteractionInputOptions struct {
 // ToMap converts the DTO to a map for JSON serialization.
 func (d *CreateInteractionInputOptions) ToMap() map[string]any {
 	m := map[string]any{}
-	m["Label"] = serializeValue(d.Label)
-	m["Description"] = serializeValue(d.Description)
+	if d.Label != nil { m["Label"] = serializeValue(d.Label) }
+	if d.Description != nil { m["Description"] = serializeValue(d.Description) }
 	if d.EnableDescriptionMarkdown != nil { m["EnableDescriptionMarkdown"] = serializeValue(d.EnableDescriptionMarkdown) }
 	if d.Required != nil { m["Required"] = serializeValue(d.Required) }
-	m["Placeholder"] = serializeValue(d.Placeholder)
-	m["Value"] = serializeValue(d.Value)
+	if d.Placeholder != nil { m["Placeholder"] = serializeValue(d.Placeholder) }
+	if d.Value != nil { m["Value"] = serializeValue(d.Value) }
 	if d.AllowCustomChoice != nil { m["AllowCustomChoice"] = serializeValue(d.AllowCustomChoice) }
 	if d.Disabled != nil { m["Disabled"] = serializeValue(d.Disabled) }
 	if d.MaxLength != nil { m["MaxLength"] = serializeValue(d.MaxLength) }
@@ -450,8 +450,8 @@ func (d *DynamicLoadingOptions) ToMap() map[string]any {
 
 // InteractionMessageBoxOptions represents InteractionMessageBoxOptions.
 type InteractionMessageBoxOptions struct {
-	PrimaryButtonText string `json:"PrimaryButtonText,omitempty"`
-	SecondaryButtonText string `json:"SecondaryButtonText,omitempty"`
+	PrimaryButtonText *string `json:"PrimaryButtonText,omitempty"`
+	SecondaryButtonText *string `json:"SecondaryButtonText,omitempty"`
 	ShowSecondaryButton *bool `json:"ShowSecondaryButton,omitempty"`
 	ShowDismiss *bool `json:"ShowDismiss,omitempty"`
 	EnableMessageMarkdown *bool `json:"EnableMessageMarkdown,omitempty"`
@@ -461,8 +461,8 @@ type InteractionMessageBoxOptions struct {
 // ToMap converts the DTO to a map for JSON serialization.
 func (d *InteractionMessageBoxOptions) ToMap() map[string]any {
 	m := map[string]any{}
-	m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText)
-	m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText)
+	if d.PrimaryButtonText != nil { m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText) }
+	if d.SecondaryButtonText != nil { m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText) }
 	if d.ShowSecondaryButton != nil { m["ShowSecondaryButton"] = serializeValue(d.ShowSecondaryButton) }
 	if d.ShowDismiss != nil { m["ShowDismiss"] = serializeValue(d.ShowDismiss) }
 	if d.EnableMessageMarkdown != nil { m["EnableMessageMarkdown"] = serializeValue(d.EnableMessageMarkdown) }
@@ -472,34 +472,34 @@ func (d *InteractionMessageBoxOptions) ToMap() map[string]any {
 
 // InteractionNotificationOptions represents InteractionNotificationOptions.
 type InteractionNotificationOptions struct {
-	PrimaryButtonText string `json:"PrimaryButtonText,omitempty"`
-	SecondaryButtonText string `json:"SecondaryButtonText,omitempty"`
+	PrimaryButtonText *string `json:"PrimaryButtonText,omitempty"`
+	SecondaryButtonText *string `json:"SecondaryButtonText,omitempty"`
 	ShowSecondaryButton *bool `json:"ShowSecondaryButton,omitempty"`
 	ShowDismiss *bool `json:"ShowDismiss,omitempty"`
 	EnableMessageMarkdown *bool `json:"EnableMessageMarkdown,omitempty"`
 	Intent *MessageIntent `json:"Intent,omitempty"`
-	LinkText string `json:"LinkText,omitempty"`
-	LinkUrl string `json:"LinkUrl,omitempty"`
+	LinkText *string `json:"LinkText,omitempty"`
+	LinkUrl *string `json:"LinkUrl,omitempty"`
 }
 
 // ToMap converts the DTO to a map for JSON serialization.
 func (d *InteractionNotificationOptions) ToMap() map[string]any {
 	m := map[string]any{}
-	m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText)
-	m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText)
+	if d.PrimaryButtonText != nil { m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText) }
+	if d.SecondaryButtonText != nil { m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText) }
 	if d.ShowSecondaryButton != nil { m["ShowSecondaryButton"] = serializeValue(d.ShowSecondaryButton) }
 	if d.ShowDismiss != nil { m["ShowDismiss"] = serializeValue(d.ShowDismiss) }
 	if d.EnableMessageMarkdown != nil { m["EnableMessageMarkdown"] = serializeValue(d.EnableMessageMarkdown) }
 	if d.Intent != nil { m["Intent"] = serializeValue(d.Intent) }
-	m["LinkText"] = serializeValue(d.LinkText)
-	m["LinkUrl"] = serializeValue(d.LinkUrl)
+	if d.LinkText != nil { m["LinkText"] = serializeValue(d.LinkText) }
+	if d.LinkUrl != nil { m["LinkUrl"] = serializeValue(d.LinkUrl) }
 	return m
 }
 
 // InteractionInputsDialogOptions represents InteractionInputsDialogOptions.
 type InteractionInputsDialogOptions struct {
-	PrimaryButtonText string `json:"PrimaryButtonText,omitempty"`
-	SecondaryButtonText string `json:"SecondaryButtonText,omitempty"`
+	PrimaryButtonText *string `json:"PrimaryButtonText,omitempty"`
+	SecondaryButtonText *string `json:"SecondaryButtonText,omitempty"`
 	ShowSecondaryButton *bool `json:"ShowSecondaryButton,omitempty"`
 	ShowDismiss *bool `json:"ShowDismiss,omitempty"`
 	EnableMessageMarkdown *bool `json:"EnableMessageMarkdown,omitempty"`
@@ -508,8 +508,8 @@ type InteractionInputsDialogOptions struct {
 // ToMap converts the DTO to a map for JSON serialization.
 func (d *InteractionInputsDialogOptions) ToMap() map[string]any {
 	m := map[string]any{}
-	m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText)
-	m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText)
+	if d.PrimaryButtonText != nil { m["PrimaryButtonText"] = serializeValue(d.PrimaryButtonText) }
+	if d.SecondaryButtonText != nil { m["SecondaryButtonText"] = serializeValue(d.SecondaryButtonText) }
 	if d.ShowSecondaryButton != nil { m["ShowSecondaryButton"] = serializeValue(d.ShowSecondaryButton) }
 	if d.ShowDismiss != nil { m["ShowDismiss"] = serializeValue(d.ShowDismiss) }
 	if d.EnableMessageMarkdown != nil { m["EnableMessageMarkdown"] = serializeValue(d.EnableMessageMarkdown) }

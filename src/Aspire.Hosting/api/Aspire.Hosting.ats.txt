@@ -207,17 +207,17 @@ Aspire.Hosting/Aspire.Hosting.Ats.CreateBuilderOptions # Options for creating a 
   ProjectDirectory: string # The directory containing the AppHost project file.
 Aspire.Hosting/Aspire.Hosting.Ats.CreateInteractionInputOptions # Optional configuration shared by interaction input factory capabilities.
   AllowCustomChoice?: boolean # Gets or sets a value indicating whether a custom choice is allowed. Only used by choice inputs.
-  Description: string # Gets or sets the description for the input.
+  Description?: string # Gets or sets the description for the input.
   Disabled?: boolean # Gets or sets a value indicating whether the input is disabled.
   EnableDescriptionMarkdown?: boolean # Gets or sets a value indicating whether the description is rendered as Markdown.
-  Label: string # Gets or sets the label for the input. Defaults to the input name when not specified.
+  Label?: string # Gets or sets the label for the input. Defaults to the input name when not specified.
   MaxLength?: number # Gets or sets the maximum length for text inputs.
-  Placeholder: string # Gets or sets the placeholder text for the input.
+  Placeholder?: string # Gets or sets the placeholder text for the input.
   Required?: boolean # Gets or sets a value indicating whether the input is required.
-  Value: string # Gets or sets the initial value of the input.
+  Value?: string # Gets or sets the initial value of the input.
 Aspire.Hosting/Aspire.Hosting.Ats.DynamicLoadingOptions # Options controlling when a dynamic-loading callback runs.
   AlwaysLoadOnStart?: boolean # Gets or sets a value indicating whether the callback always runs at the start of the prompt.
-  DependsOnInputs: string[] # Gets or sets the names of inputs this input depends on. The callback runs when any of them change.
+  DependsOnInputs?: string[] # Gets or sets the names of inputs this input depends on. The callback runs when any of them change.
 Aspire.Hosting/Aspire.Hosting.Ats.HttpsCertificateExecutionConfigurationExportData # ATS-friendly HTTPS certificate data returned from an execution-configuration result.
   IsKeyPathReferenced: boolean # Indicates whether the key path was referenced.
   IsPfxPathReferenced: boolean # Indicates whether the PFX path was referenced.
@@ -241,24 +241,24 @@ Aspire.Hosting/Aspire.Hosting.Ats.InteractionChoiceOption # A single selectable 
   Value: string # Gets or sets the value submitted when this option is selected.
 Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputsDialogOptions # Options for inputs dialog prompts.
   EnableMessageMarkdown?: boolean # Gets or sets a value indicating whether Markdown in the message is rendered.
-  PrimaryButtonText: string # Gets or sets the primary button text.
-  SecondaryButtonText: string # Gets or sets the secondary button text.
+  PrimaryButtonText?: string # Gets or sets the primary button text.
+  SecondaryButtonText?: string # Gets or sets the secondary button text.
   ShowDismiss?: boolean # Gets or sets a value indicating whether the dismiss button is shown.
   ShowSecondaryButton?: boolean # Gets or sets a value indicating whether the secondary button is shown.
 Aspire.Hosting/Aspire.Hosting.Ats.InteractionMessageBoxOptions # Options for message box and confirmation prompts.
   EnableMessageMarkdown?: boolean # Gets or sets a value indicating whether Markdown in the message is rendered.
   Intent?: enum:Aspire.Hosting.MessageIntent # Gets or sets the intent of the message box.
-  PrimaryButtonText: string # Gets or sets the primary button text.
-  SecondaryButtonText: string # Gets or sets the secondary button text.
+  PrimaryButtonText?: string # Gets or sets the primary button text.
+  SecondaryButtonText?: string # Gets or sets the secondary button text.
   ShowDismiss?: boolean # Gets or sets a value indicating whether the dismiss button is shown.
   ShowSecondaryButton?: boolean # Gets or sets a value indicating whether the secondary button is shown.
 Aspire.Hosting/Aspire.Hosting.Ats.InteractionNotificationOptions # Options for notification prompts.
   EnableMessageMarkdown?: boolean # Gets or sets a value indicating whether Markdown in the message is rendered.
   Intent?: enum:Aspire.Hosting.MessageIntent # Gets or sets the intent of the notification.
-  LinkText: string # Gets or sets the text for a link in the notification.
-  LinkUrl: string # Gets or sets the URL for the link in the notification.
-  PrimaryButtonText: string # Gets or sets the primary button text.
-  SecondaryButtonText: string # Gets or sets the secondary button text.
+  LinkText?: string # Gets or sets the text for a link in the notification.
+  LinkUrl?: string # Gets or sets the URL for the link in the notification.
+  PrimaryButtonText?: string # Gets or sets the primary button text.
+  SecondaryButtonText?: string # Gets or sets the secondary button text.
   ShowDismiss?: boolean # Gets or sets a value indicating whether the dismiss button is shown.
   ShowSecondaryButton?: boolean # Gets or sets a value indicating whether the secondary button is shown.
 Aspire.Hosting/Aspire.Hosting.Ats.ParameterCustomInputOptions # Options for customizing parameter inputs from polyglot app hosts.

@@ -449,47 +449,47 @@ internal sealed class CreateInteractionInputOptions
     /// <summary>
     /// Gets or sets the label for the input. Defaults to the input name when not specified.
     /// </summary>
-    public string? Label { get; set; }
+    public string? Label { get; init; }
 
     /// <summary>
     /// Gets or sets the description for the input.
     /// </summary>
-    public string? Description { get; set; }
+    public string? Description { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the description is rendered as Markdown.
     /// </summary>
-    public bool? EnableDescriptionMarkdown { get; set; }
+    public bool? EnableDescriptionMarkdown { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the input is required.
     /// </summary>
-    public bool? Required { get; set; }
+    public bool? Required { get; init; }
 
     /// <summary>
     /// Gets or sets the placeholder text for the input.
     /// </summary>
-    public string? Placeholder { get; set; }
+    public string? Placeholder { get; init; }
 
     /// <summary>
     /// Gets or sets the initial value of the input.
     /// </summary>
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether a custom choice is allowed. Only used by choice inputs.
     /// </summary>
-    public bool? AllowCustomChoice { get; set; }
+    public bool? AllowCustomChoice { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the input is disabled.
     /// </summary>
-    public bool? Disabled { get; set; }
+    public bool? Disabled { get; init; }
 
     /// <summary>
     /// Gets or sets the maximum length for text inputs.
     /// </summary>
-    public int? MaxLength { get; set; }
+    public int? MaxLength { get; init; }
 }
 
 /// <summary>
@@ -501,12 +501,12 @@ internal sealed class DynamicLoadingOptions
     /// <summary>
     /// Gets or sets a value indicating whether the callback always runs at the start of the prompt.
     /// </summary>
-    public bool? AlwaysLoadOnStart { get; set; }
+    public bool? AlwaysLoadOnStart { get; init; }
 
     /// <summary>
     /// Gets or sets the names of inputs this input depends on. The callback runs when any of them change.
     /// </summary>
-    public IReadOnlyList<string>? DependsOnInputs { get; set; }
+    public IReadOnlyList<string>? DependsOnInputs { get; init; }
 }
 
 /// <summary>
@@ -518,32 +518,32 @@ internal sealed class InteractionMessageBoxOptions
     /// <summary>
     /// Gets or sets the primary button text.
     /// </summary>
-    public string? PrimaryButtonText { get; set; }
+    public string? PrimaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets the secondary button text.
     /// </summary>
-    public string? SecondaryButtonText { get; set; }
+    public string? SecondaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the secondary button is shown.
     /// </summary>
-    public bool? ShowSecondaryButton { get; set; }
+    public bool? ShowSecondaryButton { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the dismiss button is shown.
     /// </summary>
-    public bool? ShowDismiss { get; set; }
+    public bool? ShowDismiss { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether Markdown in the message is rendered.
     /// </summary>
-    public bool? EnableMessageMarkdown { get; set; }
+    public bool? EnableMessageMarkdown { get; init; }
 
     /// <summary>
     /// Gets or sets the intent of the message box.
     /// </summary>
-    public MessageIntent? Intent { get; set; }
+    public MessageIntent? Intent { get; init; }
 
     internal MessageBoxInteractionOptions ToOptions()
     {
@@ -568,42 +568,42 @@ internal sealed class InteractionNotificationOptions
     /// <summary>
     /// Gets or sets the primary button text.
     /// </summary>
-    public string? PrimaryButtonText { get; set; }
+    public string? PrimaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets the secondary button text.
     /// </summary>
-    public string? SecondaryButtonText { get; set; }
+    public string? SecondaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the secondary button is shown.
     /// </summary>
-    public bool? ShowSecondaryButton { get; set; }
+    public bool? ShowSecondaryButton { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the dismiss button is shown.
     /// </summary>
-    public bool? ShowDismiss { get; set; }
+    public bool? ShowDismiss { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether Markdown in the message is rendered.
     /// </summary>
-    public bool? EnableMessageMarkdown { get; set; }
+    public bool? EnableMessageMarkdown { get; init; }
 
     /// <summary>
     /// Gets or sets the intent of the notification.
     /// </summary>
-    public MessageIntent? Intent { get; set; }
+    public MessageIntent? Intent { get; init; }
 
     /// <summary>
     /// Gets or sets the text for a link in the notification.
     /// </summary>
-    public string? LinkText { get; set; }
+    public string? LinkText { get; init; }
 
     /// <summary>
     /// Gets or sets the URL for the link in the notification.
     /// </summary>
-    public string? LinkUrl { get; set; }
+    public string? LinkUrl { get; init; }
 
     internal NotificationInteractionOptions ToOptions()
     {
@@ -630,27 +630,27 @@ internal sealed class InteractionInputsDialogOptions
     /// <summary>
     /// Gets or sets the primary button text.
     /// </summary>
-    public string? PrimaryButtonText { get; set; }
+    public string? PrimaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets the secondary button text.
     /// </summary>
-    public string? SecondaryButtonText { get; set; }
+    public string? SecondaryButtonText { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the secondary button is shown.
     /// </summary>
-    public bool? ShowSecondaryButton { get; set; }
+    public bool? ShowSecondaryButton { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the dismiss button is shown.
     /// </summary>
-    public bool? ShowDismiss { get; set; }
+    public bool? ShowDismiss { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether Markdown in the message is rendered.
     /// </summary>
-    public bool? EnableMessageMarkdown { get; set; }
+    public bool? EnableMessageMarkdown { get; init; }
 
     internal InputsDialogInteractionOptions ToOptions()
     {

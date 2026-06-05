@@ -639,8 +639,8 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		confirmIntent := aspire.MessageIntentConfirmation
 		confirmation, err := interactionService.PromptConfirmation("Confirm", "Proceed?", &aspire.PromptConfirmationOptions{
 			Options: &aspire.InteractionMessageBoxOptions{
-				PrimaryButtonText:     "Yes",
-				SecondaryButtonText:   "No",
+				PrimaryButtonText:     aspire.StringPtr("Yes"),
+				SecondaryButtonText:   aspire.StringPtr("No"),
 				ShowSecondaryButton:   aspire.BoolPtr(true),
 				ShowDismiss:           aspire.BoolPtr(true),
 				EnableMessageMarkdown: aspire.BoolPtr(true),
@@ -653,7 +653,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 
 		infoIntent := aspire.MessageIntentInformation
 		messageBox, err := interactionService.PromptMessageBox("Notice", "Read this.", &aspire.PromptMessageBoxOptions{
-			Options: &aspire.InteractionMessageBoxOptions{PrimaryButtonText: "OK", Intent: &infoIntent},
+			Options: &aspire.InteractionMessageBoxOptions{PrimaryButtonText: aspire.StringPtr("OK"), Intent: &infoIntent},
 		})
 		if err != nil {
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
@@ -663,8 +663,8 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		notification, err := interactionService.PromptNotification("Heads up", "Something happened.", &aspire.PromptNotificationOptions{
 			Options: &aspire.InteractionNotificationOptions{
 				Intent:      &warnIntent,
-				LinkText:    "Learn more",
-				LinkUrl:     "https://aspire.dev",
+				LinkText:    aspire.StringPtr("Learn more"),
+				LinkUrl:     aspire.StringPtr("https://aspire.dev"),
 				ShowDismiss: aspire.BoolPtr(true),
 			},
 		})
@@ -674,12 +674,12 @@ ENTRYPOINT ["dotnet", "App.dll"]
 
 		textInput := interactionService.CreateTextInput("name", &aspire.CreateTextInputOptions{
 			Options: &aspire.CreateInteractionInputOptions{
-				Label:                     "Name",
-				Description:               "Your **name**",
+				Label:                     aspire.StringPtr("Name"),
+				Description:               aspire.StringPtr("Your **name**"),
 				EnableDescriptionMarkdown: aspire.BoolPtr(true),
 				Required:                  aspire.BoolPtr(true),
-				Placeholder:               "Jane Doe",
-				Value:                     "Jane",
+				Placeholder:               aspire.StringPtr("Jane Doe"),
+				Value:                     aspire.StringPtr("Jane"),
 				MaxLength:                 aspire.Float64Ptr(64),
 				Disabled:                  aspire.BoolPtr(false),
 			},
@@ -688,10 +688,10 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			Options: &aspire.CreateInteractionInputOptions{Required: aspire.BoolPtr(true)},
 		})
 		booleanInput := interactionService.CreateBooleanInput("enabled", &aspire.CreateBooleanInputOptions{
-			Options: &aspire.CreateInteractionInputOptions{Value: "true"},
+			Options: &aspire.CreateInteractionInputOptions{Value: aspire.StringPtr("true")},
 		})
 		numberInput := interactionService.CreateNumberInput("count", &aspire.CreateNumberInputOptions{
-			Options: &aspire.CreateInteractionInputOptions{Value: "1"},
+			Options: &aspire.CreateInteractionInputOptions{Value: aspire.StringPtr("1")},
 		})
 		choiceInput := interactionService.CreateChoiceInput("color", &aspire.CreateChoiceInputOptions{
 			Choices: []*aspire.InteractionChoiceOption{{Value: "r", Label: "Red"}, {Value: "g", Label: "Green"}},
@@ -713,7 +713,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		})
 
 		single, err := interactionService.PromptInput("Single input", "Enter a value.", interactionService.CreateTextInput("solo"), &aspire.PromptInputOptions{
-			Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: "Save"},
+			Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: aspire.StringPtr("Save")},
 			ValidationCallback: func(validationContext aspire.InputsDialogValidationContext) {
 				inputs, _ := validationContext.Inputs().ToArray()
 				for _, input := range inputs {
@@ -730,7 +730,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		multi, err := interactionService.PromptInputs("Multiple inputs", "Fill out the form.",
 			[]aspire.InteractionInputBuilder{textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput},
 			&aspire.PromptInputsOptions{
-				Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: "Submit", EnableMessageMarkdown: aspire.BoolPtr(true)},
+				Options: &aspire.InteractionInputsDialogOptions{PrimaryButtonText: aspire.StringPtr("Submit"), EnableMessageMarkdown: aspire.BoolPtr(true)},
 				ValidationCallback: func(validationContext aspire.InputsDialogValidationContext) {
 					inputs, _ := validationContext.Inputs().ToArray()
 					for _, input := range inputs {

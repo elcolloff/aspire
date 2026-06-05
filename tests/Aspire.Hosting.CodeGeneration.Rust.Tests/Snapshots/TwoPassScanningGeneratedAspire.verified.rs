@@ -823,18 +823,18 @@ impl InteractionChoiceOption {
 /// CreateInteractionInputOptions
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CreateInteractionInputOptions {
-    #[serde(rename = "Label")]
-    pub label: String,
-    #[serde(rename = "Description")]
-    pub description: String,
+    #[serde(rename = "Label", skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(rename = "Description", skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(rename = "EnableDescriptionMarkdown", skip_serializing_if = "Option::is_none")]
     pub enable_description_markdown: Option<bool>,
     #[serde(rename = "Required", skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
-    #[serde(rename = "Placeholder")]
-    pub placeholder: String,
-    #[serde(rename = "Value")]
-    pub value: String,
+    #[serde(rename = "Placeholder", skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    #[serde(rename = "Value", skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     #[serde(rename = "AllowCustomChoice", skip_serializing_if = "Option::is_none")]
     pub allow_custom_choice: Option<bool>,
     #[serde(rename = "Disabled", skip_serializing_if = "Option::is_none")]
@@ -846,16 +846,24 @@ pub struct CreateInteractionInputOptions {
 impl CreateInteractionInputOptions {
     pub fn to_map(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
-        map.insert("Label".to_string(), serde_json::to_value(&self.label).unwrap_or(Value::Null));
-        map.insert("Description".to_string(), serde_json::to_value(&self.description).unwrap_or(Value::Null));
+        if let Some(ref v) = self.label {
+            map.insert("Label".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.description {
+            map.insert("Description".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.enable_description_markdown {
             map.insert("EnableDescriptionMarkdown".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
         if let Some(ref v) = self.required {
             map.insert("Required".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
-        map.insert("Placeholder".to_string(), serde_json::to_value(&self.placeholder).unwrap_or(Value::Null));
-        map.insert("Value".to_string(), serde_json::to_value(&self.value).unwrap_or(Value::Null));
+        if let Some(ref v) = self.placeholder {
+            map.insert("Placeholder".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.value {
+            map.insert("Value".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.allow_custom_choice {
             map.insert("AllowCustomChoice".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
@@ -874,8 +882,8 @@ impl CreateInteractionInputOptions {
 pub struct DynamicLoadingOptions {
     #[serde(rename = "AlwaysLoadOnStart", skip_serializing_if = "Option::is_none")]
     pub always_load_on_start: Option<bool>,
-    #[serde(rename = "DependsOnInputs")]
-    pub depends_on_inputs: Vec<String>,
+    #[serde(rename = "DependsOnInputs", skip_serializing_if = "Option::is_none")]
+    pub depends_on_inputs: Option<Vec<String>>,
 }
 
 impl DynamicLoadingOptions {
@@ -884,7 +892,9 @@ impl DynamicLoadingOptions {
         if let Some(ref v) = self.always_load_on_start {
             map.insert("AlwaysLoadOnStart".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
-        map.insert("DependsOnInputs".to_string(), serde_json::to_value(&self.depends_on_inputs).unwrap_or(Value::Null));
+        if let Some(ref v) = self.depends_on_inputs {
+            map.insert("DependsOnInputs".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         map
     }
 }
@@ -892,10 +902,10 @@ impl DynamicLoadingOptions {
 /// InteractionMessageBoxOptions
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InteractionMessageBoxOptions {
-    #[serde(rename = "PrimaryButtonText")]
-    pub primary_button_text: String,
-    #[serde(rename = "SecondaryButtonText")]
-    pub secondary_button_text: String,
+    #[serde(rename = "PrimaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub primary_button_text: Option<String>,
+    #[serde(rename = "SecondaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub secondary_button_text: Option<String>,
     #[serde(rename = "ShowSecondaryButton", skip_serializing_if = "Option::is_none")]
     pub show_secondary_button: Option<bool>,
     #[serde(rename = "ShowDismiss", skip_serializing_if = "Option::is_none")]
@@ -909,8 +919,12 @@ pub struct InteractionMessageBoxOptions {
 impl InteractionMessageBoxOptions {
     pub fn to_map(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
-        map.insert("PrimaryButtonText".to_string(), serde_json::to_value(&self.primary_button_text).unwrap_or(Value::Null));
-        map.insert("SecondaryButtonText".to_string(), serde_json::to_value(&self.secondary_button_text).unwrap_or(Value::Null));
+        if let Some(ref v) = self.primary_button_text {
+            map.insert("PrimaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.secondary_button_text {
+            map.insert("SecondaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.show_secondary_button {
             map.insert("ShowSecondaryButton".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
@@ -930,10 +944,10 @@ impl InteractionMessageBoxOptions {
 /// InteractionNotificationOptions
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InteractionNotificationOptions {
-    #[serde(rename = "PrimaryButtonText")]
-    pub primary_button_text: String,
-    #[serde(rename = "SecondaryButtonText")]
-    pub secondary_button_text: String,
+    #[serde(rename = "PrimaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub primary_button_text: Option<String>,
+    #[serde(rename = "SecondaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub secondary_button_text: Option<String>,
     #[serde(rename = "ShowSecondaryButton", skip_serializing_if = "Option::is_none")]
     pub show_secondary_button: Option<bool>,
     #[serde(rename = "ShowDismiss", skip_serializing_if = "Option::is_none")]
@@ -942,17 +956,21 @@ pub struct InteractionNotificationOptions {
     pub enable_message_markdown: Option<bool>,
     #[serde(rename = "Intent", skip_serializing_if = "Option::is_none")]
     pub intent: Option<MessageIntent>,
-    #[serde(rename = "LinkText")]
-    pub link_text: String,
-    #[serde(rename = "LinkUrl")]
-    pub link_url: String,
+    #[serde(rename = "LinkText", skip_serializing_if = "Option::is_none")]
+    pub link_text: Option<String>,
+    #[serde(rename = "LinkUrl", skip_serializing_if = "Option::is_none")]
+    pub link_url: Option<String>,
 }
 
 impl InteractionNotificationOptions {
     pub fn to_map(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
-        map.insert("PrimaryButtonText".to_string(), serde_json::to_value(&self.primary_button_text).unwrap_or(Value::Null));
-        map.insert("SecondaryButtonText".to_string(), serde_json::to_value(&self.secondary_button_text).unwrap_or(Value::Null));
+        if let Some(ref v) = self.primary_button_text {
+            map.insert("PrimaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.secondary_button_text {
+            map.insert("SecondaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.show_secondary_button {
             map.insert("ShowSecondaryButton".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
@@ -965,8 +983,12 @@ impl InteractionNotificationOptions {
         if let Some(ref v) = self.intent {
             map.insert("Intent".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
-        map.insert("LinkText".to_string(), serde_json::to_value(&self.link_text).unwrap_or(Value::Null));
-        map.insert("LinkUrl".to_string(), serde_json::to_value(&self.link_url).unwrap_or(Value::Null));
+        if let Some(ref v) = self.link_text {
+            map.insert("LinkText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.link_url {
+            map.insert("LinkUrl".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         map
     }
 }
@@ -974,10 +996,10 @@ impl InteractionNotificationOptions {
 /// InteractionInputsDialogOptions
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InteractionInputsDialogOptions {
-    #[serde(rename = "PrimaryButtonText")]
-    pub primary_button_text: String,
-    #[serde(rename = "SecondaryButtonText")]
-    pub secondary_button_text: String,
+    #[serde(rename = "PrimaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub primary_button_text: Option<String>,
+    #[serde(rename = "SecondaryButtonText", skip_serializing_if = "Option::is_none")]
+    pub secondary_button_text: Option<String>,
     #[serde(rename = "ShowSecondaryButton", skip_serializing_if = "Option::is_none")]
     pub show_secondary_button: Option<bool>,
     #[serde(rename = "ShowDismiss", skip_serializing_if = "Option::is_none")]
@@ -989,8 +1011,12 @@ pub struct InteractionInputsDialogOptions {
 impl InteractionInputsDialogOptions {
     pub fn to_map(&self) -> HashMap<String, Value> {
         let mut map = HashMap::new();
-        map.insert("PrimaryButtonText".to_string(), serde_json::to_value(&self.primary_button_text).unwrap_or(Value::Null));
-        map.insert("SecondaryButtonText".to_string(), serde_json::to_value(&self.secondary_button_text).unwrap_or(Value::Null));
+        if let Some(ref v) = self.primary_button_text {
+            map.insert("PrimaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
+        if let Some(ref v) = self.secondary_button_text {
+            map.insert("SecondaryButtonText".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
+        }
         if let Some(ref v) = self.show_secondary_button {
             map.insert("ShowSecondaryButton".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
         }
