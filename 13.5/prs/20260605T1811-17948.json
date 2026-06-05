@@ -1,0 +1,9 @@
+{
+  "author": "davidfowl",
+  "comment": "CI workflow fix for polyglot validation channel name collision - no user-visible product effect",
+  "mergedAt": "2026-06-05T18:11:18Z",
+  "number": 17948,
+  "runDate": "2026-06-05T18:38:48Z",
+  "status": "excluded",
+  "title": "Work around main polyglot channel collision"
+}

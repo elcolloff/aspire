@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Security fixes for VS Code extension npm dependencies: @nevware21/ts-utils, fast-uri, qs, ws, and others (10 Dependabot alerts)",
+  "mergedAt": "2026-06-05T18:21:15Z",
+  "number": 17951,
+  "runDate": "2026-06-05T18:38:48Z",
+  "status": "included",
+  "title": "[security] Bump vulnerable npm dependencies flagged by Dependabot (10 alerts)"
+}

@@ -5,15 +5,16 @@
   "breaking": false,
   "changeType": "Bug fixes",
   "communityContributors": [],
-  "description": "Upgraded the undici dependency in the VS Code extension to 7.27.0 to address three security vulnerabilities: CRLF injection via the upgrade option, a WebSocket 64-bit length parser crash, and HTTP request/response smuggling.",
+  "description": "Multiple security vulnerabilities in VS Code extension npm dependencies have been patched. Upgrades include undici (7.27.0) for CRLF injection, WebSocket parser crash, and HTTP smuggling; and @nevware21/ts-utils (0.14.0), fast-uri (3.1.2), qs (6.15.2), and ws (8.21.0) for additional high and moderate severity CVEs.",
   "docsPrs": [],
   "docsRequired": false,
   "emoji": "🔒",
   "firstMergedAt": "2026-06-03T21:14:11Z",
-  "lastMergedAt": "2026-06-03T21:14:11Z",
+  "lastMergedAt": "2026-06-05T18:21:15Z",
   "name": "Security fixes in VS Code extension dependencies",
   "owner": "IEvangelist",
   "prs": [
-    17868
+    17868,
+    17951
   ]
 }

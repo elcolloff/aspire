@@ -1,0 +1,9 @@
+{
+  "author": "IEvangelist",
+  "comment": "Fixes website MDX GFM rendering for docs site infrastructure - not documenting an Aspire product feature",
+  "mergedAt": "2026-06-05T17:22:23Z",
+  "number": 1216,
+  "runDate": "2026-06-05T18:38:48Z",
+  "status": "excluded",
+  "title": "Fix Markdown table rendering"
+}
