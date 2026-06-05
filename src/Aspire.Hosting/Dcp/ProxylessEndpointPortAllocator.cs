@@ -207,7 +207,10 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
         return true;
     }
 
-    private static bool TryProbePort(int port, ProtocolType protocol)
+    // Exposed for tests so port-availability checks use the exact same IPv4+IPv6 probe as
+    // production allocation. A test helper that probed a different address family could hand
+    // back a port the allocator then rejects, producing spurious "no available ports" failures.
+    internal static bool TryProbePort(int port, ProtocolType protocol)
     {
         return protocol == ProtocolType.Udp
             ? TryProbePort(port, SocketType.Dgram, ProtocolType.Udp)

@@ -127,22 +127,20 @@ internal static class DcpModelUtilities
         return AreResourceEndpointsAllocated(resource.ModelResource);
     }
 
-    internal static bool TryApplyServiceAddressToEndpoint(Service observedService, IEnumerable<IAppResource> appResources, [NotNullWhen(true)] out IResource? modelResource)
+    internal static void ApplyServiceAddressToEndpoint(Service observedService, IEnumerable<IAppResource> appResources)
     {
         var serviceResource = appResources.OfType<ServiceWithModelResource>()
             .FirstOrDefault(swr => string.Equals(swr.DcpResource.Metadata.Name, observedService.Metadata.Name, StringComparison.Ordinal));
 
         if (serviceResource is null)
         {
-            modelResource = null;
-            return false;
+            return;
         }
 
         serviceResource.Service.ApplyAddressInfoFrom(observedService);
         if (!TryAddLocalhostAllocatedEndpoint(serviceResource, allowPending: true))
         {
-            modelResource = null;
-            return false;
+            return;
         }
 
         foreach (var containerResource in appResources.OfType<RenderedModelResource<Container>>()
@@ -150,9 +148,6 @@ internal static class DcpModelUtilities
         {
             AddContainerNetworkAllocatedEndpoint(containerResource, serviceResource);
         }
-
-        modelResource = null;
-        return false;
     }
 
     private static bool TryAddLocalhostAllocatedEndpoint(ServiceWithModelResource sp, bool allowPending, int? fallbackPort = null)

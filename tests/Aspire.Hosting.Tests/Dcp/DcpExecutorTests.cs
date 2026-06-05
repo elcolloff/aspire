@@ -9,7 +9,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Pipelines;
-using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -5161,41 +5160,29 @@ public class DcpExecutorTests
 
     private static (int First, int Second) GetAvailableConsecutivePortPair()
     {
-        for (var port = 10000; port < 32767; port++)
+        // Tests configure single-port allocation ranges, so the helper must agree exactly with
+        // the allocator on what "available" means. Reuse the allocator's IPv4+IPv6 probe instead
+        // of a separate IPv4-only bind that could return a port the allocator later rejects.
+        //
+        // Scan from a random offset rather than always starting at the bottom of the range. Test
+        // classes run in parallel and a deterministic start makes concurrent runs converge on the
+        // same low ports, where a transient probe collision throws against a zero-slack range.
+        const int rangeStart = 10000;
+        const int rangeEndExclusive = 32767; // Leave room for port + 1 within the proxyless default range.
+        var span = rangeEndExclusive - rangeStart;
+        var offset = Random.Shared.Next(span);
+
+        for (var i = 0; i < span; i++)
         {
-            using var firstSocket = TryBindTcpPort(port);
-            if (firstSocket is null)
+            var port = rangeStart + ((offset + i) % span);
+            if (ProxylessEndpointPortAllocator.TryProbePort(port, ProtocolType.Tcp) &&
+                ProxylessEndpointPortAllocator.TryProbePort(port + 1, ProtocolType.Tcp))
             {
-                continue;
+                return (port, port + 1);
             }
-
-            using var secondSocket = TryBindTcpPort(port + 1);
-            if (secondSocket is null)
-            {
-                continue;
-            }
-
-            return (port, port + 1);
         }
 
         throw new InvalidOperationException("Could not find two consecutive available ports.");
-    }
-
-    private static Socket? TryBindTcpPort(int port)
-    {
-        try
-        {
-            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
-            {
-                ExclusiveAddressUse = true
-            };
-            socket.Bind(new IPEndPoint(IPAddress.Any, port));
-            return socket;
-        }
-        catch (SocketException ex) when (ex.SocketErrorCode is SocketError.AddressAlreadyInUse or SocketError.AccessDenied)
-        {
-            return null;
-        }
     }
 
     private static bool RetryTillTrueOrTimeout(Func<bool> check, int timeoutMilliseconds)

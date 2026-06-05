@@ -121,7 +121,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
         _appResources = appResources;
         _userSecretsManager = userSecretsManager;
 
-        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, PublishEndpointAllocatedEventsAsync, profilingTelemetry, _shutdownCancellation.Token);
+        _resourceWatcher = new DcpResourceWatcher(logger, kubernetesService, loggerService, executorEvents, model, _appResources, _configuration, profilingTelemetry, _shutdownCancellation.Token);
 
         DeleteResourceRetryPipeline = DcpPipelineBuilder.BuildDeleteRetryPipeline(logger);
 
