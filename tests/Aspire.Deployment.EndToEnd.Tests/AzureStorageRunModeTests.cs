@@ -85,7 +85,10 @@ public sealed class AzureStorageRunModeTests(ITestOutputHelper output)
             appHostContent = appHostContent.Replace(
                 "builder.Build().Run();",
                 """
-                builder.AddAzureStorage("storage");
+                // This test verifies resource command metadata for a standalone storage account.
+                // No app consumes the account, so skip default RBAC to avoid testing role assignment propagation.
+                builder.AddAzureStorage("storage")
+                    .ClearDefaultRoleAssignments();
 
                 builder.Build().Run();
                 """);
