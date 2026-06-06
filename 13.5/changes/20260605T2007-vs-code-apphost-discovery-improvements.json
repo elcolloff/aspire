@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "VS Code AppHost discovery now respects files.exclude and search.exclude workspace settings, debounces file-change events to prevent repeated refresh floods, and avoids overlapping discovery runs. Large workspaces with generated folders should see significantly less background scanning.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "⚡",
+  "firstMergedAt": "2026-06-05T20:07:30Z",
+  "lastMergedAt": "2026-06-05T20:07:30Z",
+  "name": "VS Code AppHost discovery efficiency improvements",
+  "owner": "adamint",
+  "prs": [
+    17897
+  ]
+}

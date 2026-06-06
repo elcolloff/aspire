@@ -1,0 +1,9 @@
+{
+  "author": "adamint",
+  "comment": "Security hardening of VS Code terminal commands against shell injection",
+  "mergedAt": "2026-06-05T19:18:38Z",
+  "number": 17930,
+  "runDate": "2026-06-06T07:01:40Z",
+  "status": "included",
+  "title": "Harden VS Code terminal commands against shell injection"
+}

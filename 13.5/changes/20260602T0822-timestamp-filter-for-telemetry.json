@@ -1,14 +1,16 @@
 {
   "area": "Dashboard",
-  "areaEmoji": "\ud83d\udcca",
+  "areaEmoji": "📊",
   "backport": false,
   "breaking": false,
   "changeType": "New features",
   "communityContributors": [],
   "description": "You can now filter telemetry logs and traces by timestamp using a dedicated timestamp search qualifier in the Aspire Dashboard filter dialog.",
-  "docsPrs": [],
+  "docsPrs": [
+    1181
+  ],
   "docsRequired": true,
-  "emoji": "\ud83d\udd50",
+  "emoji": "🕐",
   "firstMergedAt": "2026-06-02T08:22:45Z",
   "lastMergedAt": "2026-06-02T08:22:45Z",
   "name": "Timestamp filter for telemetry",

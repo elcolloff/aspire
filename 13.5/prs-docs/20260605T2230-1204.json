@@ -1,0 +1,9 @@
+{
+  "author": "sebastienros",
+  "comment": "Matched to TypeScript AppHosts container file copying entry (PR #17877); covers TypeScript AppHost documentation gaps including container-files.mdx",
+  "mergedAt": "2026-06-05T22:30:36Z",
+  "number": 1204,
+  "runDate": "2026-06-06T07:01:40Z",
+  "status": "included",
+  "title": "Fix TypeScript documentation gaps"
+}

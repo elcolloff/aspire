@@ -1,0 +1,9 @@
+{
+  "author": "app/aspire-repo-bot",
+  "comment": "Documents PR #17816 timestamp filter for telemetry; matched to existing changelog entry",
+  "mergedAt": "2026-06-06T05:34:37Z",
+  "number": 1181,
+  "runDate": "2026-06-06T07:01:40Z",
+  "status": "included",
+  "title": "[docs] Document timestamp search qualifier for telemetry filtering"
+}

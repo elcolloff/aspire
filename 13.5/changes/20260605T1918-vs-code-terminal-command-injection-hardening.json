@@ -1,0 +1,19 @@
+{
+  "area": "Extensions",
+  "areaEmoji": "🧩",
+  "backport": false,
+  "breaking": false,
+  "changeType": "Improvements",
+  "communityContributors": [],
+  "description": "VS Code extension terminal commands (Stop AppHost, View Resource Logs, Run Resource Commands) now use structured shell arguments instead of pre-built shell fragments, preventing shell injection via malicious workspace paths or resource names. Control characters are also rejected before terminal input.",
+  "docsPrs": [],
+  "docsRequired": false,
+  "emoji": "🔒",
+  "firstMergedAt": "2026-06-05T19:18:38Z",
+  "lastMergedAt": "2026-06-05T19:18:38Z",
+  "name": "VS Code extension hardened against terminal command injection",
+  "owner": "adamint",
+  "prs": [
+    17930
+  ]
+}

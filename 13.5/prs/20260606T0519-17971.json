@@ -1,0 +1,9 @@
+{
+  "author": "JamesNK",
+  "comment": "Agentic workflow skill update (create-pr skill), not a user-facing product change",
+  "mergedAt": "2026-06-06T05:19:23Z",
+  "number": 17971,
+  "runDate": "2026-06-06T07:01:40Z",
+  "status": "excluded",
+  "title": "Update create-pr skill to detect UI changes and prompt for screenshots"
+}

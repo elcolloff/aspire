@@ -1,0 +1,19 @@
+{
+  "area": "AppHost",
+  "areaEmoji": "🏠",
+  "backport": false,
+  "breaking": false,
+  "changeType": "New features",
+  "communityContributors": [],
+  "description": "HTTP resource commands (WithHttpCommand) can now declare named arguments, allowing the Dashboard and CLI to prompt for input before invoking them. TypeScript AppHosts have full parity through ATS exports, and CLI callers can pass arguments with named options. The Foundry hosted-agent command now exposes a stable send-message command name.",
+  "docsPrs": [],
+  "docsRequired": true,
+  "emoji": "🔧",
+  "firstMergedAt": "2026-06-05T23:50:10Z",
+  "lastMergedAt": "2026-06-05T23:50:10Z",
+  "name": "HTTP resource commands support user-defined arguments",
+  "owner": "davidfowl",
+  "prs": [
+    17950
+  ]
+}
