@@ -1082,7 +1082,13 @@ jobs:
 
   extension_e2e_tests:
     name: Run VS Code extension E2E tests
-    if: ${{ needs.extension_e2e_changes.outputs.run_extension_e2e == 'true' }}
+    # !cancelled() && !failure() lets this job run even when extension_tests_win
+    # was skipped by the conditional selector (run_extension/run_all both false).
+    # extension_e2e_changes has its own broader path-detection (CLI, hosting,
+    # dashboard, ...) that fires independently of the extension category; we want
+    # E2E to honor that detection rather than transitively inherit the
+    # extension-category skip from extension_tests_win.
+    if: ${{ !cancelled() && !failure() && needs.extension_e2e_changes.outputs.run_extension_e2e == 'true' }}
     uses: ./.github/workflows/extension-e2e-tests.yml
     needs: [extension_e2e_changes, build_packages, build_cli_archive_linux, build_cli_archive_windows, extension_tests_win, extension_bootstrap_linux]
 
