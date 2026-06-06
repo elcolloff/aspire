@@ -944,10 +944,16 @@ jobs:
   extension_tests_win:
     name: Run VS Code extension unit tests (Windows)
     runs-on: windows-latest
-    needs: setup_for_tests
+    needs: [setup_for_tests, extension_e2e_changes]
+    # Runs when the conditional selector triggers the extension category, or
+    # when extension_e2e_changes (a broader path-detection covering CLI /
+    # hosting / dashboard etc.) needs the VSIX produced by the 'Package VSIX'
+    # step below — the extension_e2e_tests job downloads that artifact, so
+    # we must produce it whenever E2E will run.
     if: |
       needs.setup_for_tests.outputs.run_all == 'true' ||
-      needs.setup_for_tests.outputs.run_extension == 'true'
+      needs.setup_for_tests.outputs.run_extension == 'true' ||
+      needs.extension_e2e_changes.outputs.run_extension_e2e == 'true'
     env:
       NPM_REGISTRY: https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-public-npm/npm/registry/
       COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
@@ -1082,13 +1088,7 @@ jobs:
 
   extension_e2e_tests:
     name: Run VS Code extension E2E tests
-    # !cancelled() && !failure() lets this job run even when extension_tests_win
-    # was skipped by the conditional selector (run_extension/run_all both false).
-    # extension_e2e_changes has its own broader path-detection (CLI, hosting,
-    # dashboard, ...) that fires independently of the extension category; we want
-    # E2E to honor that detection rather than transitively inherit the
-    # extension-category skip from extension_tests_win.
-    if: ${{ !cancelled() && !failure() && needs.extension_e2e_changes.outputs.run_extension_e2e == 'true' }}
+    if: ${{ needs.extension_e2e_changes.outputs.run_extension_e2e == 'true' }}
     uses: ./.github/workflows/extension-e2e-tests.yml
     needs: [extension_e2e_changes, build_packages, build_cli_archive_linux, build_cli_archive_windows, extension_tests_win, extension_bootstrap_linux]
 
@@ -1311,7 +1311,8 @@ jobs:
                 (fromJson(needs.setup_for_tests.outputs.tests_matrix_requires_cli_archive).include[0] != null &&
                  needs.build_cli_e2e_image.result == 'skipped') ||
                 ((needs.setup_for_tests.outputs.run_all == 'true' ||
-                  needs.setup_for_tests.outputs.run_extension == 'true') &&
+                  needs.setup_for_tests.outputs.run_extension == 'true' ||
+                  needs.extension_e2e_changes.outputs.run_extension_e2e == 'true') &&
                  needs.extension_tests_win.result == 'skipped') ||
                 ((needs.setup_for_tests.outputs.run_all == 'true' ||
                   needs.setup_for_tests.outputs.run_polyglot == 'true') &&
