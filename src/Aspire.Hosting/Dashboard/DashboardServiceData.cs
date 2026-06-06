@@ -133,9 +133,9 @@ internal sealed class DashboardServiceData : IDisposable
         return _interactionService.TryGetAsset(route, out asset);
     }
 
-    internal Task<bool> WriteAssetAsync(string route, Stream stream, CancellationToken cancellationToken)
+    internal Task<bool> WriteAssetAsync(string route, Func<ReadOnlyMemory<byte>, Task> writeAsync, CancellationToken cancellationToken)
     {
-        return _interactionService.WriteAssetAsync(route, stream, cancellationToken);
+        return _interactionService.WriteAssetAsync(route, writeAsync, cancellationToken);
     }
 
     internal StartedPageInteraction? StartPageInteraction(string route, string sessionId, IReadOnlyDictionary<string, string> queryParameters, CancellationToken cancellationToken)
@@ -187,11 +187,13 @@ internal sealed class DashboardServiceData : IDisposable
         if (request.KindCase == WatchInteractionsRequestUpdate.KindOneofCase.PageAction)
         {
             // Don't block the caller while processing the page action. Fire and forget.
+            // ContinueWith observes any exception that escapes the method (e.g. argument
+            // validation) so it doesn't become an unobserved task exception.
             _ = _interactionService.ProcessPageActionFromClientAsync(
                 request.InteractionId,
                 request.PageAction.ActionName,
                 request.PageAction.Arguments,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken).ContinueWith(static (t, _) => _ = t.Exception, null, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
 
             return;
         }

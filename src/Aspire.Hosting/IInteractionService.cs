@@ -148,7 +148,7 @@ public interface IInteractionService
     /// <param name="contentType">The MIME content type returned for this asset.</param>
     /// <param name="content">The in-memory asset bytes to serve.</param>
     /// <returns>An <see cref="IDisposable"/> that unregisters the asset when disposed.</returns>
-    IDisposable RegisterAsset(string route, string contentType, byte[] content);
+    IDisposable RegisterAsset(string route, string contentType, ReadOnlyMemory<byte> content);
 }
 
 internal record QueueLoadOptions(
@@ -1033,7 +1033,7 @@ public sealed class AssetContext
 {
     /// <summary>
     /// Gets or sets the callback invoked when the dashboard requests this asset.
-    /// Write asset bytes to <see cref="AssetGetContext.Stream"/>.
+    /// Write asset bytes using <see cref="AssetGetContext.WriteAsync"/>.
     /// </summary>
     public required Func<AssetGetContext, Task> OnGet { get; set; }
 }
@@ -1050,9 +1050,10 @@ public sealed class AssetGetContext
     public required string Route { get; init; }
 
     /// <summary>
-    /// Gets the output stream to write asset content to.
+    /// Gets the callback to write asset content. Call this with chunks of bytes to deliver
+    /// the asset to the requester. May be called multiple times for streamed content.
     /// </summary>
-    public required Stream Stream { get; init; }
+    public required Func<ReadOnlyMemory<byte>, Task> WriteAsync { get; init; }
 
     /// <summary>
     /// Gets the application's service provider.

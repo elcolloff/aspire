@@ -82,11 +82,29 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                 ContentType = asset.ContentType
             }, cancellationToken).ConfigureAwait(false);
 
-            using var writeStream = new GrpcChunkedWriteStream(responseStream, cancellationToken);
+            const int chunkSize = 64 * 1024;
 
             try
             {
-                if (!await serviceData.WriteAssetAsync(request.Route, writeStream, cancellationToken).ConfigureAwait(false))
+                if (!await serviceData.WriteAssetAsync(
+                    request.Route,
+                    async chunk =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        // Split the incoming buffer into gRPC-friendly chunks.
+                        var offset = 0;
+                        while (offset < chunk.Length)
+                        {
+                            var take = Math.Min(chunk.Length - offset, chunkSize);
+                            await responseStream.WriteAsync(new GetInteractionAssetResponse
+                            {
+                                Content = Google.Protobuf.ByteString.CopyFrom(chunk.Slice(offset, take).Span)
+                            }, cancellationToken).ConfigureAwait(false);
+                            offset += take;
+                        }
+                    },
+                    cancellationToken).ConfigureAwait(false))
                 {
                     throw new RpcException(new Status(StatusCode.NotFound, $"Asset route '{request.Route}' was not found."));
                 }
@@ -204,35 +222,39 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                             string? markdown;
                             string? iframeUrl;
                             bool iframePersistent;
+                            bool isWaitingForEndpoint;
                             lock (pageInfo.Lock)
                             {
                                 markdown = pageInfo.Content;
                                 iframeUrl = pageInfo.IframeUrl;
                                 iframePersistent = pageInfo.IframePersistent;
+                                isWaitingForEndpoint = pageInfo.IsWaitingForEndpoint;
                             }
 
-                            if (markdown is null && iframeUrl is null)
+                            // Allow updates through when waiting for an endpoint even if content
+                            // and iframe URL are both null, so the dashboard can show loading state.
+                            if (!isWaitingForEndpoint && markdown is null && iframeUrl is null)
                             {
                                 continue;
                             }
 
-                                change.Page = new InteractionPage
-                                {
-                                    Route = pageInfo.Route,
-                                    SessionId = pageInfo.SessionId,
-                                    Content = markdown ?? string.Empty,
-                                    Title = pageInfo.PageOptions.Title ?? pageInfo.Route,
-                                    EnableHtml = pageInfo.PageOptions is ContentPageOptions { EnableHtml: true },
-                                    IframeUrl = iframeUrl ?? string.Empty,
-                                    IframePersistent = iframePersistent
-                                };
+                            change.Page = new InteractionPage
+                            {
+                                Route = pageInfo.Route,
+                                SessionId = pageInfo.SessionId,
+                                Content = markdown ?? string.Empty,
+                                Title = pageInfo.PageOptions.Title ?? pageInfo.Route,
+                                EnableHtml = pageInfo.PageOptions is ContentPageOptions { EnableHtml: true },
+                                IframeUrl = iframeUrl ?? string.Empty,
+                                IframePersistent = iframePersistent
+                            };
 
-                                if (pageInfo.PageOptions is ContentPageOptions { StyleIncludes: { } styleIncludes })
+                            if (pageInfo.PageOptions is ContentPageOptions { StyleIncludes: { } styleIncludes })
                             {
                                 change.Page.CssRoutes.AddRange(styleIncludes);
                             }
 
-                                if (pageInfo.PageOptions is ContentPageOptions { ScriptIncludes: { } scriptIncludes })
+                            if (pageInfo.PageOptions is ContentPageOptions { ScriptIncludes: { } scriptIncludes })
                             {
                                 change.Page.ScriptRoutes.AddRange(scriptIncludes);
                             }
@@ -273,86 +295,6 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
             {
                 // Ensure the write task is cancelled if we exit the loop.
                 cts.Cancel();
-            }
-        }
-    }
-
-    private sealed class GrpcChunkedWriteStream : Stream
-    {
-        private const int ChunkSize = 64 * 1024;
-        private readonly IServerStreamWriter<GetInteractionAssetResponse> _writer;
-        private readonly CancellationToken _serverCancellationToken;
-
-        public GrpcChunkedWriteStream(IServerStreamWriter<GetInteractionAssetResponse> writer, CancellationToken serverCancellationToken)
-        {
-            _writer = writer;
-            _serverCancellationToken = serverCancellationToken;
-        }
-
-        public override bool CanRead => false;
-
-        public override bool CanSeek => false;
-
-        public override bool CanWrite => true;
-
-        public override long Length => throw new NotSupportedException();
-
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override void Flush()
-        {
-        }
-
-        public override Task FlushAsync(CancellationToken cancellationToken)
-        {
-            return Task.CompletedTask;
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override void SetLength(long value)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            WriteAsync(buffer.AsMemory(offset, count), _serverCancellationToken).AsTask().GetAwaiter().GetResult();
-        }
-
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            _serverCancellationToken.ThrowIfCancellationRequested();
-
-            var offset = 0;
-            while (offset < buffer.Length)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                _serverCancellationToken.ThrowIfCancellationRequested();
-
-                var remaining = buffer.Length - offset;
-                var take = Math.Min(remaining, ChunkSize);
-                var chunk = buffer.Slice(offset, take);
-
-                await _writer.WriteAsync(new GetInteractionAssetResponse
-                {
-                    Content = Google.Protobuf.ByteString.CopyFrom(chunk.Span)
-                }, _serverCancellationToken).ConfigureAwait(false);
-
-                offset += take;
             }
         }
     }

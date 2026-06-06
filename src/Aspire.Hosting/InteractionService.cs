@@ -368,25 +368,28 @@ internal class InteractionService : IInteractionService
         return new AssetRegistration(this, route);
     }
 
-    public IDisposable RegisterAsset(string route, string contentType, byte[] content)
+    public IDisposable RegisterAsset(string route, string contentType, ReadOnlyMemory<byte> content)
     {
-        ArgumentNullException.ThrowIfNull(content);
-
         // Keep a private copy to avoid accidental mutation of caller-provided buffers.
         var contentCopy = content.ToArray();
 
         return RegisterAsset(route, contentType, new AssetContext
         {
-            OnGet = async context =>
-            {
-                await context.Stream.WriteAsync(contentCopy, context.CancellationToken).ConfigureAwait(false);
-            }
+            OnGet = context => context.WriteAsync(contentCopy)
         });
     }
 
     internal bool TryGetAsset(string route, out RegisteredAsset asset)
     {
-        route = NormalizeAssetRoute(route);
+        try
+        {
+            route = NormalizeAssetRoute(route);
+        }
+        catch (ArgumentException)
+        {
+            asset = default!;
+            return false;
+        }
 
         lock (_onInteractionUpdatedLock)
         {
@@ -394,7 +397,7 @@ internal class InteractionService : IInteractionService
         }
     }
 
-    internal async Task<bool> WriteAssetAsync(string route, Stream stream, CancellationToken cancellationToken)
+    internal async Task<bool> WriteAssetAsync(string route, Func<ReadOnlyMemory<byte>, Task> writeAsync, CancellationToken cancellationToken)
     {
         if (!TryGetAsset(route, out var asset))
         {
@@ -405,7 +408,7 @@ internal class InteractionService : IInteractionService
         {
             Route = route,
             Services = _serviceProvider,
-            Stream = stream,
+            WriteAsync = writeAsync,
             CancellationToken = cancellationToken
         }).ConfigureAwait(false);
 
@@ -981,6 +984,12 @@ internal class InteractionService : IInteractionService
         if (string.IsNullOrWhiteSpace(route))
         {
             throw new ArgumentException("Asset route cannot be empty.", nameof(route));
+        }
+
+        // Reject path traversal segments to prevent malicious route registration or lookup.
+        if (route.Contains(".."))
+        {
+            throw new ArgumentException("Asset route cannot contain '..' path traversal segments.", nameof(route));
         }
 
         return route;

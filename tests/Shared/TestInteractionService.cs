@@ -75,7 +75,7 @@ internal sealed class TestInteractionService : IInteractionService
         throw new NotImplementedException();
     }
 
-    public IDisposable RegisterAsset(string route, string contentType, byte[] content)
+    public IDisposable RegisterAsset(string route, string contentType, ReadOnlyMemory<byte> content)
     {
         throw new NotImplementedException();
     }
