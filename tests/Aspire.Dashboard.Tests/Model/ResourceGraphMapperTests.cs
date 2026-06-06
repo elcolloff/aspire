@@ -4,6 +4,7 @@
 using System.Collections.Immutable;
 using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Model.ResourceGraph;
+using Aspire.Dashboard.Otlp.Storage;
 using Aspire.Dashboard.Resources;
 using Aspire.Tests.Shared.DashboardModel;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -135,5 +136,37 @@ public class ResourceGraphMapperTests
 
         // Assert - non-parameter resources should always have endpoint text (even if "No endpoints")
         Assert.NotNull(dto.EndpointText);
+    }
+
+    [Fact]
+    public void TelemetryGraphResources_Create_MapsActiveTelemetryEdges()
+    {
+        var frontend = ModelTestHelpers.CreateResource("frontend-abc123", displayName: "frontend", relationships: ImmutableArray<RelationshipViewModel>.Empty);
+        var api = ModelTestHelpers.CreateResource("api-def456", displayName: "api", relationships: ImmutableArray<RelationshipViewModel>.Empty);
+        var database = ModelTestHelpers.CreateResource("database-ghi789", displayName: "database", relationships: ImmutableArray<RelationshipViewModel>.Empty);
+
+        var graphResources = TelemetryGraphResources.Create(
+            [frontend, api, database],
+            [
+                new TelemetryGraphEdge(ResourceKey.Create("frontend", "frontend-abc123"), ResourceKey.Create("api", "api-def456")),
+                new TelemetryGraphEdge(new ResourceKey("api", "api-def456"), ResourceKey.Create("database", "database-ghi789")),
+                new TelemetryGraphEdge(ResourceKey.Create("frontend", "frontend-abc123"), ResourceKey.Create("api", "api-def456")),
+                new TelemetryGraphEdge(ResourceKey.Create("api", "api-def456"), ResourceKey.Create("api", "api-def456")),
+                new TelemetryGraphEdge(ResourceKey.Create("frontend", "frontend-abc123"), new ResourceKey("missing", null))
+            ]);
+
+        Assert.Collection(graphResources.ReferencedNames.OrderBy(kvp => kvp.Key, StringComparers.ResourceName),
+            kvp =>
+            {
+                Assert.Equal("api-def456", kvp.Key);
+                Assert.Equal(["database-ghi789"], kvp.Value.Order(StringComparers.ResourceName));
+            },
+            kvp =>
+            {
+                Assert.Equal("frontend-abc123", kvp.Key);
+                Assert.Equal(["api-def456"], kvp.Value.Order(StringComparers.ResourceName));
+            });
+
+        Assert.Equal(["api-def456", "database-ghi789", "frontend-abc123"], graphResources.ResourceNames.Order(StringComparers.ResourceName));
     }
 }

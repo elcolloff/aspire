@@ -234,7 +234,7 @@ class ResourceGraph {
     }
 
     updateNodes(newResources) {
-        const existingNodes = this.nodes || []; // Ensure nodes is initialized
+        const existingNodesById = new Map((this.nodes || []).map(node => [node.id, node]));
         const updatedNodes = [];
 
         // calculate degree (number of connections) for each resource
@@ -252,7 +252,7 @@ class ResourceGraph {
         });
 
         newResources.forEach(resource => {
-            const existingNode = existingNodes.find(node => node.id === resource.name);
+            const existingNode = existingNodesById.get(resource.name);
             const degree = degreeMap.get(resource.name) || 1;
 
             if (existingNode) {
@@ -299,13 +299,14 @@ class ResourceGraph {
 
         this.updateNodes(newResources);
 
+        const resourceNames = new Set(newResources.map(resource => resource.name));
         this.links = [];
         for (var i = 0; i < newResources.length; i++) {
             var resource = newResources[i];
 
             var resourceLinks = resource.referencedNames
                 .filter((referencedName) => {
-                    return newResources.some(r => r.name === referencedName);
+                    return resourceNames.has(referencedName);
                 })
                 .map((referencedName, index) => {
                     return {

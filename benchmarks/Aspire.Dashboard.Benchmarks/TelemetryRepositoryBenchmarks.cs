@@ -6,6 +6,7 @@ using System.Text;
 using Aspire.Dashboard.Configuration;
 using Aspire.Dashboard.Model;
 using Aspire.Dashboard.Model.Otlp;
+using Aspire.Dashboard.Model.ResourceGraph;
 using Aspire.Dashboard.Otlp.Model;
 using Aspire.Dashboard.Otlp.Storage;
 using BenchmarkDotNet.Attributes;
@@ -36,6 +37,7 @@ public class TelemetryRepositoryBenchmarks
     private const int TelemetryFlowCallsPerTrace = 25;
     private const int TelemetryFlowServerSpansPerCall = 2;
     private const int EdgeKeySnapshotOperationsPerInvoke = 100_000;
+    private const int ResourceGraphMappingOperationsPerInvoke = 10_000;
 
     private readonly List<TelemetryFilter> _durationFilters =
     [
@@ -71,6 +73,8 @@ public class TelemetryRepositoryBenchmarks
     private RepeatedField<ResourceSpans> _telemetryFlowResourceSpans = [];
     private TelemetryRepository _queryRepository = null!;
     private TelemetryRepository _telemetryGraphRepository = null!;
+    private List<ResourceViewModel> _telemetryFlowResources = [];
+    private List<TelemetryGraphEdge> _telemetryGraphEdgeKeys = [];
 
     [GlobalSetup]
     public void Setup()
@@ -81,6 +85,8 @@ public class TelemetryRepositoryBenchmarks
         _queryRepository.AddTraces(new AddContext(), _resourceSpans);
         _telemetryGraphRepository = CreateRepository(TelemetryFlowTraceCount + 1);
         _telemetryGraphRepository.AddTraces(new AddContext(), _telemetryFlowResourceSpans);
+        _telemetryFlowResources = CreateTelemetryFlowResources();
+        _telemetryGraphEdgeKeys = _telemetryGraphRepository.GetTelemetryGraphEdgeKeys();
     }
 
     [GlobalCleanup]
@@ -117,6 +123,19 @@ public class TelemetryRepositoryBenchmarks
         for (var i = 0; i < EdgeKeySnapshotOperationsPerInvoke; i++)
         {
             count += _telemetryGraphRepository.GetTelemetryGraphEdgeKeys().Count;
+        }
+
+        return count;
+    }
+
+    [Benchmark(Description = "ResourceGraph: map telemetry graph resources", OperationsPerInvoke = ResourceGraphMappingOperationsPerInvoke)]
+    public int MapTelemetryGraphResources()
+    {
+        var count = 0;
+        for (var i = 0; i < ResourceGraphMappingOperationsPerInvoke; i++)
+        {
+            var graphResources = TelemetryGraphResources.Create(_telemetryFlowResources, _telemetryGraphEdgeKeys);
+            count += graphResources.ReferencedNames.Count + graphResources.ResourceNames.Count;
         }
 
         return count;
@@ -320,6 +339,39 @@ public class TelemetryRepositoryBenchmarks
         }
 
         return resourceSpans;
+    }
+
+    private static List<ResourceViewModel> CreateTelemetryFlowResources()
+    {
+        var resources = new List<ResourceViewModel>(TelemetryFlowResourceCount);
+        for (var i = 0; i < TelemetryFlowResourceCount; i++)
+        {
+            var resourceName = $"service-{i}-instance";
+            resources.Add(new ResourceViewModel
+            {
+                Name = resourceName,
+                ResourceType = KnownResourceTypes.Project,
+                DisplayName = $"service-{i}",
+                Uid = resourceName,
+                ReplicaIndex = 0,
+                State = "Running",
+                KnownState = KnownResourceState.Running,
+                StateStyle = null,
+                CreationTimeStamp = null,
+                StartTimeStamp = null,
+                StopTimeStamp = null,
+                Environment = [],
+                Urls = [],
+                Volumes = [],
+                Relationships = [],
+                Properties = [],
+                Commands = [],
+                HealthReports = [],
+                IsHidden = false
+            });
+        }
+
+        return resources;
     }
 
     private static OtlpProtoSpan CreateSpan(

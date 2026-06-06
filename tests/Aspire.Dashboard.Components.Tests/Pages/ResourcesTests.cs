@@ -269,7 +269,7 @@ public partial class ResourcesTests : DashboardTestContext
         var initialResources = new List<ResourceViewModel>
         {
             CreateResource("frontend-abc", "Project", "Running", null, displayName: "frontend"),
-            CreateResource("api-def", "Project", "Running", null, displayName: "api"),
+            CreateResource("api-def", "Project", "Running", null, displayName: "api", relationships: [new RelationshipViewModel("worker", "Reference")]),
             CreateResource("worker-ghi", "Project", "Running", null, displayName: "worker"),
         };
         var dashboardClient = new TestDashboardClient(isEnabled: true, initialResources: initialResources, resourceChannelProvider: Channel.CreateUnbounded<IReadOnlyList<ResourceViewModelChange>>);
@@ -504,7 +504,8 @@ public partial class ResourcesTests : DashboardTestContext
         string? stateStyle = null,
         ImmutableDictionary<string, ResourcePropertyViewModel>? properties = null,
         int? replicaIndex = null,
-        string? displayName = null)
+        string? displayName = null,
+        ImmutableArray<RelationshipViewModel>? relationships = null)
     {
         return new ResourceViewModel
         {
@@ -524,7 +525,7 @@ public partial class ResourcesTests : DashboardTestContext
             Environment = [],
             Urls = [],
             Volumes = [],
-            Relationships = [],
+            Relationships = relationships ?? [],
             Properties = properties ?? ImmutableDictionary<string, ResourcePropertyViewModel>.Empty,
             Commands = [],
             IsHidden = isHidden,
