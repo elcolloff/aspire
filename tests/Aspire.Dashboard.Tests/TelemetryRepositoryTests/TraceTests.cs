@@ -107,6 +107,19 @@ public class TraceTests
     }
 
     [Fact]
+    public void GetTelemetryGraphEdges_InstrumentedChildServerSpanWithPeerAttributes_AddsInstrumentedEdge()
+    {
+        var repository = CreateRepository(outgoingPeerResolvers: [new TestOutgoingPeerResolver()]);
+
+        AddInstrumentedCallTrace(repository, clientAttributes: [new KeyValuePair<string, string>("server.address", "localhost")]);
+
+        var edge = Assert.Single(repository.GetTelemetryGraphEdges());
+        Assert.Equal(new ResourceKey("frontend", "frontend-abc"), edge.Key.Source);
+        Assert.Equal(new ResourceKey("api", "api-def"), edge.Key.Destination);
+        Assert.Equal(1, edge.Value);
+    }
+
+    [Fact]
     public void GetTelemetryGraphEdges_MultipleChildServerSpansForSameResource_AddsSingleEdge()
     {
         var repository = CreateRepository();
@@ -1146,7 +1159,7 @@ public class TraceTests
         Assert.Equal(0, addContext.FailureCount);
     }
 
-    private static void AddInstrumentedCallTrace(TelemetryRepository repository)
+    private static void AddInstrumentedCallTrace(TelemetryRepository repository, IEnumerable<KeyValuePair<string, string>>? clientAttributes = null)
     {
         var addContext = new AddContext();
         repository.AddTraces(addContext, new RepeatedField<ResourceSpans>()
@@ -1161,7 +1174,7 @@ public class TraceTests
                         Scope = CreateScope(),
                         Spans =
                         {
-                            CreateSpan(traceId: "1", spanId: "1-1", kind: Span.Types.SpanKind.Client, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2))
+                            CreateSpan(traceId: "1", spanId: "1-1", kind: Span.Types.SpanKind.Client, startTime: s_testTime.AddMinutes(1), endTime: s_testTime.AddMinutes(2), attributes: clientAttributes)
                         }
                     }
                 }

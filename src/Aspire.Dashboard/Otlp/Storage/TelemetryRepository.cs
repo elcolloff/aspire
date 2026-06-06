@@ -1922,11 +1922,18 @@ public sealed partial class TelemetryRepository : IDisposable
 
     private void CalculateTraceUninstrumentedPeers(OtlpTrace trace)
     {
+        HashSet<string>? spanIdsWithChildren = null;
         foreach (var span in trace.Spans)
         {
+            if (span.Kind is not (OtlpSpanKind.Client or OtlpSpanKind.Producer))
+            {
+                trace.SetSpanUninstrumentedPeer(span, null);
+                continue;
+            }
+
             // A span may indicate a call to another service but the service isn't instrumented.
             var hasPeerService = OtlpHelpers.GetPeerAddress(span.Attributes) != null;
-            var hasUninstrumentedPeer = hasPeerService && span.Kind is OtlpSpanKind.Client or OtlpSpanKind.Producer && !span.GetChildSpans().Any();
+            var hasUninstrumentedPeer = hasPeerService && !(spanIdsWithChildren ??= GetSpanIdsWithChildren(trace)).Contains(span.SpanId);
             var uninstrumentedPeer = hasUninstrumentedPeer ? ResolveUninstrumentedPeerResource(span, _outgoingPeerResolvers) : null;
 
             if (uninstrumentedPeer != null)
@@ -1952,6 +1959,20 @@ public sealed partial class TelemetryRepository : IDisposable
             {
                 trace.SetSpanUninstrumentedPeer(span, null);
             }
+        }
+
+        static HashSet<string> GetSpanIdsWithChildren(OtlpTrace trace)
+        {
+            var spanIdsWithChildren = new HashSet<string>(trace.Spans.Count, StringComparers.OtlpSpanId);
+            foreach (var span in trace.Spans)
+            {
+                if (span.ParentSpanId is { Length: > 0 } parentSpanId)
+                {
+                    spanIdsWithChildren.Add(parentSpanId);
+                }
+            }
+
+            return spanIdsWithChildren;
         }
     }
 
@@ -2017,14 +2038,14 @@ public sealed partial class TelemetryRepository : IDisposable
             }
             else
             {
-                sourceSpansById ??= new Dictionary<string, OtlpSpan>(StringComparer.Ordinal);
+                sourceSpansById ??= new Dictionary<string, OtlpSpan>(trace.Spans.Count, StringComparers.OtlpSpanId);
                 sourceSpansById.Add(span.SpanId, span);
             }
         }
 
         if (sourceSpansById is not null)
         {
-            Dictionary<string, HashSet<ResourceKey>>? destinationsBySourceSpanId = null;
+            HashSet<TelemetryGraphSpanDestination>? spanDestinations = null;
             foreach (var childSpan in trace.Spans)
             {
                 if (childSpan.ParentSpanId is not { Length: > 0 } parentSpanId ||
@@ -2035,10 +2056,8 @@ public sealed partial class TelemetryRepository : IDisposable
                     continue;
                 }
 
-                destinationsBySourceSpanId ??= new Dictionary<string, HashSet<ResourceKey>>(StringComparer.Ordinal);
-                ref var destinations = ref CollectionsMarshal.GetValueRefOrAddDefault(destinationsBySourceSpanId, parentSpanId, out _);
-                destinations ??= [];
-                if (destinations.Add(childSpan.Source.ResourceKey))
+                spanDestinations ??= new HashSet<TelemetryGraphSpanDestination>(sourceSpansById.Count);
+                if (spanDestinations.Add(new TelemetryGraphSpanDestination(parentSpanId, childSpan.Source.ResourceKey)))
                 {
                     AddTelemetryGraphEdge(edges, sourceSpan.Source.ResourceKey, childSpan.Source.ResourceKey);
                 }
@@ -2057,6 +2076,8 @@ public sealed partial class TelemetryRepository : IDisposable
             CollectionsMarshal.GetValueRefOrAddDefault(edges, new TelemetryGraphEdge(source, destination), out _)++;
         }
     }
+
+    private readonly record struct TelemetryGraphSpanDestination(string SourceSpanId, ResourceKey Destination);
 
     private static ResourceViewModel? ResolveUninstrumentedPeerResource(OtlpSpan span, IEnumerable<IOutgoingPeerResolver> outgoingPeerResolvers)
     {
