@@ -234,6 +234,9 @@ class ResourceGraph {
     }
 
     updateNodes(newResources) {
+        // Telemetry mode can refresh frequently while traces stream in. Preserve existing node objects
+        // for D3 simulation state, but use keyed lookup so refresh cost scales with resources instead
+        // of resources multiplied by existing nodes.
         const existingNodesById = new Map((this.nodes || []).map(node => [node.id, node]));
         const updatedNodes = [];
 
@@ -299,6 +302,8 @@ class ResourceGraph {
 
         this.updateNodes(newResources);
 
+        // Resource references are already keyed by resource name. Build a Set once so filtering links
+        // doesn't repeatedly scan the full resource list on dense telemetry graphs.
         const resourceNames = new Set(newResources.map(resource => resource.name));
         this.links = [];
         for (var i = 0; i < newResources.length; i++) {

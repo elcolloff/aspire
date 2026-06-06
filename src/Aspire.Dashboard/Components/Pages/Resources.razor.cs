@@ -443,6 +443,8 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
             IEnumerable<string>? referencedNames = null;
             if (telemetryGraphResources is not null)
             {
+                // In telemetry mode, a visible resource can have only incoming calls. Pass an explicit
+                // empty reference list for those nodes so they don't fall back to model relationships.
                 referencedNames = telemetryGraphResources.ReferencedNames.TryGetValue(r.Name, out var telemetryReferencedNames)
                     ? telemetryReferencedNames
                     : Array.Empty<string>();

@@ -1932,6 +1932,8 @@ public sealed partial class TelemetryRepository : IDisposable
             }
 
             // A span may indicate a call to another service but the service isn't instrumented.
+            // If there is already a child server/consumer span, prefer that instrumented resource
+            // instead of also creating a synthetic peer from the client's peer attributes.
             var hasPeerService = OtlpHelpers.GetPeerAddress(span.Attributes) != null;
             var hasUninstrumentedPeer = hasPeerService && !(spanIdsWithChildren ??= GetSpanIdsWithChildren(trace)).Contains(span.SpanId);
             var uninstrumentedPeer = hasUninstrumentedPeer ? ResolveUninstrumentedPeerResource(span, _outgoingPeerResolvers) : null;
@@ -2056,6 +2058,9 @@ public sealed partial class TelemetryRepository : IDisposable
                     continue;
                 }
 
+                // A single outbound span can produce multiple server/consumer spans for the same
+                // resource. Count that as one call edge for the trace so internal handlers don't
+                // inflate the graph when they share the same parent client/producer span.
                 spanDestinations ??= new HashSet<TelemetryGraphSpanDestination>(sourceSpansById.Count);
                 if (spanDestinations.Add(new TelemetryGraphSpanDestination(parentSpanId, childSpan.Source.ResourceKey)))
                 {
