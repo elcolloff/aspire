@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Runtime.CompilerServices;
 using Azure;
 using Azure.Core;
 using Azure.ResourceManager;
@@ -146,6 +147,25 @@ internal sealed class DefaultArmClientProvider : IArmClientProvider
         {
             var resource = armClient.GetGenericResource(new ResourceIdentifier(resourceId));
             await resource.DeleteAsync(WaitUntil.Completed, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task CancelDeploymentAsync(string deploymentId, CancellationToken cancellationToken = default)
+        {
+            var deployment = armClient.GetArmDeploymentResource(new ResourceIdentifier(deploymentId));
+            await deployment.CancelAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        public async IAsyncEnumerable<string> GetDeploymentTargetResourceIdsAsync(string deploymentId, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var deployment = armClient.GetArmDeploymentResource(new ResourceIdentifier(deploymentId));
+
+            await foreach (var operation in deployment.GetDeploymentOperationsAsync(top: null, cancellationToken).ConfigureAwait(false))
+            {
+                if (operation.Properties.TargetResource?.Id is { Length: > 0 } resourceId)
+                {
+                    yield return resourceId;
+                }
+            }
         }
 
         private sealed class DefaultTenantResource(TenantResource tenantResource) : ITenantResource

@@ -161,6 +161,16 @@ internal interface IArmClient
     /// Deletes the specified Azure resource.
     /// </summary>
     Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels the specified Azure deployment.
+    /// </summary>
+    Task CancelDeploymentAsync(string deploymentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets Azure resource IDs targeted by the specified deployment.
+    /// </summary>
+    IAsyncEnumerable<string> GetDeploymentTargetResourceIdsAsync(string deploymentId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

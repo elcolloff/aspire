@@ -11,7 +11,7 @@
 namespace Aspire.Hosting.Azure.Resources {
     using System;
     
-    
+
     /// <summary>
     ///   A strongly-typed resource class, for looking up localized strings, etc.
     /// </summary>
@@ -455,6 +455,78 @@ namespace Aspire.Hosting.Azure.Resources {
         internal static string GetAzureResourceCommandSuccess {
             get {
                 return ResourceManager.GetString("GetAzureResourceCommandSuccess", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This requests cancellation of the cached Azure deployment for this resource. Any Azure resources already created by the deployment are not deleted. Do you want to continue?.
+        /// </summary>
+        internal static string CancelDeploymentCommandConfirmation {
+            get {
+                return ResourceManager.GetString("CancelDeploymentCommandConfirmation", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Requests cancellation of the cached Azure deployment for this resource..
+        /// </summary>
+        internal static string CancelDeploymentCommandDescription {
+            get {
+                return ResourceManager.GetString("CancelDeploymentCommandDescription", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Cancel deployment.
+        /// </summary>
+        internal static string CancelDeploymentCommandName {
+            get {
+                return ResourceManager.GetString("CancelDeploymentCommandName", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Azure deployment cancellation requested..
+        /// </summary>
+        internal static string CancelDeploymentCommandSuccess {
+            get {
+                return ResourceManager.GetString("CancelDeploymentCommandSuccess", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to This cancels the cached Azure deployment, deletes Azure resources targeted by this resource's deployment, and clears cached deployment state. Do you want to continue?.
+        /// </summary>
+        internal static string DeleteAzureResourceCommandConfirmation {
+            get {
+                return ResourceManager.GetString("DeleteAzureResourceCommandConfirmation", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Cancels the cached Azure deployment, deletes Azure resources targeted by the deployment, and clears cached deployment state for this resource..
+        /// </summary>
+        internal static string DeleteAzureResourceCommandDescription {
+            get {
+                return ResourceManager.GetString("DeleteAzureResourceCommandDescription", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Delete Azure resource.
+        /// </summary>
+        internal static string DeleteAzureResourceCommandName {
+            get {
+                return ResourceManager.GetString("DeleteAzureResourceCommandName", resourceCulture);
+            }
+        }
+
+        /// <summary>
+        ///   Looks up a localized string similar to Azure resources deleted and provisioning state reset..
+        /// </summary>
+        internal static string DeleteAzureResourceCommandSuccess {
+            get {
+                return ResourceManager.GetString("DeleteAzureResourceCommandSuccess", resourceCulture);
             }
         }
 

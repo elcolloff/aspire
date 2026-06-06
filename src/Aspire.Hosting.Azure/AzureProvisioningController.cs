@@ -84,6 +84,8 @@ internal sealed class AzureProvisioningController(
     internal const string ForgetStateCommandName = "forget-state";
     internal const string ChangeResourceLocationCommandName = "change-location";
     internal const string GetAzureResourceCommandName = "get-azure-resource";
+    internal const string CancelDeploymentCommandName = "cancel-deployment";
+    internal const string DeleteAzureResourceCommandName = "delete-azure-resource";
     internal const string ReprovisionResourceCommandName = "reprovision";
     internal const string ResetProvisioningStateCommandName = "reset-provisioning-state";
     internal const string ChangeAzureContextCommandName = "change-azure-context";
@@ -184,6 +186,24 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.GetAzureResourceCommandDescription,
             ConfirmationMessage: null,
             "Info",
+            IconVariant.Regular,
+            IsHighlighted: false),
+        new(
+            AzureResourceCommand.CancelDeployment,
+            CancelDeploymentCommandName,
+            AzureProvisioningStrings.CancelDeploymentCommandName,
+            AzureProvisioningStrings.CancelDeploymentCommandDescription,
+            AzureProvisioningStrings.CancelDeploymentCommandConfirmation,
+            "Stop",
+            IconVariant.Regular,
+            IsHighlighted: false),
+        new(
+            AzureResourceCommand.DeleteAzureResource,
+            DeleteAzureResourceCommandName,
+            AzureProvisioningStrings.DeleteAzureResourceCommandName,
+            AzureProvisioningStrings.DeleteAzureResourceCommandDescription,
+            AzureProvisioningStrings.DeleteAzureResourceCommandConfirmation,
+            "Delete",
             IconVariant.Regular,
             IsHighlighted: false),
         new(
@@ -393,6 +413,22 @@ internal sealed class AzureProvisioningController(
         return await RunOperationAsync<bool>(model, new ReprovisionResourceIntent(resourceName), cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task CancelResourceDeploymentAsync(DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+
+        await RunOperationAsync(model, new CancelResourceDeploymentIntent(resourceName), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAzureResourceAsync(DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+
+        await RunOperationAsync(model, new DeleteAzureResourceIntent(resourceName), cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<bool> ChangeResourceLocationAsync(DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -497,6 +533,14 @@ internal sealed class AzureProvisioningController(
                 () => Task.CompletedTask,
                 AzureProvisioningStrings.GetAzureResourceCommandSuccess,
                 () => CreateAzureResourceInfoCommandResultDataAsync(model, resourceName, context.CancellationToken)),
+            AzureResourceCommand.CancelDeployment => ExecuteCommandAsync(
+                () => CancelResourceDeploymentAsync(model, resourceName, context.CancellationToken),
+                AzureProvisioningStrings.CancelDeploymentCommandSuccess,
+                () => CreateResourceCommandResultDataAsync(CancelDeploymentCommandName, model, resourceName, context.CancellationToken)),
+            AzureResourceCommand.DeleteAzureResource => ExecuteCommandAsync(
+                () => RunOperationAsync<DeleteAzureResourceResult>(model, new DeleteAzureResourceIntent(resourceName), context.CancellationToken),
+                AzureProvisioningStrings.DeleteAzureResourceCommandSuccess,
+                result => CreateDeleteAzureResourceCommandResultDataAsync(model, resourceName, result, context.CancellationToken)),
             AzureResourceCommand.ForgetState => ExecuteCommandAsync(
                 () => ForgetResourceStateAsync(model, resourceName, context.CancellationToken),
                 AzureProvisioningStrings.ForgetStateCommandSuccess,
@@ -957,6 +1001,8 @@ internal sealed class AzureProvisioningController(
             DeleteAzureResourcesIntent => await ExecuteDeleteAzureResourcesAsync(model, cancellationToken).ConfigureAwait(false),
             ChangeResourceLocationIntent changeResourceLocation => await ExecuteChangeResourceLocationAsync(model, changeResourceLocation, cancellationToken).ConfigureAwait(false),
             ReprovisionResourceIntent reprovisionResource => await ExecuteReprovisionResourceAsync(model, reprovisionResource, cancellationToken).ConfigureAwait(false),
+            CancelResourceDeploymentIntent cancelResourceDeployment => await ExecuteCancelResourceDeploymentAsync(model, cancelResourceDeployment, cancellationToken).ConfigureAwait(false),
+            DeleteAzureResourceIntent deleteAzureResource => await ExecuteDeleteAzureResourceAsync(model, deleteAzureResource, cancellationToken).ConfigureAwait(false),
             DetectDriftIntent => await ExecuteDetectDriftAsync(model, cancellationToken).ConfigureAwait(false),
             _ => throw new ArgumentOutOfRangeException(nameof(intent))
         };
@@ -1104,6 +1150,67 @@ internal sealed class AzureProvisioningController(
         return await EnsureProvisionedCoreAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task<object?> ExecuteCancelResourceDeploymentAsync(DistributedApplicationModel model, CancelResourceDeploymentIntent intent, CancellationToken cancellationToken)
+    {
+        var targetResources = GetTargetAzureResources(model, intent.ResourceName);
+        var parentChildLookup = model.Resources.OfType<IResourceWithParent>().ToLookup(r => r.Parent);
+        var canceledDeploymentCount = await CancelCachedDeploymentsAsync(targetResources, requireDeployment: true, cancellationToken).ConfigureAwait(false);
+
+        foreach (var resource in targetResources)
+        {
+            await PublishUpdateToResourceTreeAsync(resource, parentChildLookup, state => state with
+            {
+                State = new("Canceled", KnownResourceStateStyles.Info)
+            }).ConfigureAwait(false);
+        }
+
+        _logger.LogInformation("Canceled {Count} Azure deployment(s) for resource {ResourceName}.", canceledDeploymentCount, intent.ResourceName);
+        return null;
+    }
+
+    private async Task<DeleteAzureResourceResult> ExecuteDeleteAzureResourceAsync(DistributedApplicationModel model, DeleteAzureResourceIntent intent, CancellationToken cancellationToken)
+    {
+        var targetResources = GetTargetAzureResources(model, intent.ResourceName);
+        var parentChildLookup = model.Resources.OfType<IResourceWithParent>().ToLookup(r => r.Parent);
+
+        foreach (var resource in targetResources)
+        {
+            await PublishUpdateToResourceTreeAsync(resource, parentChildLookup, state => state with
+            {
+                State = new("Deleting", KnownResourceStateStyles.Info)
+            }).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<string> resourceIds;
+        try
+        {
+            await CancelCachedDeploymentsAsync(targetResources, requireDeployment: false, cancellationToken).ConfigureAwait(false);
+            resourceIds = await GetAzureResourceIdsForDeletionAsync(targetResources, cancellationToken).ConfigureAwait(false);
+            if (resourceIds.Count == 0)
+            {
+                throw new InvalidOperationException($"No cached Azure resource IDs were found for resource '{intent.ResourceName}'. Use '{ForgetStateCommandName}' to clear local state only.");
+            }
+
+            await DeleteAzureResourceIdsAsync(resourceIds, intent.ResourceName, cancellationToken).ConfigureAwait(false);
+            await ResetResourcesAsync(model, targetResources, preserveOverrides: true, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            foreach (var resource in targetResources)
+            {
+                await PublishUpdateToResourceTreeAsync(resource, parentChildLookup, state => state with
+                {
+                    State = new("Failed to Delete", KnownResourceStateStyles.Error)
+                }).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+
+        _logger.LogInformation("Deleted {Count} Azure resource(s) for resource {ResourceName}.", resourceIds.Count, intent.ResourceName);
+        return new DeleteAzureResourceResult(resourceIds);
+    }
+
     private async Task<object?> ExecuteDetectDriftAsync(DistributedApplicationModel model, CancellationToken cancellationToken)
     {
         if (model.Resources.OfType<AzureEnvironmentResource>().SingleOrDefault() is not { } environmentResource ||
@@ -1205,6 +1312,19 @@ internal sealed class AzureProvisioningController(
         }
     }
 
+    private static async Task<ExecuteCommandResult> ExecuteCommandAsync<T>(Func<Task<T>> action, string successMessage, Func<T, Task<CommandResultData>> createResultData)
+    {
+        try
+        {
+            var result = await action().ConfigureAwait(false);
+            return CommandResults.Success(successMessage, await createResultData(result).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            return CommandResults.Failure(ex.Message);
+        }
+    }
+
     private static async Task<ExecuteCommandResult> ExecuteCommandAsync(Func<Task<bool>> action, string successMessage, Func<Task<CommandResultData>> createResultData)
     {
         try
@@ -1227,12 +1347,29 @@ internal sealed class AzureProvisioningController(
     }
 
     private async Task<CommandResultData> CreateResourceCommandResultDataAsync(string commandName, DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken)
+        => CreateJsonResultData(await CreateResourceCommandResultJsonAsync(commandName, model, resourceName, cancellationToken).ConfigureAwait(false));
+
+    private async Task<CommandResultData> CreateDeleteAzureResourceCommandResultDataAsync(DistributedApplicationModel model, string resourceName, DeleteAzureResourceResult result, CancellationToken cancellationToken)
+    {
+        var json = await CreateResourceCommandResultJsonAsync(DeleteAzureResourceCommandName, model, resourceName, cancellationToken).ConfigureAwait(false);
+        var deletedResourceIds = new JsonArray();
+        foreach (var resourceId in result.ResourceIds)
+        {
+            deletedResourceIds.Add(JsonValue.Create(resourceId));
+        }
+
+        json["deletedResourceCount"] = result.ResourceIds.Count;
+        json["deletedResourceIds"] = deletedResourceIds;
+        return CreateJsonResultData(json);
+    }
+
+    private async Task<JsonObject> CreateResourceCommandResultJsonAsync(string commandName, DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken)
     {
         var json = await CreateCommandResultJsonAsync(commandName, resourceName, cancellationToken).ConfigureAwait(false);
         var targetResources = GetTargetAzureResources(model, resourceName);
         json["resourceCount"] = targetResources.Count;
         json["location"] = await GetEffectiveResourceLocationAsync(GetDeploymentStateResourceName(targetResources[0]), cancellationToken).ConfigureAwait(false);
-        return CreateJsonResultData(json);
+        return json;
     }
 
     private async Task<CommandResultData> CreateAzureResourceInfoCommandResultDataAsync(DistributedApplicationModel model, string resourceName, CancellationToken cancellationToken)
@@ -1456,6 +1593,167 @@ internal sealed class AzureProvisioningController(
 
     private static string GetDeploymentStateResourceName((IResource Resource, IAzureResource AzureResource) resource)
         => resource.AzureResource is AzureBicepResource bicepResource ? bicepResource.Name : resource.Resource.Name;
+
+    private async Task<int> CancelCachedDeploymentsAsync(
+        IReadOnlyCollection<(IResource Resource, IAzureResource AzureResource)> targetResources,
+        bool requireDeployment,
+        CancellationToken cancellationToken)
+    {
+        var canceledDeploymentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var resource in targetResources)
+        {
+            if (resource.AzureResource is not AzureBicepResource bicepResource)
+            {
+                continue;
+            }
+
+            var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{bicepResource.Name}", cancellationToken).ConfigureAwait(false);
+            if (TryGetCachedDeploymentId(section) is not { } deploymentId)
+            {
+                continue;
+            }
+
+            if (canceledDeploymentIds.Add(deploymentId))
+            {
+                await CancelCachedDeploymentAsync(deploymentId, loggerService.GetLogger(resource.AzureResource), cancellationToken).ConfigureAwait(false);
+            }
+
+            section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey] = BicepProvisioner.DeploymentStateProvisioningStateCanceled;
+            await deploymentStateManager.SaveSectionAsync(section, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (requireDeployment && canceledDeploymentIds.Count == 0)
+        {
+            var resourceName = targetResources.Count == 1 ? targetResources.Single().Resource.Name : string.Join(", ", targetResources.Select(static resource => resource.Resource.Name));
+            throw new InvalidOperationException($"No cached Azure deployment was found for resource '{resourceName}'.");
+        }
+
+        return canceledDeploymentIds.Count;
+    }
+
+    private async Task CancelCachedDeploymentAsync(string deploymentId, ILogger resourceLogger, CancellationToken cancellationToken)
+    {
+        var armClient = await GetArmClientForResourceIdAsync(deploymentId, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await armClient.CancelDeploymentAsync(deploymentId, cancellationToken).ConfigureAwait(false);
+            resourceLogger.LogInformation("Cancellation requested for Azure deployment {DeploymentId}.", deploymentId);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404 || ex.Status == 409)
+        {
+            _logger.LogInformation(ex, "Azure deployment {DeploymentId} was already absent or no longer active during cancellation.", deploymentId);
+            resourceLogger.LogInformation("Azure deployment {DeploymentId} was already absent or no longer active during cancellation.", deploymentId);
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> GetAzureResourceIdsForDeletionAsync(
+        IReadOnlyCollection<(IResource Resource, IAzureResource AzureResource)> targetResources,
+        CancellationToken cancellationToken)
+    {
+        var resourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var resource in targetResources)
+        {
+            if (resource.AzureResource is not AzureBicepResource bicepResource)
+            {
+                continue;
+            }
+
+            if (await TryGetResourceIdFromDeploymentStateAsync(bicepResource, cancellationToken).ConfigureAwait(false) is { } resourceId &&
+                !IsArmDeploymentResourceId(resourceId))
+            {
+                resourceIds.Add(resourceId);
+            }
+
+            await AddDeploymentOperationTargetResourceIdsAsync(bicepResource, resourceIds, cancellationToken).ConfigureAwait(false);
+        }
+
+        return [.. resourceIds.OrderByDescending(static resourceId => resourceId.Length)];
+    }
+
+    private async Task AddDeploymentOperationTargetResourceIdsAsync(AzureBicepResource resource, HashSet<string> resourceIds, CancellationToken cancellationToken)
+    {
+        var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{resource.Name}", cancellationToken).ConfigureAwait(false);
+        if (TryGetCachedDeploymentId(section) is not { } deploymentId)
+        {
+            return;
+        }
+
+        var armClient = await GetArmClientForResourceIdAsync(deploymentId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var resourceId in armClient.GetDeploymentTargetResourceIdsAsync(deploymentId, cancellationToken).ConfigureAwait(false))
+            {
+                if (!IsArmDeploymentResourceId(resourceId))
+                {
+                    resourceIds.Add(resourceId);
+                }
+            }
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            _logger.LogInformation(ex, "Azure deployment {DeploymentId} was absent while collecting target resources for {ResourceName}.", deploymentId, resource.Name);
+        }
+    }
+
+    private async Task DeleteAzureResourceIdsAsync(IReadOnlyList<string> resourceIds, string resourceName, CancellationToken cancellationToken)
+    {
+        foreach (var resourceId in resourceIds)
+        {
+            var armClient = await GetArmClientForResourceIdAsync(resourceId, cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation("Deleting Azure resource {ResourceId} for {ResourceName}.", resourceId, resourceName);
+
+            try
+            {
+                await armClient.DeleteResourceAsync(resourceId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                _logger.LogInformation(ex, "Azure resource {ResourceId} was already absent while deleting resources for {ResourceName}.", resourceId, resourceName);
+            }
+        }
+    }
+
+    private async Task<IArmClient> GetArmClientForResourceIdAsync(string resourceId, CancellationToken cancellationToken)
+    {
+        string? subscriptionId = null;
+        if (ResourceIdentifier.TryParse(resourceId, out var parsedResourceId) &&
+            parsedResourceId is not null)
+        {
+            subscriptionId = parsedResourceId.SubscriptionId;
+        }
+
+        if (string.IsNullOrWhiteSpace(subscriptionId))
+        {
+            subscriptionId = (await GetCurrentAzureContextAsync(cancellationToken).ConfigureAwait(false)).SubscriptionId;
+        }
+
+        if (!Guid.TryParse(subscriptionId, out _))
+        {
+            throw new MissingConfigurationException("Azure resources cannot be managed because the Azure subscription ID is missing or invalid.");
+        }
+
+        var armClientProvider = serviceProvider.GetRequiredService<IArmClientProvider>();
+        var tokenCredentialProvider = serviceProvider.GetRequiredService<ITokenCredentialProvider>();
+        return armClientProvider.GetArmClient(tokenCredentialProvider.TokenCredential, subscriptionId);
+    }
+
+    private static string? TryGetCachedDeploymentId(DeploymentStateSection section)
+        => section.Data["Id"]?.GetValue<string>() is { Length: > 0 } deploymentId ? deploymentId : null;
+
+    private static bool IsArmDeploymentResourceId(string resourceId)
+    {
+        if (!ResourceIdentifier.TryParse(resourceId, out var parsedResourceId) ||
+            parsedResourceId is null)
+        {
+            return false;
+        }
+
+        return string.Equals(parsedResourceId.ResourceType.ToString(), "Microsoft.Resources/deployments", StringComparison.OrdinalIgnoreCase);
+    }
 
     private string? TryGetCurrentResourceLocationOverride(AzureBicepResource resource, string? environmentLocation)
     {
@@ -2202,6 +2500,8 @@ internal sealed class AzureProvisioningController(
 
     private sealed record AzureControllerStatus(AzureIntent? CurrentIntent);
 
+    private sealed record DeleteAzureResourceResult(IReadOnlyList<string> ResourceIds);
+
     internal enum AzureEnvironmentCommand
     {
         ResetProvisioningState,
@@ -2214,6 +2514,8 @@ internal sealed class AzureProvisioningController(
     {
         ChangeLocation,
         GetAzureResource,
+        CancelDeployment,
+        DeleteAzureResource,
         ForgetState,
         Reprovision
     }
@@ -2259,6 +2561,10 @@ internal sealed class AzureProvisioningController(
     private sealed record ChangeResourceLocationIntent(string ResourceName, string Location) : AzureIntent(AzureOperationState.Resource(ResourceName, "Change Azure resource location"));
 
     private sealed record ReprovisionResourceIntent(string ResourceName) : AzureIntent(AzureOperationState.Resource(ResourceName, "Reprovision Azure resource"));
+
+    private sealed record CancelResourceDeploymentIntent(string ResourceName) : AzureIntent(AzureOperationState.Resource(ResourceName, "Cancel Azure deployment"));
+
+    private sealed record DeleteAzureResourceIntent(string ResourceName) : AzureIntent(AzureOperationState.Resource(ResourceName, "Delete Azure resource"));
 
     private sealed record DetectDriftIntent() : AzureIntent(AzureOperationState.None);
 

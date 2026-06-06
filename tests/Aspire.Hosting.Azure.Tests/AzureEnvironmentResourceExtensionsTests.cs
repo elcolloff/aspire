@@ -402,9 +402,13 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Equal(AzureBicepResource.KnownParameters.Location, locationArgument.Name);
         Assert.True(locationArgument.Required);
         Assert.Contains(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.GetAzureResourceCommandName);
+        Assert.Contains(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.CancelDeploymentCommandName);
+        Assert.Contains(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.DeleteAzureResourceCommandName);
         Assert.Contains(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.ReprovisionResourceCommandName);
         Assert.DoesNotContain(blobs.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c =>
             c.Name == AzureProvisioningController.ForgetStateCommandName ||
+            c.Name == AzureProvisioningController.CancelDeploymentCommandName ||
+            c.Name == AzureProvisioningController.DeleteAzureResourceCommandName ||
             c.Name == AzureProvisioningController.ReprovisionResourceCommandName);
     }
 
@@ -504,6 +508,177 @@ public class AzureEnvironmentResourceExtensionsTests
         var live = Assert.IsType<JsonObject>(data["live"]);
         Assert.True(live["checked"]?.GetValue<bool>());
         Assert.True(live["exists"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task CancelDeploymentCommand_CancelsCachedDeploymentAndMarksStateCanceled()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var canceledDeploymentIds = new List<string>();
+        const string subscriptionId = "12345678-1234-1234-1234-123456789012";
+        const string resourceGroup = "test-rg";
+        const string deploymentId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Resources/deployments/storage";
+
+        builder.Configuration["Azure:SubscriptionId"] = subscriptionId;
+        builder.Configuration["Azure:Location"] = "westus2";
+        builder.Configuration["Azure:ResourceGroup"] = resourceGroup;
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(ProvisioningTestHelpers.CreateArmClientProvider(
+            existingResourceIds: Array.Empty<string>(),
+            deletedResourceIds: null,
+            deploymentTargetResourceIds: null,
+            canceledDeploymentIds: canceledDeploymentIds));
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+        var preparer = new AzureResourcePreparer(
+            app.Services.GetRequiredService<IOptions<AzureProvisioningOptions>>(),
+            app.Services.GetRequiredService<DistributedApplicationExecutionContext>());
+
+        await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["Id"] = deploymentId;
+        storageSection.Data[BicepProvisioner.DeploymentStateProvisioningStateKey] = BicepProvisioner.DeploymentStateProvisioningStateRunning;
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        await notifications.PublishUpdateAsync(storage.Resource, state => state with { State = new("Waiting for Deployment", KnownResourceStateStyles.Info) });
+
+        var cancelCommand = Assert.Single(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.CancelDeploymentCommandName);
+
+        var result = await cancelCommand.ExecuteCommand(new ExecuteCommandContext
+        {
+            ServiceProvider = app.Services,
+            ResourceName = storage.Resource.Name,
+            CancellationToken = CancellationToken.None,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("Azure deployment cancellation requested.", result.Message);
+        Assert.Equal([deploymentId], canceledDeploymentIds);
+
+        storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        Assert.Equal(BicepProvisioner.DeploymentStateProvisioningStateCanceled, storageSection.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>());
+
+        Assert.True(notifications.TryGetCurrentState(storage.Resource.Name, out var storageEvent));
+        Assert.Equal("Canceled", storageEvent.Snapshot.State?.Text);
+    }
+
+    [Fact]
+    public async Task DeleteAzureResourceCommand_DeletesCachedOutputAndDeploymentOperationTargets()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var deletedResourceIds = new List<string>();
+        var canceledDeploymentIds = new List<string>();
+        const string subscriptionId = "12345678-1234-1234-1234-123456789012";
+        const string resourceGroup = "test-rg";
+        const string deploymentId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Resources/deployments/storage";
+        const string storageResourceId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52";
+        const string partialIdentityResourceId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/storage-identity";
+        const string nestedDeploymentResourceId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Resources/deployments/nested";
+
+        builder.Configuration["Azure:SubscriptionId"] = subscriptionId;
+        builder.Configuration["Azure:Location"] = "westus2";
+        builder.Configuration["Azure:ResourceGroup"] = resourceGroup;
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(ProvisioningTestHelpers.CreateArmClientProvider(
+            existingResourceIds: [storageResourceId, partialIdentityResourceId, nestedDeploymentResourceId],
+            deletedResourceIds: deletedResourceIds,
+            deploymentTargetResourceIds: [partialIdentityResourceId, nestedDeploymentResourceId],
+            canceledDeploymentIds: canceledDeploymentIds));
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+        var storage2 = builder.AddBicepTemplateString("storage2", "resource storage2 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+        var preparer = new AzureResourcePreparer(
+            app.Services.GetRequiredService<IOptions<AzureProvisioningOptions>>(),
+            app.Services.GetRequiredService<DistributedApplicationExecutionContext>());
+
+        await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["Id"] = deploymentId;
+        storageSection.Data["Outputs"] = new JsonObject
+        {
+            ["id"] = new JsonObject
+            {
+                ["type"] = "String",
+                ["value"] = storageResourceId
+            }
+        }.ToJsonString();
+        storageSection.Data[AzureProvisioningController.LocationOverrideKey] = "westus3";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        var storage2Section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2");
+        storage2Section.Data["Id"] = "storage2-deployment";
+        await deploymentStateManager.SaveSectionAsync(storage2Section);
+
+        storage.Resource.Outputs["blobEndpoint"] = "https://storage.blob.core.windows.net/";
+        storage2.Resource.Outputs["blobEndpoint"] = "https://storage2.blob.core.windows.net/";
+
+        await notifications.PublishUpdateAsync(storage.Resource, state => state with { State = new("Failed to Provision", KnownResourceStateStyles.Error) });
+        await notifications.PublishUpdateAsync(storage2.Resource, state => state with { State = KnownResourceStates.Running });
+
+        var deleteCommand = Assert.Single(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.DeleteAzureResourceCommandName);
+
+        var result = await deleteCommand.ExecuteCommand(new ExecuteCommandContext
+        {
+            ServiceProvider = app.Services,
+            ResourceName = storage.Resource.Name,
+            CancellationToken = CancellationToken.None,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        });
+
+        Assert.True(result.Success);
+        Assert.Equal("Azure resources deleted and provisioning state reset.", result.Message);
+        Assert.Equal([deploymentId], canceledDeploymentIds);
+        Assert.Equal(2, deletedResourceIds.Count);
+        Assert.Contains(storageResourceId, deletedResourceIds);
+        Assert.Contains(partialIdentityResourceId, deletedResourceIds);
+        Assert.DoesNotContain(nestedDeploymentResourceId, deletedResourceIds);
+
+        var resultData = AssertCommandJsonData(result);
+        Assert.Equal(2, resultData["deletedResourceCount"]?.GetValue<int>());
+        var resultResourceIds = Assert.IsType<JsonArray>(resultData["deletedResourceIds"]);
+        Assert.Equal(deletedResourceIds, resultResourceIds.Select(static resourceId => resourceId!.GetValue<string>()));
+
+        storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        Assert.Equal("westus3", storageSection.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>());
+        Assert.False(storageSection.Data.ContainsKey("Id"));
+        Assert.False(storageSection.Data.ContainsKey("Outputs"));
+
+        storage2Section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2");
+        Assert.Equal("storage2-deployment", storage2Section.Data["Id"]?.GetValue<string>());
+
+        Assert.Empty(storage.Resource.Outputs);
+        Assert.Equal("https://storage2.blob.core.windows.net/", storage2.Resource.Outputs["blobEndpoint"]);
+
+        Assert.True(notifications.TryGetCurrentState(storage.Resource.Name, out var storageEvent));
+        Assert.Equal(KnownResourceStates.NotStarted, storageEvent.Snapshot.State?.Text);
+
+        Assert.True(notifications.TryGetCurrentState(storage2.Resource.Name, out var storage2Event));
+        Assert.Equal(KnownResourceStates.Running, storage2Event.Snapshot.State?.Text);
     }
 
     [Fact]
@@ -2568,6 +2743,12 @@ public class AzureEnvironmentResourceExtensionsTests
 
         public Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+
+        public Task CancelDeploymentAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public IAsyncEnumerable<string> GetDeploymentTargetResourceIdsAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class ThrowingResourceProbeArmClientProvider(RequestFailedException exception) : IArmClientProvider
@@ -2609,6 +2790,12 @@ public class AzureEnvironmentResourceExtensionsTests
 
         public Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default)
             => _inner.DeleteResourceAsync(resourceId, cancellationToken);
+
+        public Task CancelDeploymentAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => _inner.CancelDeploymentAsync(deploymentId, cancellationToken);
+
+        public IAsyncEnumerable<string> GetDeploymentTargetResourceIdsAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => _inner.GetDeploymentTargetResourceIdsAsync(deploymentId, cancellationToken);
     }
 
     private sealed class DeleteResourceFailureArmClientProvider(string existingResourceId, RequestFailedException deleteException) : IArmClientProvider
@@ -2652,5 +2839,11 @@ public class AzureEnvironmentResourceExtensionsTests
             => string.Equals(resourceId, existingResourceId, StringComparison.OrdinalIgnoreCase)
                 ? Task.FromException(deleteException)
                 : _inner.DeleteResourceAsync(resourceId, cancellationToken);
+
+        public Task CancelDeploymentAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => _inner.CancelDeploymentAsync(deploymentId, cancellationToken);
+
+        public IAsyncEnumerable<string> GetDeploymentTargetResourceIdsAsync(string deploymentId, CancellationToken cancellationToken = default)
+            => _inner.GetDeploymentTargetResourceIdsAsync(deploymentId, cancellationToken);
     }
 }

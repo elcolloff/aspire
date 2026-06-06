@@ -5,6 +5,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Aspire.Hosting.Azure.Resources;
 using Aspire.Hosting.Azure.Utils;
 using Aspire.Hosting.Pipelines;
@@ -222,10 +224,21 @@ internal sealed class RunModeProvisioningContextProvider(
             _options.TenantId = tenantId;
         }
 
-        if (data["AllowResourceGroupCreation"]?.GetValue<bool?>() is bool allowResourceGroupCreation)
+        if (TryGetBoolean(data["AllowResourceGroupCreation"]) is bool allowResourceGroupCreation)
         {
             _options.AllowResourceGroupCreation = allowResourceGroupCreation;
         }
+    }
+
+    private static bool? TryGetBoolean(JsonNode? value)
+    {
+        return value?.GetValueKind() switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetValue<string>(), out var parsedValue) => parsedValue,
+            _ => null
+        };
     }
 
     private async Task<bool> RetrieveAzureProvisioningOptionsAsync(bool forcePrompt, CancellationToken cancellationToken = default)

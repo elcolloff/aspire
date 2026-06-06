@@ -123,6 +123,42 @@ public class ProvisioningContextProviderTests
     }
 
     [Fact]
+    public async Task CreateProvisioningContextAsync_RehydratesStringBooleanAllowResourceGroupCreation()
+    {
+        var optionValues = new AzureProvisionerOptions();
+        var options = Options.Create(optionValues);
+        var environment = ProvisioningTestHelpers.CreateEnvironment();
+        var logger = ProvisioningTestHelpers.CreateLogger();
+        var armClientProvider = ProvisioningTestHelpers.CreateArmClientProvider();
+        var userPrincipalProvider = ProvisioningTestHelpers.CreateUserPrincipalProvider();
+        var tokenCredentialProvider = ProvisioningTestHelpers.CreateTokenCredentialProvider();
+        var deploymentStateManager = ProvisioningTestHelpers.CreateUserSecretsManager();
+        var azureSection = await deploymentStateManager.AcquireSectionAsync("Azure", CancellationToken.None);
+        azureSection.Data["SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        azureSection.Data["Location"] = "westus3";
+        azureSection.Data["ResourceGroup"] = "rehydrated-rg";
+        azureSection.Data["AllowResourceGroupCreation"] = "true";
+        await deploymentStateManager.SaveSectionAsync(azureSection, CancellationToken.None);
+
+        var provider = new RunModeProvisioningContextProvider(
+            _defaultInteractionService,
+            options,
+            environment,
+            logger,
+            armClientProvider,
+            userPrincipalProvider,
+            tokenCredentialProvider,
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run));
+
+        var context = await provider.CreateProvisioningContextAsync(CancellationToken.None);
+
+        Assert.Equal("westus3", context.Location.Name);
+        Assert.Equal("rehydrated-rg", context.ResourceGroup.Name);
+        Assert.True(optionValues.AllowResourceGroupCreation);
+    }
+
+    [Fact]
     public async Task CreateProvisioningContextAsync_ThrowsWhenLocationMissing()
     {
         // Arrange
