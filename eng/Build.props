@@ -66,7 +66,8 @@
         included in the build at all. This is useful for cases like when we are
         just building the packages, and don't need to build the test projects. -->
   <ItemGroup Condition="'$(SkipManagedBuild)' != 'true' and '$(SkipTestProjects)' != 'true' and '$(BuildBundleDepsOnly)' != 'true'">
-    <ProjectToBuild Include="$(RepoRoot)tests\**\*.csproj" />
+    <ProjectToBuild Include="$(RepoRoot)tests\**\*.csproj"
+                    Exclude="$(RepoRoot)tests\**\TestFixtures\**\*.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(SkipNativeBuild)' == 'true'">
