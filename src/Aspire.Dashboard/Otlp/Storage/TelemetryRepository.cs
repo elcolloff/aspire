@@ -132,6 +132,20 @@ public sealed partial class TelemetryRepository : IDisposable
         }
     }
 
+    internal List<TelemetryGraphEdge> GetTelemetryGraphEdgeKeys()
+    {
+        _tracesLock.EnterReadLock();
+
+        try
+        {
+            return _telemetryGraphEdges.Keys.ToList();
+        }
+        finally
+        {
+            _tracesLock.ExitReadLock();
+        }
+    }
+
     public List<OtlpResource> GetResources(bool includeUninstrumentedPeers = false)
     {
         return GetResourcesCore(includeUninstrumentedPeers, name: null);
@@ -1988,6 +2002,7 @@ public sealed partial class TelemetryRepository : IDisposable
     private static Dictionary<TelemetryGraphEdge, int> CalculateTraceTelemetryGraphEdges(OtlpTrace trace)
     {
         var edges = new Dictionary<TelemetryGraphEdge, int>();
+        Dictionary<string, OtlpSpan>? sourceSpansById = null;
 
         foreach (var span in trace.Spans)
         {
@@ -1996,42 +2011,50 @@ public sealed partial class TelemetryRepository : IDisposable
                 continue;
             }
 
-            var source = span.Source.ResourceKey;
-            foreach (var destination in GetTelemetryGraphDestinations(span))
+            if (span.UninstrumentedPeer is { } peer)
             {
-                if (destination == source)
+                AddTelemetryGraphEdge(edges, span.Source.ResourceKey, peer.ResourceKey);
+            }
+            else
+            {
+                sourceSpansById ??= new Dictionary<string, OtlpSpan>(StringComparer.Ordinal);
+                sourceSpansById.Add(span.SpanId, span);
+            }
+        }
+
+        if (sourceSpansById is not null)
+        {
+            Dictionary<string, HashSet<ResourceKey>>? destinationsBySourceSpanId = null;
+            foreach (var childSpan in trace.Spans)
+            {
+                if (childSpan.ParentSpanId is not { Length: > 0 } parentSpanId ||
+                    childSpan.Kind is not (OtlpSpanKind.Server or OtlpSpanKind.Consumer) ||
+                    !sourceSpansById.TryGetValue(parentSpanId, out var sourceSpan) ||
+                    childSpan.Source.ResourceKey == sourceSpan.Source.ResourceKey)
                 {
                     continue;
                 }
 
-                CollectionsMarshal.GetValueRefOrAddDefault(edges, new TelemetryGraphEdge(source, destination), out _)++;
+                destinationsBySourceSpanId ??= new Dictionary<string, HashSet<ResourceKey>>(StringComparer.Ordinal);
+                ref var destinations = ref CollectionsMarshal.GetValueRefOrAddDefault(destinationsBySourceSpanId, parentSpanId, out _);
+                destinations ??= [];
+                if (destinations.Add(childSpan.Source.ResourceKey))
+                {
+                    AddTelemetryGraphEdge(edges, sourceSpan.Source.ResourceKey, childSpan.Source.ResourceKey);
+                }
             }
         }
 
         return edges;
 
-        static IEnumerable<ResourceKey> GetTelemetryGraphDestinations(OtlpSpan span)
+        static void AddTelemetryGraphEdge(Dictionary<TelemetryGraphEdge, int> edges, ResourceKey source, ResourceKey destination)
         {
-            if (span.UninstrumentedPeer is { } peer)
+            if (destination == source)
             {
-                yield return peer.ResourceKey;
-                yield break;
+                return;
             }
 
-            HashSet<ResourceKey>? destinations = null;
-            foreach (var childSpan in span.GetChildSpans())
-            {
-                if (childSpan.Source.ResourceKey == span.Source.ResourceKey || childSpan.Kind is not (OtlpSpanKind.Server or OtlpSpanKind.Consumer))
-                {
-                    continue;
-                }
-
-                destinations ??= [];
-                if (destinations.Add(childSpan.Source.ResourceKey))
-                {
-                    yield return childSpan.Source.ResourceKey;
-                }
-            }
+            CollectionsMarshal.GetValueRefOrAddDefault(edges, new TelemetryGraphEdge(source, destination), out _)++;
         }
     }
 

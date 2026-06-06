@@ -442,52 +442,41 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
 
         var resources = activeResources.Select(r =>
         {
-            List<string>? referencedNames = null;
+            HashSet<string>? referencedNames = null;
             telemetryReferencedNames?.TryGetValue(r.Name, out referencedNames);
             return ResourceGraphMapper.MapResource(r, _resourceByName, ColumnsLoc, _showHiddenResources, IconResolver, referencedNames);
         }).ToList();
         await _jsModule.InvokeVoidAsync("updateResourcesGraph", resources);
     }
 
-    private Dictionary<string, List<string>> GetTelemetryReferencedNames(List<ResourceViewModel> activeResources)
+    private Dictionary<string, HashSet<string>> GetTelemetryReferencedNames(List<ResourceViewModel> activeResources)
     {
-        var activeResourceNameByResourceKey = new Dictionary<ResourceKey, string>();
-        var activeResourceNames = activeResources.Select(r => r.Name).ToHashSet(StringComparers.ResourceName);
+        var activeResourceNameByResourceKey = new Dictionary<ResourceKey, string>(activeResources.Count * 2);
         foreach (var resource in activeResources)
         {
             activeResourceNameByResourceKey[ResourceKey.Create(resource.DisplayName, resource.Name)] = resource.Name;
             activeResourceNameByResourceKey[new ResourceKey(resource.DisplayName, resource.Name)] = resource.Name;
         }
 
-        var referencedNames = new Dictionary<string, List<string>>(StringComparers.ResourceName);
-        foreach (var edge in TelemetryRepository.GetTelemetryGraphEdges().Keys)
+        var referencedNames = new Dictionary<string, HashSet<string>>(StringComparers.ResourceName);
+        foreach (var edge in TelemetryRepository.GetTelemetryGraphEdgeKeys())
         {
             if (!activeResourceNameByResourceKey.TryGetValue(edge.Source, out var sourceName) ||
                 !activeResourceNameByResourceKey.TryGetValue(edge.Destination, out var destinationName) ||
-                !activeResourceNames.Contains(sourceName) ||
-                !activeResourceNames.Contains(destinationName) ||
                 string.Equals(sourceName, destinationName, StringComparisons.ResourceName))
             {
                 continue;
             }
 
             ref var names = ref CollectionsMarshal.GetValueRefOrAddDefault(referencedNames, sourceName, out _);
-            names ??= [];
-            if (!names.Contains(destinationName, StringComparers.ResourceName))
-            {
-                names.Add(destinationName);
-            }
-        }
-
-        foreach (var names in referencedNames.Values)
-        {
-            names.Sort(StringComparers.ResourceName);
+            names ??= new HashSet<string>(StringComparers.ResourceName);
+            names.Add(destinationName);
         }
 
         return referencedNames;
     }
 
-    private static HashSet<string> GetTelemetryResourceNames(Dictionary<string, List<string>> referencedNames)
+    private static HashSet<string> GetTelemetryResourceNames(Dictionary<string, HashSet<string>> referencedNames)
     {
         var resourceNames = new HashSet<string>(referencedNames.Keys, StringComparers.ResourceName);
         foreach (var names in referencedNames.Values)
