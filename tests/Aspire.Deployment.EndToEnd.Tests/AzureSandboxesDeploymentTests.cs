@@ -253,14 +253,14 @@ public sealed class AzureSandboxesDeploymentTests(ITestOutputHelper output)
 
             const sandboxGroup = await builder.addAzureSandboxGroup('sandboxes');
 
-            const site = await builder.addDockerfile('site', './site');
-            await site.withHttpEndpoint({ name: 'http', targetPort: 80 });
-            await site.withExternalHttpEndpoints();
-            await site.publishAsSandbox(sandboxGroup, {
-                cpu: '1000m',
-                memory: '2048Mi',
-                disk: '20480Mi'
-            });
+            await builder.addDockerfile('site', './site')
+                .withHttpEndpoint({ name: 'http', targetPort: 80 })
+                .withExternalHttpEndpoints()
+                .publishAsSandbox(sandboxGroup, {
+                    cpu: '1000m',
+                    memory: '2048Mi',
+                    disk: '20480Mi'
+                });
 
             await builder.build().run();
             """);

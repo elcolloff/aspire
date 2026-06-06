@@ -4,8 +4,8 @@ const builder = await createBuilder();
 
 await builder.addAzureSandboxGroup('sandboxes');
 
-const site = await builder.addDockerfile('site', './site');
-await site.withHttpEndpoint({ name: 'http', targetPort: 80 });
-await site.withExternalHttpEndpoints();
+await builder.addDockerfile('site', './site')
+    .withHttpEndpoint({ name: 'http', targetPort: 80 })
+    .withExternalHttpEndpoints();
 
 await builder.build().run();
