@@ -806,12 +806,15 @@ jobs:
     name: Polyglot SDK Validation
     # Pull requests validate the current TypeScript AppHost LTS runtime. Main branch
     # builds add the older supported LTS runtime without adding that cost to every PR.
-    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+    # The conditional-selection gate further narrows PRs to those that touched polyglot
+    # surface area; non-PR events fall through because setup_for_tests sets every run_*
+    # output to 'true' for them.
+    if: |
+      (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') &&
+      (needs.setup_for_tests.outputs.run_all == 'true' ||
+       needs.setup_for_tests.outputs.run_polyglot == 'true')
     uses: ./.github/workflows/polyglot-validation.yml
     needs: [setup_for_tests, build_packages, build_cli_archive_linux]
-    if: |
-      needs.setup_for_tests.outputs.run_all == 'true' ||
-      needs.setup_for_tests.outputs.run_polyglot == 'true'
     with:
       versionOverrideArg: ${{ inputs.versionOverrideArg }}
 
