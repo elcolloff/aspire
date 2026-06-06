@@ -263,13 +263,25 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
             ExclusiveAddressUse = true
         };
 
-        if (addressFamily == AddressFamily.InterNetworkV6)
+        var socketReturned = false;
+        try
         {
-            socket.DualMode = false;
-        }
+            if (addressFamily == AddressFamily.InterNetworkV6)
+            {
+                socket.DualMode = false;
+            }
 
-        socket.Bind(endPoint);
-        return socket;
+            socket.Bind(endPoint);
+            socketReturned = true;
+            return socket;
+        }
+        finally
+        {
+            if (!socketReturned)
+            {
+                socket.Dispose();
+            }
+        }
     }
 
     private static int GetRandomCoprimeStep(Random random, int rangeSize)

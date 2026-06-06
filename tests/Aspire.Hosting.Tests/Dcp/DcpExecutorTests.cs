@@ -946,7 +946,7 @@ public class DcpExecutorTests
         var svc = kubernetesService.CreatedResources.OfType<Service>().Single(s => s.Name() == "CoolProgram");
         var allocatedPort = Assert.IsType<int>(svc.Status?.EffectivePort);
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.Equal(allocatedPort, svc.Spec.Port);
         Assert.Equal(allocatedPort, spAnnList.Single(ann => ann.ServiceName == "CoolProgram").Port);
 
@@ -2013,7 +2013,7 @@ public class DcpExecutorTests
         var allocatedPort = Assert.IsType<int>(svc.Status?.EffectivePort);
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
         Assert.Equal(allocatedPort, svc.Spec.Port);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.NotNull(dcpCtr.Spec.Ports);
         Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == allocatedPort && p.ContainerPort == desiredTargetPort);
         // Desired port should be part of the service producer annotation.
@@ -2088,7 +2088,7 @@ public class DcpExecutorTests
         Assert.Equal(allocatedPort, svc.Status?.EffectivePort);
         Assert.Equal(allocatedPort, svc.Spec.Port);
         Assert.NotEqual(desiredTargetPort, allocatedPort);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.Equal(allocatedPort.ToString(CultureInfo.InvariantCulture), await database.GetEndpoint("NoPortTargetPortSet").Property(EndpointProperty.Port).GetValueAsync());
         Assert.Collection(
             observedEvents,
@@ -2134,7 +2134,7 @@ public class DcpExecutorTests
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
         var allocatedPort = Assert.IsType<int>(svc.Status?.EffectivePort);
         Assert.Equal(allocatedPort, svc.Spec.Port);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.NotNull(dcpCtr.Spec.Ports);
         Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == allocatedPort && p.ContainerPort == desiredTargetPort);
         var envVarVal = dcpCtr.Spec.Env?.Single(v => v.Name == "PUBLIC_PORT").Value;
@@ -2167,7 +2167,7 @@ public class DcpExecutorTests
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
         var allocatedPort = Assert.IsType<int>(svc.Status?.EffectivePort);
         Assert.Equal(allocatedPort, svc.Spec.Port);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.NotNull(dcpCtr.Spec.Ports);
         Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == allocatedPort && p.ContainerPort == desiredTargetPort);
         var envVarVal = dcpCtr.Spec.Env?.Single(v => v.Name == "PUBLIC_HOST_AND_PORT").Value;
@@ -2216,7 +2216,7 @@ public class DcpExecutorTests
         Assert.Equal($"http://database.dev.internal:{desiredTargetPort}", resolvedUrl);
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
         Assert.Equal(allocatedPort, svc.Spec.Port);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.NotNull(dcpCtr.Spec.Ports);
         Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == allocatedPort && p.ContainerPort == desiredTargetPort);
     }
@@ -2258,7 +2258,7 @@ public class DcpExecutorTests
         Assert.Equal($"http://localhost:{allocatedPort}", resolvedUrl);
         Assert.Equal(AddressAllocationModes.Proxyless, svc.Spec.AddressAllocationMode);
         Assert.Equal(allocatedPort, svc.Spec.Port);
-        Assert.InRange(allocatedPort, 10000, 32767);
+        AssertPortAllocatedFromProxylessEndpointAllocatorRange(allocatedPort);
         Assert.NotNull(dcpCtr.Spec.Ports);
         Assert.Contains(dcpCtr.Spec.Ports!, p => p.HostPort == allocatedPort && p.ContainerPort == desiredTargetPort);
     }
@@ -5173,6 +5173,12 @@ public class DcpExecutorTests
             new ProfilingTelemetry(configuration),
             proxylessEndpointPortAllocator,
             userSecretsManager ?? NoopUserSecretsManager.Instance);
+    }
+
+    private static void AssertPortAllocatedFromProxylessEndpointAllocatorRange(int port)
+    {
+        var defaultOptions = new DcpOptions();
+        Assert.InRange(port, defaultOptions.ProxylessEndpointPortRangeStart, defaultOptions.ProxylessEndpointPortRangeEnd);
     }
 
     private static (int First, int Second) GetAvailableConsecutivePortPair()
