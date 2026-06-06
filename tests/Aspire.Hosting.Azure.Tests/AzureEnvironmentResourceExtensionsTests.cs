@@ -14,6 +14,8 @@ using Aspire.Hosting.Azure.Provisioning;
 using Aspire.Hosting.Azure.Provisioning.Internal;
 using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Tests;
+using Azure;
+using Azure.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -298,6 +300,51 @@ public class AzureEnvironmentResourceExtensionsTests
         builder.Configuration["Azure:Location"] = "eastus";
         builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
         builder.Services.AddSingleton<IArmClientProvider, CredentialUnavailableArmClientProvider>();
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<AzureProvisioningController>();
+        builder.Services.AddSingleton(sp => new AzureProvisioningController(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IOptions<AzureProvisionerOptions>>(),
+            sp,
+            cachedStateProvisioner,
+            deploymentStateManager,
+            sp.GetRequiredService<IDistributedApplicationEventing>(),
+            testProvisioningContextProvider,
+            sp.GetRequiredService<IAzureProvisioningOptionsManager>(),
+            sp.GetRequiredService<ResourceNotificationService>(),
+            sp.GetRequiredService<ResourceLoggerService>(),
+            sp.GetRequiredService<ILogger<AzureProvisioningController>>()));
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["Outputs"] = """{"id":{"value":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage"}}""";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var controller = app.Services.GetRequiredService<AzureProvisioningController>();
+
+        await controller.EnsureProvisionedAsync(model);
+
+        Assert.Equal(1, cachedStateProvisioner.ConfigureResourceCallCount);
+        Assert.Equal(0, cachedStateProvisioner.GetOrCreateResourceCallCount);
+        Assert.Equal("https://storage.blob.core.windows.net/", storage.Resource.Outputs["blobEndpoint"]);
+    }
+
+    [Fact]
+    public async Task EnsureProvisioned_UsesCachedStateWhenMissingResourceProbeFailsTransiently()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var cachedStateProvisioner = new CachedStateTestBicepProvisioner();
+        var testProvisioningContextProvider = new TestProvisioningContextProvider();
+
+        builder.Configuration["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        builder.Configuration["Azure:Location"] = "eastus";
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.Services.AddSingleton<IArmClientProvider>(new ThrowingResourceProbeArmClientProvider(new RequestFailedException(503, "Service unavailable.")));
         builder.AddAzureProvisioning();
         builder.Services.RemoveAll<AzureProvisioningController>();
         builder.Services.AddSingleton(sp => new AzureProvisioningController(
@@ -982,6 +1029,169 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.True(result.Success);
         Assert.Equal([resourceId], deletedResourceIds);
         Assert.Equal("westus3", testBicepProvisioner.ProvisionedLocations["storage"]);
+    }
+
+    [Fact]
+    public async Task ChangeLocationCommand_UsesRequestedLocationWhenChangingExistingOverride()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var testBicepProvisioner = new TestBicepProvisioner();
+        var testProvisioningContextProvider = new TestProvisioningContextProvider();
+        var testInteractionService = new TestInteractionService();
+        var deletedResourceIds = new List<string>();
+        const string resourceId = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52";
+
+        builder.Configuration["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        builder.Configuration["Azure:Location"] = "eastus";
+        builder.Configuration["Azure:ResourceGroup"] = "test-rg";
+        builder.Services.AddSingleton<IInteractionService>(testInteractionService);
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(ProvisioningTestHelpers.CreateArmClientProvider([resourceId], deletedResourceIds));
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+        builder.Services.RemoveAll<AzureProvisioningController>();
+        builder.Services.AddSingleton(sp => new AzureProvisioningController(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IOptions<AzureProvisionerOptions>>(),
+            sp,
+            testBicepProvisioner,
+            deploymentStateManager,
+            sp.GetRequiredService<IDistributedApplicationEventing>(),
+            testProvisioningContextProvider,
+            sp.GetRequiredService<IAzureProvisioningOptionsManager>(),
+            sp.GetRequiredService<ResourceNotificationService>(),
+            sp.GetRequiredService<ResourceLoggerService>(),
+            sp.GetRequiredService<ILogger<AzureProvisioningController>>()));
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+        var preparer = new AzureResourcePreparer(
+            app.Services.GetRequiredService<IOptions<AzureProvisioningOptions>>(),
+            app.Services.GetRequiredService<DistributedApplicationExecutionContext>());
+
+        await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["LocationOverride"] = "westus2";
+        storageSection.Data["Outputs"] = """{"id":{"value":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52"}}""";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        await notifications.PublishUpdateAsync(storage.Resource, state => state with
+        {
+            State = KnownResourceStates.Running,
+            Properties = [new("azure.location", "westus2")]
+        });
+
+        var changeLocationCommand = Assert.Single(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.ChangeResourceLocationCommandName);
+
+        var executionTask = changeLocationCommand.ExecuteCommand(new ExecuteCommandContext
+        {
+            ServiceProvider = app.Services,
+            ResourceName = storage.Resource.Name,
+            CancellationToken = CancellationToken.None,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        });
+
+        var interaction = await testInteractionService.Interactions.Reader.ReadAsync();
+        interaction.Inputs[AzureBicepResource.KnownParameters.Location].Value = "westus3";
+        interaction.CompletionTcs.SetResult(InteractionResult.Ok(interaction.Inputs));
+
+        var result = await executionTask;
+
+        Assert.True(result.Success);
+        Assert.Equal([resourceId], deletedResourceIds);
+        Assert.Equal("westus3", testBicepProvisioner.ProvisionedLocations["storage"]);
+
+        storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        Assert.Equal("westus3", storageSection.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task ChangeLocationCommand_TreatsDeletedCachedResourceAsAlreadyAbsent()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var testBicepProvisioner = new TestBicepProvisioner();
+        var testProvisioningContextProvider = new TestProvisioningContextProvider();
+        var testInteractionService = new TestInteractionService();
+        const string resourceId = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52";
+
+        builder.Configuration["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        builder.Configuration["Azure:Location"] = "westus2";
+        builder.Configuration["Azure:ResourceGroup"] = "test-rg";
+        builder.Services.AddSingleton<IInteractionService>(testInteractionService);
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(new DeleteResourceFailureArmClientProvider(resourceId, new RequestFailedException(404, "Not found.")));
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+        builder.Services.RemoveAll<AzureProvisioningController>();
+        builder.Services.AddSingleton(sp => new AzureProvisioningController(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IOptions<AzureProvisionerOptions>>(),
+            sp,
+            testBicepProvisioner,
+            deploymentStateManager,
+            sp.GetRequiredService<IDistributedApplicationEventing>(),
+            testProvisioningContextProvider,
+            sp.GetRequiredService<IAzureProvisioningOptionsManager>(),
+            sp.GetRequiredService<ResourceNotificationService>(),
+            sp.GetRequiredService<ResourceLoggerService>(),
+            sp.GetRequiredService<ILogger<AzureProvisioningController>>()));
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+        var preparer = new AzureResourcePreparer(
+            app.Services.GetRequiredService<IOptions<AzureProvisioningOptions>>(),
+            app.Services.GetRequiredService<DistributedApplicationExecutionContext>());
+
+        await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["Outputs"] = """{"id":{"value":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52"}}""";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        await notifications.PublishUpdateAsync(storage.Resource, state => state with
+        {
+            State = KnownResourceStates.Running,
+            Properties = [new("azure.location", "westus2")]
+        });
+
+        var changeLocationCommand = Assert.Single(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.ChangeResourceLocationCommandName);
+
+        var executionTask = changeLocationCommand.ExecuteCommand(new ExecuteCommandContext
+        {
+            ServiceProvider = app.Services,
+            ResourceName = storage.Resource.Name,
+            CancellationToken = CancellationToken.None,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        });
+
+        var interaction = await testInteractionService.Interactions.Reader.ReadAsync();
+        interaction.Inputs[AzureBicepResource.KnownParameters.Location].Value = "westus3";
+        interaction.CompletionTcs.SetResult(InteractionResult.Ok(interaction.Inputs));
+
+        var result = await executionTask;
+
+        Assert.True(result.Success);
+        Assert.Equal("westus3", testBicepProvisioner.ProvisionedLocations["storage"]);
+
+        storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        Assert.Equal("westus3", storageSection.Data[AzureProvisioningController.LocationOverrideKey]?.GetValue<string>());
     }
 
     [Fact]
@@ -1885,6 +2095,75 @@ public class AzureEnvironmentResourceExtensionsTests
     }
 
     [Fact]
+    public async Task DeleteAzureResourcesCommand_PublishesFailureWhenResourceGroupDeleteFails()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var testBicepProvisioner = new TestBicepProvisioner();
+        var testProvisioningContextProvider = new TestProvisioningContextProvider();
+        var resourceGroup = new TestResourceGroupResource("test-rg", new RequestFailedException(409, "Resource group is locked."));
+
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(new TestArmClientProvider(resourceGroup));
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+        builder.Services.RemoveAll<AzureProvisioningController>();
+        builder.Services.AddSingleton(sp => new AzureProvisioningController(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IOptions<AzureProvisionerOptions>>(),
+            sp,
+            testBicepProvisioner,
+            deploymentStateManager,
+            sp.GetRequiredService<IDistributedApplicationEventing>(),
+            testProvisioningContextProvider,
+            sp.GetRequiredService<IAzureProvisioningOptionsManager>(),
+            sp.GetRequiredService<ResourceNotificationService>(),
+            sp.GetRequiredService<ResourceLoggerService>(),
+            sp.GetRequiredService<ILogger<AzureProvisioningController>>()));
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var environmentResource = Assert.Single(model.Resources.OfType<AzureEnvironmentResource>());
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+
+        var azureSection = await deploymentStateManager.AcquireSectionAsync("Azure");
+        azureSection.Data["SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        azureSection.Data["Location"] = "westus2";
+        azureSection.Data["ResourceGroup"] = "test-rg";
+        await deploymentStateManager.SaveSectionAsync(azureSection);
+
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data["Id"] = "storage-deployment";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
+        var deleteCommand = Assert.Single(environmentResource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.DeleteAzureResourcesCommandName);
+
+        var result = await deleteCommand.ExecuteCommand(new ExecuteCommandContext
+        {
+            ServiceProvider = app.Services,
+            ResourceName = environmentResource.Name,
+            CancellationToken = CancellationToken.None,
+            Logger = NullLogger.Instance,
+            Arguments = new InteractionInputCollection([])
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal(1, resourceGroup.DeleteCallCount);
+        Assert.Equal(0, testProvisioningContextProvider.CreateProvisioningContextCallCount);
+
+        Assert.True(notifications.TryGetCurrentState(environmentResource.Name, out var environmentEvent));
+        Assert.Equal("Failed to Delete", environmentEvent.Snapshot.State?.Text);
+
+        storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        Assert.Equal("storage-deployment", storageSection.Data["Id"]?.GetValue<string>());
+    }
+
+    [Fact]
     public async Task EnsureProvisioned_WaitsForReferencedAzureResources()
     {
         var builder = CreateBuilder(isRunMode: true);
@@ -2289,5 +2568,89 @@ public class AzureEnvironmentResourceExtensionsTests
 
         public Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingResourceProbeArmClientProvider(RequestFailedException exception) : IArmClientProvider
+    {
+        public IArmClient GetArmClient(TokenCredential credential, string subscriptionId)
+            => new ThrowingResourceProbeArmClient(exception);
+
+        public IArmClient GetArmClient(TokenCredential credential)
+            => new ThrowingResourceProbeArmClient(exception);
+    }
+
+    private sealed class ThrowingResourceProbeArmClient(RequestFailedException exception) : IArmClient
+    {
+        private readonly TestArmClient _inner = new();
+
+        public Task<(ISubscriptionResource subscription, ITenantResource tenant)> GetSubscriptionAndTenantAsync(CancellationToken cancellationToken = default)
+            => _inner.GetSubscriptionAndTenantAsync(cancellationToken);
+
+        public Task<IEnumerable<ITenantResource>> GetAvailableTenantsAsync(CancellationToken cancellationToken = default)
+            => _inner.GetAvailableTenantsAsync(cancellationToken);
+
+        public Task<IEnumerable<ISubscriptionResource>> GetAvailableSubscriptionsAsync(CancellationToken cancellationToken = default)
+            => _inner.GetAvailableSubscriptionsAsync(cancellationToken);
+
+        public Task<IEnumerable<ISubscriptionResource>> GetAvailableSubscriptionsAsync(string? tenantId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableSubscriptionsAsync(tenantId, cancellationToken);
+
+        public Task<IEnumerable<(string Name, string DisplayName)>> GetAvailableLocationsAsync(string subscriptionId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableLocationsAsync(subscriptionId, cancellationToken);
+
+        public Task<IEnumerable<(string Name, string Location)>> GetAvailableResourceGroupsWithLocationAsync(string subscriptionId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableResourceGroupsWithLocationAsync(subscriptionId, cancellationToken);
+
+        public IRoleAssignmentCollection GetRoleAssignments(ResourceIdentifier scope)
+            => _inner.GetRoleAssignments(scope);
+
+        public Task<bool> ResourceExistsAsync(string resourceId, CancellationToken cancellationToken = default)
+            => Task.FromException<bool>(exception);
+
+        public Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default)
+            => _inner.DeleteResourceAsync(resourceId, cancellationToken);
+    }
+
+    private sealed class DeleteResourceFailureArmClientProvider(string existingResourceId, RequestFailedException deleteException) : IArmClientProvider
+    {
+        public IArmClient GetArmClient(TokenCredential credential, string subscriptionId)
+            => new DeleteResourceFailureArmClient(existingResourceId, deleteException);
+
+        public IArmClient GetArmClient(TokenCredential credential)
+            => new DeleteResourceFailureArmClient(existingResourceId, deleteException);
+    }
+
+    private sealed class DeleteResourceFailureArmClient(string existingResourceId, RequestFailedException deleteException) : IArmClient
+    {
+        private readonly TestArmClient _inner = new();
+
+        public Task<(ISubscriptionResource subscription, ITenantResource tenant)> GetSubscriptionAndTenantAsync(CancellationToken cancellationToken = default)
+            => _inner.GetSubscriptionAndTenantAsync(cancellationToken);
+
+        public Task<IEnumerable<ITenantResource>> GetAvailableTenantsAsync(CancellationToken cancellationToken = default)
+            => _inner.GetAvailableTenantsAsync(cancellationToken);
+
+        public Task<IEnumerable<ISubscriptionResource>> GetAvailableSubscriptionsAsync(CancellationToken cancellationToken = default)
+            => _inner.GetAvailableSubscriptionsAsync(cancellationToken);
+
+        public Task<IEnumerable<ISubscriptionResource>> GetAvailableSubscriptionsAsync(string? tenantId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableSubscriptionsAsync(tenantId, cancellationToken);
+
+        public Task<IEnumerable<(string Name, string DisplayName)>> GetAvailableLocationsAsync(string subscriptionId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableLocationsAsync(subscriptionId, cancellationToken);
+
+        public Task<IEnumerable<(string Name, string Location)>> GetAvailableResourceGroupsWithLocationAsync(string subscriptionId, CancellationToken cancellationToken = default)
+            => _inner.GetAvailableResourceGroupsWithLocationAsync(subscriptionId, cancellationToken);
+
+        public IRoleAssignmentCollection GetRoleAssignments(ResourceIdentifier scope)
+            => _inner.GetRoleAssignments(scope);
+
+        public Task<bool> ResourceExistsAsync(string resourceId, CancellationToken cancellationToken = default)
+            => Task.FromResult(string.Equals(resourceId, existingResourceId, StringComparison.OrdinalIgnoreCase));
+
+        public Task DeleteResourceAsync(string resourceId, CancellationToken cancellationToken = default)
+            => string.Equals(resourceId, existingResourceId, StringComparison.OrdinalIgnoreCase)
+                ? Task.FromException(deleteException)
+                : _inner.DeleteResourceAsync(resourceId, cancellationToken);
     }
 }

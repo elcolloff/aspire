@@ -425,6 +425,7 @@ internal sealed class TestResourceGroupResource : IResourceGroupResource
     private readonly Dictionary<string, object>? _deploymentOutputs;
     private readonly Func<string, Dictionary<string, object>>? _deploymentOutputsProvider;
     private readonly string _name;
+    private readonly RequestFailedException? _deleteException;
 
     public TestResourceGroupResource(string name, Dictionary<string, object> deploymentOutputs)
     {
@@ -440,6 +441,12 @@ internal sealed class TestResourceGroupResource : IResourceGroupResource
 
     public TestResourceGroupResource(string name = "test-rg") : this(name, [])
     {
+    }
+
+    public TestResourceGroupResource(string name, RequestFailedException deleteException)
+        : this(name)
+    {
+        _deleteException = deleteException;
     }
 
     public int DeleteCallCount { get; private set; }
@@ -463,6 +470,11 @@ internal sealed class TestResourceGroupResource : IResourceGroupResource
     {
         WasDeleteCalled = true;
         DeleteCallCount++;
+        if (_deleteException is not null)
+        {
+            return Task.FromException<ArmOperation>(_deleteException);
+        }
+
         return Task.FromResult<ArmOperation>(new TestDeleteArmOperation());
     }
 

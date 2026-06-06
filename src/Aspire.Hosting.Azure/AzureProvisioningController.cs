@@ -1027,10 +1027,22 @@ internal sealed class AzureProvisioningController(
             new ResourceStateSnapshot("Deleting", KnownResourceStateStyles.Info),
             cancellationToken).ConfigureAwait(false);
 
-        var resourceGroupName = await DeleteCurrentResourceGroupIfExistsAsync(cancellationToken).ConfigureAwait(false);
+        string? resourceGroupName;
+        try
+        {
+            resourceGroupName = await DeleteCurrentResourceGroupIfExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken).ConfigureAwait(false);
-        await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
+            await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken).ConfigureAwait(false);
+            await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RequestFailedException)
+        {
+            await PublishAzureEnvironmentStateAsync(
+                model,
+                new ResourceStateSnapshot("Failed to Delete", KnownResourceStateStyles.Error),
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
 
         if (string.IsNullOrEmpty(resourceGroupName))
         {
@@ -1673,7 +1685,19 @@ internal sealed class AzureProvisioningController(
             currentLocation,
             requestedLocation);
 
-        await armClient.DeleteResourceAsync(resourceId, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await armClient.DeleteResourceAsync(resourceId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            _logger.LogInformation(
+                "Azure resource {ResourceId} was already absent before reprovisioning {ResourceName} from {CurrentLocation} to {RequestedLocation}.",
+                resourceId,
+                resource.Name,
+                currentLocation,
+                requestedLocation);
+        }
     }
 
     private async Task<bool> IsMissingCachedResourceAsync(AzureBicepResource resource, CancellationToken cancellationToken)
@@ -1701,6 +1725,11 @@ internal sealed class AzureProvisioningController(
             _logger.LogDebug(ex, "Unable to verify cached Azure resource state for {ResourceName} because no Azure credential is available.", resource.Name);
             return false;
         }
+        catch (RequestFailedException ex)
+        {
+            _logger.LogDebug(ex, "Unable to verify cached Azure resource state for {ResourceName} because the Azure resource probe failed.", resource.Name);
+            return false;
+        }
     }
 
     private async Task ClearCachedDeploymentStateAsync(
@@ -1713,9 +1742,9 @@ internal sealed class AzureProvisioningController(
     {
         var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{resource.Name}", cancellationToken).ConfigureAwait(false);
         var locationOverride = preserveOverrides
-            ? currentLocationOverride ?? (preserveInferredLocationOverrides
-                ? TryGetPreservedLocationOverride(resource, section, environmentLocation)
-                : TryGetExplicitLocationOverride(section))
+            ? TryGetExplicitLocationOverride(section) ?? (preserveInferredLocationOverrides
+                ? currentLocationOverride ?? TryGetPreservedLocationOverride(resource, section, environmentLocation)
+                : null)
             : null;
 
         section.Data.Clear();
