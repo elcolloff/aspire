@@ -1,0 +1,32 @@
+@page "/graph"
+
+@* Keep /graph as a separate route component so Blazor doesn't reuse stale
+   Resources page state when navigating between the graph and table routes. *@
+<Resources IsGraphPageRoute="true"
+           GraphModeName="@GraphModeName"
+           ShowHiddenResources="@ShowHiddenResources"
+           HiddenTypes="@HiddenTypes"
+           HiddenStates="@HiddenStates"
+           HiddenHealthStates="@HiddenHealthStates" />
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "graphMode")]
+    public string? GraphModeName { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "showHiddenResources")]
+    public bool ShowHiddenResources { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? HiddenTypes { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? HiddenStates { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? HiddenHealthStates { get; set; }
+}

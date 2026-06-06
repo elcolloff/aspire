@@ -259,6 +259,47 @@ public partial class ResourcesTests : DashboardTestContext
     }
 
     [Fact]
+    public void GraphRouteWrapper_SelectsGraphView()
+    {
+        var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);
+        var initialResources = new List<ResourceViewModel>
+        {
+            CreateResource(
+                "Resource1",
+                "Type1",
+                "Running",
+                ImmutableArray.Create(new HealthReportViewModel("Null", null, "Description1", null))),
+        };
+        var dashboardClient = new TestDashboardClient(isEnabled: true, initialResources: initialResources, resourceChannelProvider: Channel.CreateUnbounded<IReadOnlyList<ResourceViewModelChange>>);
+        ResourceSetupHelpers.SetupResourcesPage(
+            this,
+            viewport,
+            dashboardClient);
+
+        var resourceGraphModule = JSInterop.SetupModule("/js/app-resourcegraph.js");
+        resourceGraphModule.SetupVoid("initializeResourcesGraph", _ => true);
+        resourceGraphModule.SetupVoid("updateResourcesGraph", _ => true);
+        resourceGraphModule.SetupVoid("updateResourcesGraphSelected", _ => true);
+
+        var navigationManager = Services.GetRequiredService<NavigationManager>();
+        navigationManager.NavigateTo(DashboardUrls.GraphUrl(graphMode: "Telemetry"));
+
+        var cut = RenderComponent<Components.Pages.Graph>(builder =>
+        {
+            builder.AddCascadingValue(viewport);
+        });
+
+        var resources = cut.FindComponent<Components.Pages.Resources>();
+        Assert.True(resources.Instance.IsGraphPage);
+        Assert.Equal(DashboardUrls.GraphBasePath, resources.Instance.BasePath);
+        Assert.Equal(BrowserStorageKeys.GraphPageState, resources.Instance.SessionStorageKey);
+        Assert.Equal(Components.Pages.Resources.ResourceViewKind.Graph, resources.Instance.PageViewModel.SelectedViewKind);
+        Assert.Equal(Components.Pages.Resources.ResourceGraphMode.Telemetry, resources.Instance.PageViewModel.SelectedGraphMode);
+        Assert.Equal("Graph", cut.Find("h1").TextContent);
+        Assert.DoesNotContain("tab-Graph", cut.Markup);
+    }
+
+    [Fact]
     public void GraphTelemetryMode_SubscribesToTraces()
     {
         var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);

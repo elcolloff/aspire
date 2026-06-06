@@ -43,6 +43,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     private EventCallback _onToggleCollapseAllCallback;
     private EventCallback _onToggleResourceTypeCallback;
     private bool _hideResourceGraph;
+    private bool _disposed;
     private string _collapsedResourceNamesKey = null!;
     private Dictionary<ResourceKey, int>? _resourceUnviewedErrorCounts;
 
@@ -89,10 +90,18 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     public string SessionStorageKey => IsGraphPage ? BrowserStorageKeys.GraphPageState : BrowserStorageKeys.ResourcesPageState;
     public ResourcesViewModel PageViewModel { get; set; } = null!;
 
+    [Parameter]
+    public bool IsGraphPageRoute { get; set; }
+
     internal bool IsGraphPage
     {
         get
         {
+            if (IsGraphPageRoute)
+            {
+                return true;
+            }
+
             var relativePath = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
             var queryStart = relativePath.IndexOf('?');
             var path = queryStart >= 0 ? relativePath[..queryStart] : relativePath;
@@ -403,7 +412,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
 
     private bool UpdateFromResource(ResourceViewModel resource, Func<string, bool> resourceTypeVisible, Func<string, bool> stateVisible, Func<string, bool> healthStatusVisible)
     {
-        // This is ok from threadsafty perspective because we are the only thread that's modifying resources.
+        // This is ok from a thread-safety perspective because we are the only thread that's modifying resources.
         bool added;
         if (_resourceByName.TryGetValue(resource.Name, out _))
         {
@@ -433,24 +442,40 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
             StateHasChanged();
         }
 
-        if (PageViewModel.SelectedViewKind == ResourceViewKind.Graph && !_graphInitialized)
+        if (!_disposed && PageViewModel.SelectedViewKind == ResourceViewKind.Graph && !_graphInitialized)
         {
             // Before any awaits, set a flag to indicate the graph is initialized. This prevents the graph being initialized multiple times.
             _graphInitialized = true;
 
-            _jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "/js/app-resourcegraph.js");
+            try
+            {
+                var jsModule = await JS.InvokeAsync<IJSObjectReference>("import", "/js/app-resourcegraph.js");
 
-            _resourcesInteropReference = DotNetObjectReference.Create(new ResourcesInterop(this));
+                if (_disposed)
+                {
+                    await JSInteropHelpers.SafeDisposeAsync(jsModule);
+                    return;
+                }
 
-            await _jsModule.InvokeVoidAsync("initializeResourcesGraph", _resourcesInteropReference);
-            await UpdateResourceGraphResourcesAsync();
-            await UpdateResourceGraphSelectedAsync();
+                _jsModule = jsModule;
+                _resourcesInteropReference = DotNetObjectReference.Create(new ResourcesInterop(this));
+
+                await _jsModule.InvokeVoidAsync("initializeResourcesGraph", _resourcesInteropReference);
+                await UpdateResourceGraphResourcesAsync();
+                await UpdateResourceGraphSelectedAsync();
+            }
+            catch (ObjectDisposedException) when (_disposed)
+            {
+                // Navigation can dispose the routed graph component while its first render is still
+                // importing or initializing the graph module. Ignore only that expected teardown race.
+            }
         }
     }
 
     private async Task UpdateResourceGraphResourcesAsync()
     {
-        if (PageViewModel.SelectedViewKind != ResourceViewKind.Graph || _jsModule == null)
+        var jsModule = _jsModule;
+        if (_disposed || PageViewModel.SelectedViewKind != ResourceViewKind.Graph || jsModule == null)
         {
             return;
         }
@@ -466,14 +491,27 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
                 Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphTelemetryResourceType)],
                 _showHiddenResources,
                 IconResolver);
-            await _jsModule.InvokeVoidAsync("updateResourcesGraph", telemetryResources);
+            await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", telemetryResources);
             return;
         }
 
         var resources = activeResources
             .Select(r => ResourceGraphMapper.MapResource(r, _resourceByName, ColumnsLoc, _showHiddenResources, IconResolver))
             .ToList();
-        await _jsModule.InvokeVoidAsync("updateResourcesGraph", resources);
+        await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", resources);
+    }
+
+    private async Task InvokeResourceGraphModuleAsync(IJSObjectReference jsModule, string identifier, object? arg)
+    {
+        try
+        {
+            await jsModule.InvokeVoidAsync(identifier, arg);
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Resource graph updates can be queued by renders or telemetry notifications just as
+            // navigation tears down the graph route. The next route/component owns any further updates.
+        }
     }
 
     private class ResourcesInterop(Resources resources)
@@ -979,9 +1017,10 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
 
     private async Task UpdateResourceGraphSelectedAsync()
     {
-        if (_jsModule != null)
+        var jsModule = _jsModule;
+        if (!_disposed && jsModule != null)
         {
-            await _jsModule.InvokeVoidAsync("updateResourcesGraphSelected", SelectedResource?.Name);
+            await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraphSelected", SelectedResource?.Name);
         }
     }
 
@@ -1121,6 +1160,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         _aiContext?.Dispose();
 
         _resourcesInteropReference?.Dispose();
