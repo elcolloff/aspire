@@ -36,6 +36,8 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     private const string UrlsColumn = nameof(UrlsColumn);
     private const string ValueColumn = nameof(ValueColumn);
     private const string ActionsColumn = nameof(ActionsColumn);
+    // Keep the lower-cased property name because JS reads this as `{ modeSwitch: true }`.
+    private static readonly object s_resourceGraphModeSwitchOptions = new { modeSwitch = true };
 
     private Subscription? _logsSubscription;
     private Subscription? _graphTracesSubscription;
@@ -472,7 +474,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
         }
     }
 
-    private async Task UpdateResourceGraphResourcesAsync()
+    internal async Task UpdateResourceGraphResourcesAsync(bool modeSwitch = false)
     {
         var jsModule = _jsModule;
         if (_disposed || PageViewModel.SelectedViewKind != ResourceViewKind.Graph || jsModule == null)
@@ -491,21 +493,35 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
                 Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphTelemetryResourceType)],
                 _showHiddenResources,
                 IconResolver);
-            await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", telemetryResources);
+            if (modeSwitch)
+            {
+                await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", telemetryResources, s_resourceGraphModeSwitchOptions);
+            }
+            else
+            {
+                await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", telemetryResources);
+            }
             return;
         }
 
         var resources = activeResources
             .Select(r => ResourceGraphMapper.MapResource(r, _resourceByName, ColumnsLoc, _showHiddenResources, IconResolver))
             .ToList();
-        await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", resources);
+        if (modeSwitch)
+        {
+            await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", resources, s_resourceGraphModeSwitchOptions);
+        }
+        else
+        {
+            await InvokeResourceGraphModuleAsync(jsModule, "updateResourcesGraph", resources);
+        }
     }
 
-    private async Task InvokeResourceGraphModuleAsync(IJSObjectReference jsModule, string identifier, object? arg)
+    private async Task InvokeResourceGraphModuleAsync(IJSObjectReference jsModule, string identifier, params object?[] args)
     {
         try
         {
-            await jsModule.InvokeVoidAsync(identifier, arg);
+            await jsModule.InvokeVoidAsync(identifier, args);
         }
         catch (ObjectDisposedException) when (_disposed)
         {
@@ -992,7 +1008,7 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
     {
         await this.AfterViewModelChangedAsync(_contentLayout, waitToApplyMobileChange: false);
         UpdateGraphTracesSubscription();
-        await UpdateResourceGraphResourcesAsync();
+        await UpdateResourceGraphResourcesAsync(modeSwitch: true);
     }
 
     private async Task OnViewChangedAsync(ResourceViewKind newView)

@@ -15,9 +15,9 @@ export function initializeResourcesGraph(resourcesInterop) {
     }
 }
 
-export function updateResourcesGraph(resources) {
+export function updateResourcesGraph(resources, options) {
     if (resourceGraph) {
-        resourceGraph.updateResources(resources);
+        resourceGraph.updateResources(resources, options);
     }
 }
 
@@ -294,9 +294,18 @@ class ResourceGraph {
         }
     }
 
-    updateResources(newResources) {
+    updateResources(newResources, options) {
+        const modeSwitch = options?.modeSwitch === true;
+
         // Check if the overall structure of the graph has changed. i.e. nodes or links have been added or removed.
         var hasStructureChanged = this.resourcesChanged(this.resources, newResources);
+
+        if (modeSwitch) {
+            // Mode switches replace the edge semantics for the same visible graph. Stop any pending
+            // enter/exit fades so old relationship links don't briefly animate as telemetry links.
+            this.nodeElementsG.selectAll(".resource-group").interrupt();
+            this.linkElementsG.selectAll("line").interrupt();
+        }
 
         this.resources = newResources;
 
@@ -331,17 +340,21 @@ class ResourceGraph {
             .data(this.nodes, n => n.id);
 
         // Remove excess nodes:
-        this.nodeElements
-            .exit()
-            .transition()
-            .attr("opacity", 0)
-            .remove();
+        var removedNodes = this.nodeElements.exit();
+        if (modeSwitch) {
+            removedNodes.remove();
+        } else {
+            removedNodes
+                .transition()
+                .attr("opacity", 0)
+                .remove();
+        }
 
         // Resource node
         var newNodes = this.nodeElements
             .enter().append("g")
             .attr("class", "resource-group")
-            .attr("opacity", 0)
+            .attr("opacity", modeSwitch ? 1 : 0)
             .attr("resource-name", n => n.id)
             .call(this.dragDrop);
 
@@ -427,8 +440,10 @@ class ResourceGraph {
             .append("title")
             .text(n => n.label);
 
-        newNodes.transition()
-            .attr("opacity", 1);
+        if (!modeSwitch) {
+            newNodes.transition()
+                .attr("opacity", 1);
+        }
 
         this.nodeElements = newNodes.merge(this.nodeElements);
 
@@ -462,19 +477,25 @@ class ResourceGraph {
             .selectAll("line")
             .data(this.links, (d) => { return d.id; });
 
-        this.linkElements
-            .exit()
-            .transition()
-            .attr("opacity", 0)
-            .remove();
+        var removedLinks = this.linkElements.exit();
+        if (modeSwitch) {
+            removedLinks.remove();
+        } else {
+            removedLinks
+                .transition()
+                .attr("opacity", 0)
+                .remove();
+        }
 
         var newLinks = this.linkElements
             .enter().append("line")
-            .attr("opacity", 0)
+            .attr("opacity", modeSwitch ? 1 : 0)
             .attr("class", "resource-link");
 
-        newLinks.transition()
-            .attr("opacity", 1);
+        if (!modeSwitch) {
+            newLinks.transition()
+                .attr("opacity", 1);
+        }
 
         this.linkElements = newLinks.merge(this.linkElements);
 
@@ -486,11 +507,18 @@ class ResourceGraph {
         if (hasStructureChanged) {
             this.simulation.stop();
 
-            // Set alpha (give energy) and simulate the graph before rendering.
-            // This prevents the graph from jumping around when loaded or changed.
-            this.simulation.alpha(1);
-            for (let i = 0; i < 300; i++) {
-                this.simulation.tick();
+            if (modeSwitch) {
+                // Keep existing node coordinates and let the force simulation move them toward the
+                // new edge layout. Pre-ticking here makes the graph jump to the new mode in one frame.
+                this.simulation.alpha(Math.max(this.simulation.alpha(), 0.35));
+                this.onTick();
+            } else {
+                // Set alpha (give energy) and simulate the graph before rendering.
+                // This prevents the graph from jumping around when loaded or changed.
+                this.simulation.alpha(1);
+                for (let i = 0; i < 300; i++) {
+                    this.simulation.tick();
+                }
             }
         }
 

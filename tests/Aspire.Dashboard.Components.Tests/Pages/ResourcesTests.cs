@@ -344,6 +344,50 @@ public partial class ResourcesTests : DashboardTestContext
     }
 
     [Fact]
+    public async Task GraphModeChange_UpdatesGraphAsModeSwitch()
+    {
+        var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);
+        var initialResources = new List<ResourceViewModel>
+        {
+            CreateResource(
+                "Resource1",
+                "Type1",
+                "Running",
+                ImmutableArray.Create(new HealthReportViewModel("Null", null, "Description1", null))),
+        };
+        var dashboardClient = new TestDashboardClient(isEnabled: true, initialResources: initialResources, resourceChannelProvider: Channel.CreateUnbounded<IReadOnlyList<ResourceViewModelChange>>);
+        ResourceSetupHelpers.SetupResourcesPage(
+            this,
+            viewport,
+            dashboardClient);
+
+        var resourceGraphModule = JSInterop.SetupModule("/js/app-resourcegraph.js");
+        resourceGraphModule.SetupVoid("initializeResourcesGraph", _ => true);
+        var updateGraphInvocationHandler = resourceGraphModule.SetupVoid("updateResourcesGraph", _ => true);
+        updateGraphInvocationHandler.SetVoidResult();
+        resourceGraphModule.SetupVoid("updateResourcesGraphSelected", _ => true);
+
+        var navigationManager = Services.GetRequiredService<NavigationManager>();
+        navigationManager.NavigateTo(DashboardUrls.GraphUrl());
+
+        var cut = RenderComponent<Components.Pages.Resources>(builder =>
+        {
+            builder.AddCascadingValue(viewport);
+        });
+
+        cut.Instance.PageViewModel.SelectedGraphMode = Components.Pages.Resources.ResourceGraphMode.Telemetry;
+        await cut.Instance.UpdateResourceGraphResourcesAsync(modeSwitch: true);
+
+        var arguments = updateGraphInvocationHandler.Invocations.Last().Arguments;
+        Assert.Equal(2, arguments.Count);
+        var options = arguments[1];
+        Assert.NotNull(options);
+        var modeSwitchProperty = options!.GetType().GetProperty("modeSwitch");
+        Assert.NotNull(modeSwitchProperty);
+        Assert.True((bool)modeSwitchProperty.GetValue(options)!);
+    }
+
+    [Fact]
     public async Task GraphTelemetryMode_HidesResourcesWithoutTelemetryFlow()
     {
         var viewport = new ViewportInformation(IsDesktop: true, IsUltraLowHeight: false, IsUltraLowWidth: false);
