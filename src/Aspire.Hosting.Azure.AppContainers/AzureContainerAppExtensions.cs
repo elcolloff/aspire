@@ -417,7 +417,9 @@ public static class AzureContainerAppExtensions
             // identity must exist in the model before the module Bicep is generated. The AcrPull role
             // itself is declared as a deferred RoleAssignmentAnnotation so the preparer can emit it as a
             // correctly scoped role-assignment module after WithAzureContainerRegistry has had a chance
-            // to replace the default registry.
+            // to replace the default registry. Keeping the role assignment outside the environment module
+            // is what allows existing registries in another resource group to work with Bicep's extension
+            // resource scope rules.
             var acrPullIdentity = CreateDefaultAcrPullIdentity(builder, name);
             containerAppEnvResource.Annotations.Add(new AzureContainerAppEnvironmentAcrPullIdentityAnnotation(acrPullIdentity, assignAcrPullRole: true));
             containerAppEnvResource.Annotations.Add(new AppIdentityAnnotation(acrPullIdentity));
@@ -750,6 +752,9 @@ public static class AzureContainerAppExtensions
             return;
         }
 
+        // This environment owns the generated ACR-pull identity only while Aspire is also responsible
+        // for granting AcrPull. A BYO identity means the caller owns both the identity and permission,
+        // so remove only Aspire's generated AppIdentityAnnotation(s) and model resource.
         foreach (var appIdentityAnnotation in builder.Resource.Annotations.OfType<AppIdentityAnnotation>()
                      .Where(a => a.IdentityResource == identityAnnotation.Identity)
                      .ToArray())
@@ -768,6 +773,8 @@ public static class AzureContainerAppExtensions
         if (!environment.TryGetLastAnnotation<AzureContainerAppEnvironmentAcrPullIdentityAnnotation>(out var identityAnnotation) ||
             !identityAnnotation.AssignAcrPullRole)
         {
+            // A replacement annotation from WithAcrPullIdentity is the opt-out signal. Returning null
+            // lets the deferred RoleAssignmentAnnotation remain in the model without generating RBAC.
             return null;
         }
 
@@ -795,6 +802,8 @@ public static class AzureContainerAppExtensions
     private static AzureUserAssignedIdentityResource CreateDefaultAcrPullIdentity(IDistributedApplicationBuilder builder, string environmentName)
     {
         var identity = new AzureUserAssignedIdentityResource(GetUniqueAcrPullIdentityName(builder, environmentName));
+        // The identity is a first-class resource so the preparer can order it before the environment
+        // module and pass its id into the environment Bicep as an input parameter.
         builder.AddResource(identity);
 
         return identity;

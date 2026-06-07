@@ -243,6 +243,9 @@ public class AzureContainerAppEnvironmentResource :
             return new HashSet<AzureBicepResource>();
         }
 
+        // The preparer writes environment-owned prerequisites after it materializes generated
+        // role-assignment modules. Collapse all annotations here so future environment-owned
+        // infrastructure can participate in the same deployment ordering contract.
         return prerequisiteAnnotations.SelectMany(a => a.Resources).ToHashSet();
     }
 
@@ -256,6 +259,9 @@ public class AzureContainerAppEnvironmentResource :
         var newPrerequisites = prerequisites.ToHashSet();
         if (resource.TryGetAnnotationsOfType<DeploymentPrerequisitesAnnotation>(out var existingAnnotations))
         {
+            // A resource can already have prerequisites from direct Azure references. Only add the
+            // environment-level resources it does not already wait on to avoid duplicate References
+            // when deployment targets are generated.
             newPrerequisites.ExceptWith(existingAnnotations.SelectMany(a => a.Resources));
         }
 

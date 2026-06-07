@@ -10,7 +10,14 @@ namespace Aspire.Hosting.Azure;
 /// Specifies the roles that the current resource should be assigned to the target Azure resource.
 /// </summary>
 /// <remarks>
-/// This annotation is applied to compute resources (e.g., Projects or Containers) that need to interact with Azure resources.
+/// <para>
+/// This annotation is most commonly applied to compute resources (for example, projects or containers) that need to
+/// interact with Azure resources.
+/// </para>
+/// <para>
+/// Aggregate resources can also use this annotation when they own internal Azure resources and need the Azure
+/// preparer to create role-assignment infrastructure on behalf of those internals.
+/// </para>
 /// </remarks>
 public class RoleAssignmentAnnotation : IResourceAnnotation
 {
@@ -38,8 +45,16 @@ public class RoleAssignmentAnnotation : IResourceAnnotation
     /// <param name="targetResolver">Resolves the Azure resource that the current resource will interact with, or <see langword="null"/> to skip the role assignment.</param>
     /// <param name="roles">The roles that the current resource should be assigned to the resolved target.</param>
     /// <remarks>
+    /// <para>
     /// Use this overload when a resource owns role assignments for internal Azure resources whose final target can be
-    /// changed by later builder calls.
+    /// changed by later builder calls. For example, a compute environment can create its ACR-pull role annotation
+    /// before a later <c>WithAzureContainerRegistry</c> call swaps the default registry for an explicit registry.
+    /// </para>
+    /// <para>
+    /// Returning <see langword="null"/> intentionally skips materialization. The first non-null target is cached so
+    /// later grouping and de-duplication see a stable target, while early optional probes do not permanently suppress
+    /// a target that resolves later.
+    /// </para>
     /// </remarks>
     public RoleAssignmentAnnotation(Func<AzureProvisioningResource?> targetResolver, IReadOnlySet<RoleDefinition> roles)
     {
@@ -53,6 +68,10 @@ public class RoleAssignmentAnnotation : IResourceAnnotation
     /// <summary>
     /// The Azure resource that the current resource will interact with.
     /// </summary>
+    /// <remarks>
+    /// Deferred annotations can intentionally resolve to <see langword="null"/> while the app model is still being
+    /// mutated. Accessing this property requires a concrete target and throws when no target can be resolved.
+    /// </remarks>
     public AzureProvisioningResource Target =>
         TryGetTarget(out var target)
             ? target

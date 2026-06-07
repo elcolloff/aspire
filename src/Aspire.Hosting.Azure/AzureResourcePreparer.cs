@@ -112,6 +112,10 @@ internal sealed class AzureResourcePreparer(
     {
         var globalRoleAssignments = new Dictionary<AzureProvisioningResource, HashSet<RoleDefinition>>();
 
+        // The same annotations drive two different outputs. In Run mode, there is no published
+        // workload identity to attach, so role assignments target the deployment principal globally.
+        // In Publish mode, each owner gets (or supplies) a user-assigned identity plus targeted role
+        // modules, and those modules become deployment prerequisites for the owner.
         var provisioningResources = azureResources.Select(r => r.AzureResource).OfType<AzureProvisioningResource>().ToArray();
         if (!supportsTargetedRoleAssignments)
         {
@@ -274,6 +278,9 @@ internal sealed class AzureResourcePreparer(
 
         if (resource != identityResource)
         {
+            // Publishers discover workload identities from AppIdentityAnnotation, not by scanning the
+            // role-assignment modules. Keep the identity in the model so generated deployment targets
+            // can attach it and expose any required client/id parameters.
             EnsureIdentityResource(appModel, resource, identityResource);
         }
 
@@ -399,6 +406,9 @@ internal sealed class AzureResourcePreparer(
         var roleAssignmentResources = new List<AzureRoleAssignmentResource>();
         foreach (var (targetResource, roles) in roleAssignments)
         {
+            // Keep targeted role assignments in their own Bicep module instead of inlining them
+            // under the owner module. Existing Azure resources can live in a different resource
+            // group, and Bicep extension resources must be emitted at the scope they target.
             var roleAssignmentResource = new AzureRoleAssignmentResource(
                 $"{resource.Name}-roles-{targetResource.Name}",
                 targetResource,
@@ -428,6 +438,9 @@ internal sealed class AzureResourcePreparer(
         IEnumerable<RoleDefinition> roles,
         AzureUserAssignedIdentityResource appIdentityResource)
     {
+        // Role assignment builders only evaluate the principal values they need. Keep them lazy so
+        // resources that do not emit a particular field do not unnecessarily create matching Bicep
+        // parameters on the role-assignment module.
         var context = new AddRoleAssignmentsContext(
             infra,
             executionContext,
