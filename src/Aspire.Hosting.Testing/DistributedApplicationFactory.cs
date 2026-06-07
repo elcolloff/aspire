@@ -4,7 +4,6 @@
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -202,6 +201,7 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
         SetDefault("DcpPublisher:ContainerRuntimeInitializationTimeout", "00:00:30");
         SetDefault("DcpPublisher:RandomizePorts", "true");
         SetDefault("DcpPublisher:WaitForResourceCleanup", "true");
+        SetDefault(KnownConfigNames.TestingIsolateUserSecrets, "true");
 
         // Make sure we have a dashboard URL and OTLP endpoint URL.
         SetDefault(KnownConfigNames.AspNetCoreUrls, "http://localhost:8080");
@@ -249,8 +249,6 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
         PreConfigureBuilderOptions(applicationOptions, hostBuilderOptions, args, entryPointAssembly);
         configureBuilder(applicationOptions, hostBuilderOptions);
         PostConfigureBuilderOptions(hostBuilderOptions, entryPointAssembly);
-
-        ConfigureUserSecretsIsolation(hostBuilderOptions, entryPointAssembly);
     }
 
     private void OnBuilderCreatingCore(
@@ -258,45 +256,6 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
         HostApplicationBuilderSettings hostBuilderOptions)
     {
         ConfigureBuilder(_args, applicationOptions, hostBuilderOptions, _entryPoint.Assembly, OnBuilderCreating);
-    }
-
-    private static void ConfigureUserSecretsIsolation(
-        HostApplicationBuilderSettings hostBuilderOptions,
-        Assembly entryPointAssembly)
-    {
-        var existingConfig = new ConfigurationManager();
-        if (hostBuilderOptions.Configuration is not null)
-        {
-            existingConfig.AddConfiguration(hostBuilderOptions.Configuration);
-        }
-        existingConfig.AddCommandLine(hostBuilderOptions.Args ?? []);
-
-        var originalUserSecretsId = ResolveUserSecretsId(entryPointAssembly, existingConfig);
-        if (string.IsNullOrWhiteSpace(originalUserSecretsId))
-        {
-            return;
-        }
-
-        // Tests can run multiple AppHost instances for the same project at the same time. Let Hosting
-        // create a temp-backed secrets store through IFileSystemService so generated parameters have an
-        // isolated write target without inheriting or mutating machine-local user secrets.
-        hostBuilderOptions.Configuration ??= new();
-        hostBuilderOptions.Configuration.AddInMemoryCollection(
-            new Dictionary<string, string?>
-            {
-                [KnownConfigNames.TestingIsolateUserSecrets] = "true"
-            });
-    }
-
-    private static string? ResolveUserSecretsId(Assembly entryPointAssembly, IConfiguration configuration)
-    {
-        var configuredUserSecretsId = configuration[KnownConfigNames.AspireUserSecretsId];
-        if (!string.IsNullOrWhiteSpace(configuredUserSecretsId))
-        {
-            return configuredUserSecretsId;
-        }
-
-        return entryPointAssembly.GetCustomAttribute<UserSecretsIdAttribute>()?.UserSecretsId;
     }
 
     private static void PostConfigureBuilderOptions(
