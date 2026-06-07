@@ -86,7 +86,14 @@ internal sealed class TerminalHostControlListener : IAsyncDisposable
                 File.SetUnixFileMode(_socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
 
-            socket.Listen(backlog: 5);
+            // Backlog of 16 is well above the documented "single AppHost client"
+            // contract. The AppHost only ever maintains one healthy session, but it
+            // may briefly reconnect (e.g., on its own startup retry) and CI runners
+            // under load occasionally see transient kernel queue pressure on UDS
+            // listen sockets. A larger backlog absorbs those bursts without affecting
+            // the steady-state single-client behaviour — the accept loop still
+            // refuses additional sessions when one is already active.
+            socket.Listen(backlog: 16);
         }
         catch
         {
@@ -129,6 +136,17 @@ internal sealed class TerminalHostControlListener : IAsyncDisposable
             catch (ObjectDisposedException)
             {
                 return;
+            }
+            catch (SocketException ex) when (IsTransientAcceptError(ex.SocketErrorCode))
+            {
+                // Linux can return EAGAIN / EINTR from accept() under load (kernel
+                // accept-queue pressure or signal interruption) — the socket is still
+                // healthy and the next Accept will succeed. Bailing here would silently
+                // kill the control channel for the rest of the process lifetime, which
+                // we observed in CI as ConcurrentControlConnectsAreRefusedDownToOne
+                // failing with `Resource temporarily unavailable`.
+                _logger.LogDebug(ex, "Transient accept error ({SocketError}); retrying.", ex.SocketErrorCode);
+                continue;
             }
             catch (SocketException ex)
             {
@@ -311,4 +329,15 @@ internal sealed class TerminalHostControlListener : IAsyncDisposable
             // Best effort.
         }
     }
+
+    private static bool IsTransientAcceptError(SocketError code) => code switch
+    {
+        // EAGAIN / EWOULDBLOCK — kernel accept queue empty or temporarily exhausted.
+        // Observed on Linux CI under load even though AcceptAsync is awaiting.
+        SocketError.TryAgain => true,
+        SocketError.WouldBlock => true,
+        // EINTR — accept interrupted by a signal.
+        SocketError.Interrupted => true,
+        _ => false
+    };
 }
