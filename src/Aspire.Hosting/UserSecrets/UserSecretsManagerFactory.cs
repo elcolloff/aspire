@@ -77,13 +77,12 @@ internal sealed class UserSecretsManagerFactory
         return GetOrCreateFromId(userSecretsId);
     }
 
-    private sealed class UserSecretsManager : IUserSecretsManager, IDisposable, IAsyncDisposable
+    private sealed class UserSecretsManager : IUserSecretsManager
     {
         private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() { WriteIndented = true };
 
         private readonly SemaphoreSlim _semaphore = new(1, 1);
         private readonly IFileSystemService _fileSystemService;
-        private bool _disposed;
 
         public UserSecretsManager(string filePath, IFileSystemService fileSystemService)
         {
@@ -99,7 +98,6 @@ internal sealed class UserSecretsManagerFactory
         {
             try
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
                 _semaphore.Wait();
                 try
                 {
@@ -121,7 +119,6 @@ internal sealed class UserSecretsManagerFactory
         {
             try
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
                 _semaphore.Wait();
                 try
                 {
@@ -141,8 +138,6 @@ internal sealed class UserSecretsManagerFactory
 
         public void GetOrSetSecret(IConfigurationManager configuration, string name, Func<string> valueGenerator)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
             var existingValue = configuration[name];
             if (existingValue is null)
             {
@@ -166,8 +161,6 @@ internal sealed class UserSecretsManagerFactory
         /// </summary>
         public async Task SaveStateAsync(JsonObject state, CancellationToken cancellationToken = default)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
             await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -181,17 +174,6 @@ internal sealed class UserSecretsManagerFactory
             {
                 _semaphore.Release();
             }
-        }
-
-        public void Dispose()
-        {
-            _disposed = true;
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            Dispose();
-            return ValueTask.CompletedTask;
         }
 
         private void SetSecretCore(string name, string value)

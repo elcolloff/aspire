@@ -583,7 +583,7 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
             _disposing = true;
             if (innerHost is IAsyncDisposable asyncDisposable)
             {
-                await asyncDisposable.DisposeAsync().AsTask().WaitAsync(appFactory._disposingCts.Token).ConfigureAwait(false);
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             }
             else
             {

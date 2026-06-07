@@ -363,7 +363,9 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
                 _innerBuilder.Configuration.AddJsonFile(tempUserSecretsFilePath, optional: true, reloadOnChange: false);
             }
 
-            _userSecretsManager = userSecretsFactory.GetOrCreate(tempUserSecretsFilePath);
+            _userSecretsManager = new IsolatedUserSecretsManager(
+                userSecretsFactory.GetOrCreate(tempUserSecretsFilePath),
+                tempUserSecretsDirectory);
         }
         else
         {
@@ -372,13 +374,8 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
                 : NoopUserSecretsManager.Instance;
         }
 
-        // Always register IUserSecretsManager so dependencies can resolve. Resolve IFileSystemService
-        // first so DI disposes the user-secrets manager before deleting temp directories it may write to.
-        _innerBuilder.Services.AddSingleton<IUserSecretsManager>(sp =>
-        {
-            sp.GetRequiredService<IFileSystemService>();
-            return _userSecretsManager;
-        });
+        // Always register IUserSecretsManager so dependencies can resolve.
+        _innerBuilder.Services.AddSingleton<IUserSecretsManager>(_ => _userSecretsManager);
 
         _innerBuilder.Services.AddSingleton(sp => new DistributedApplicationModel(Resources));
         _innerBuilder.Services.AddSingleton<PipelineExecutor>();
@@ -833,9 +830,8 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         var application = new DistributedApplication(_innerBuilder.Build());
 
         _executionContextOptions.ServiceProvider = application.Services.GetRequiredService<IServiceProvider>();
-        // FileSystemService can own temp directories allocated while configuring the builder. Resolve it
-        // after the host is built so DI tracks and disposes those temp directories with the host.
-        application.Services.GetRequiredService<IFileSystemService>();
+        // UserSecretsManager can own temp-backed stores allocated while configuring the builder. Resolve it
+        // after the host is built so DI tracks and disposes those stores with the host.
         application.Services.GetRequiredService<IUserSecretsManager>();
 
         LogAppBuilt(application);
