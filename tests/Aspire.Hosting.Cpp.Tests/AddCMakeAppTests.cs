@@ -21,28 +21,18 @@ public class AddCMakeAppTests
             .WithHttpEndpoint(port: 8080, env: "PORT");
 
         var manifest = await ManifestUtils.GetManifest(app.Resource);
-        var command = app.Resource.Command.Replace('\\', '/');
 
-        var expected = $$"""
-            {
-              "type": "executable.v0",
-              "workingDirectory": ".",
-              "command": "{{command}}",
-              "env": {
-                "PORT": "{api.bindings.http.targetPort}"
-              },
-              "bindings": {
-                "http": {
-                  "scheme": "http",
-                  "protocol": "tcp",
-                  "transport": "http",
-                  "port": 8080,
-                  "targetPort": 8000
-                }
-              }
-            }
-            """;
-        Assert.Equal(expected, manifest.ToString().Replace('\\', '/'));
+        Assert.Equal("executable.v0", manifest["type"]!.GetValue<string>());
+        Assert.Equal(".", manifest["workingDirectory"]!.GetValue<string>());
+        Assert.Equal(app.Resource.Command, manifest["command"]!.GetValue<string>());
+        Assert.Equal("{api.bindings.http.targetPort}", manifest["env"]!["PORT"]!.GetValue<string>());
+
+        var httpBinding = manifest["bindings"]!["http"]!;
+        Assert.Equal("http", httpBinding["scheme"]!.GetValue<string>());
+        Assert.Equal("tcp", httpBinding["protocol"]!.GetValue<string>());
+        Assert.Equal("http", httpBinding["transport"]!.GetValue<string>());
+        Assert.Equal(8080, httpBinding["port"]!.GetValue<int>());
+        Assert.Equal(8000, httpBinding["targetPort"]!.GetValue<int>());
     }
 
     [Fact]
