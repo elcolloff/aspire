@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as sinon from 'sinon';
+import * as path from 'path';
 import { AspireDebugSession } from '../debugger/AspireDebugSession';
 import { azureFunctionsNodeDebuggerExtension } from '../debugger/languages/azureFunctions';
 import { cleanupRun } from '../debugger/runCleanupRegistry';
@@ -54,7 +55,7 @@ suite('Azure Functions Node Debugger Tests', () => {
         assert.strictEqual(debugConfig.restart, true);
         assert.strictEqual(debugConfig.sourceMaps, true);
         assert.strictEqual(debugConfig.cwd, '/workspace/functions');
-        assert.deepStrictEqual(debugConfig.outFiles, ['/workspace/functions/dist/**/*.js']);
+        assert.deepStrictEqual(debugConfig.outFiles, [path.join('/workspace/functions', 'dist/**/*.js')]);
         assert.strictEqual(debugConfig.program, undefined);
         assert.strictEqual(debugConfig.args, undefined);
         assert.strictEqual(debugConfig.env, undefined);
