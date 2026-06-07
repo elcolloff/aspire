@@ -8,9 +8,9 @@ namespace Aspire.Hosting.Azure;
 
 /// <summary>
 /// Declares that any compute resource referencing the annotated resource should be granted
-/// <see cref="Roles"/> on the target resource <see cref="Target"/>.
+/// <see cref="Roles"/> on the Azure resource <see cref="Target"/>.
 /// </summary>
-/// <param name="target">The resource that referencing resources should be granted roles on.</param>
+/// <param name="target">The Azure resource that referencing resources should be granted roles on.</param>
 /// <param name="roles">The roles that referencing resources should be assigned on <paramref name="target"/>.</param>
 /// <remarks>
 /// <para>
@@ -29,12 +29,12 @@ namespace Aspire.Hosting.Azure;
 /// </para>
 /// </remarks>
 [Experimental("ASPIREAZURE003", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
-public sealed class ReferenceRoleAssignmentAnnotation(IResource target, IReadOnlySet<RoleDefinition> roles) : IResourceAnnotation
+public sealed class ReferenceRoleAssignmentAnnotation(AzureProvisioningResource target, IReadOnlySet<RoleDefinition> roles) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the resource that resources referencing the annotated resource should be granted roles on.
+    /// Gets the Azure resource that resources referencing the annotated resource should be granted roles on.
     /// </summary>
-    public IResource Target { get; } = target;
+    public AzureProvisioningResource Target { get; } = target;
 
     /// <summary>
     /// Gets the set of roles that resources referencing the annotated resource should be assigned on <see cref="Target"/>.

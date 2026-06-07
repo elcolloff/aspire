@@ -138,7 +138,7 @@ internal sealed class AzureResourcePreparer(
                 var directDependencies = await resource.GetResourceDependenciesAsync(executionContext, ResourceDependencyDiscoveryMode.DirectOnly, cancellationToken).ConfigureAwait(false);
 
                 ProcessDirectAzureReferences(resource, directDependencies, provisioningResourcesByResource, globalRoleAssignments, prerequisiteResources);
-                ProcessReferenceRoleAssignments(resource, directDependencies, provisioningResourcesByResource, globalRoleAssignments);
+                ProcessReferenceRoleAssignments(resource, directDependencies, globalRoleAssignments);
 
                 if (executionContext.IsPublishMode)
                 {
@@ -236,7 +236,7 @@ internal sealed class AzureResourcePreparer(
             }
             else
             {
-                resource.Annotations.Add(new RoleAssignmentAnnotation(dependency, defaults.Roles));
+                resource.Annotations.Add(new RoleAssignmentAnnotation(azureReference, defaults.Roles));
             }
         }
     }
@@ -244,7 +244,6 @@ internal sealed class AzureResourcePreparer(
     private void ProcessReferenceRoleAssignments(
         IResource resource,
         IReadOnlySet<IResource> directDependencies,
-        IReadOnlyDictionary<IResource, AzureProvisioningResource> provisioningResourcesByResource,
         Dictionary<AzureProvisioningResource, HashSet<RoleDefinition>> globalRoleAssignments)
     {
         // A direct dependency that is not itself an Azure resource can still "front" one
@@ -261,11 +260,7 @@ internal sealed class AzureResourcePreparer(
 
             foreach (var impliedRoleAssignment in impliedRoleAssignments)
             {
-                if (!TryResolveRoleAssignmentTarget(impliedRoleAssignment.Target, provisioningResourcesByResource, out var target))
-                {
-                    throw new InvalidOperationException($"The role assignment target '{impliedRoleAssignment.Target.Name}' is not an Azure provisioning resource.");
-                }
-
+                var target = impliedRoleAssignment.Target;
                 if (ShouldSkipRoleAssignmentTarget(target))
                 {
                     continue;
@@ -279,7 +274,7 @@ internal sealed class AzureResourcePreparer(
                 {
                     // Publish materialization reads RoleAssignmentAnnotation, so convert implied
                     // reference grants into the same shape as direct WithRoleAssignments calls.
-                    resource.Annotations.Add(new RoleAssignmentAnnotation(impliedRoleAssignment.Target, impliedRoleAssignment.Roles));
+                    resource.Annotations.Add(new RoleAssignmentAnnotation(target, impliedRoleAssignment.Roles));
                 }
             }
         }
@@ -382,12 +377,7 @@ internal sealed class AzureResourcePreparer(
         {
             foreach (var roleAssignment in roleAssignments)
             {
-                if (!TryResolveRoleAssignmentTarget(roleAssignment.Target, provisioningResourcesByResource, out var target))
-                {
-                    throw new InvalidOperationException($"The role assignment target '{roleAssignment.Target.Name}' is not an Azure provisioning resource.");
-                }
-
-                yield return (target, roleAssignment.Roles);
+                yield return (roleAssignment.Target, roleAssignment.Roles);
             }
         }
 

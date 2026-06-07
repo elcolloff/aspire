@@ -6,7 +6,7 @@ using Aspire.Hosting.ApplicationModel;
 namespace Aspire.Hosting.Azure;
 
 /// <summary>
-/// Specifies the roles that the current resource should be assigned to the target resource.
+/// Specifies the roles that the current resource should be assigned to the target Azure resource.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,9 +23,9 @@ public class RoleAssignmentAnnotation : IResourceAnnotation
     /// <summary>
     /// Initializes a new instance of the <see cref="RoleAssignmentAnnotation"/> class.
     /// </summary>
-    /// <param name="target">The resource that the current resource will interact with.</param>
+    /// <param name="target">The Azure resource that the current resource will interact with.</param>
     /// <param name="roles">The roles that the current resource should be assigned to <paramref name="target"/>.</param>
-    public RoleAssignmentAnnotation(IResource target, IReadOnlySet<RoleDefinition> roles)
+    public RoleAssignmentAnnotation(AzureProvisioningResource target, IReadOnlySet<RoleDefinition> roles)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(roles);
@@ -35,12 +35,12 @@ public class RoleAssignmentAnnotation : IResourceAnnotation
     }
 
     /// <summary>
-    /// The resource that the current resource will interact with.
+    /// The Azure resource that the current resource will interact with.
     /// </summary>
-    public IResource Target { get; }
+    public AzureProvisioningResource Target { get; }
 
     /// <summary>
-    /// Gets the set of roles the current resource should be assigned to the target resource.
+    /// Gets the set of roles the current resource should be assigned to the target Azure resource.
     /// </summary>
     public IReadOnlySet<RoleDefinition> Roles { get; }
 }
