@@ -537,7 +537,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is running.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is running.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -554,7 +554,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is running.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is running.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -571,7 +571,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is running.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is running.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -589,7 +589,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is deployed.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is deployed.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -606,7 +606,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is deployed.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is deployed.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -623,7 +623,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource when the application is deployed.
+    /// Marks the current-tenant-scoped resource as an existing resource when the application is deployed.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -641,7 +641,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource in both run and publish modes.
+    /// Marks the current-tenant-scoped resource as an existing resource in both run and publish modes.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -658,7 +658,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource in both run and publish modes.
+    /// Marks the current-tenant-scoped resource as an existing resource in both run and publish modes.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>
@@ -675,7 +675,7 @@ public static class ExistingAzureResourceExtensions
     }
 
     /// <summary>
-    /// Marks the tenant-scoped resource as an existing resource in both run and publish modes.
+    /// Marks the current-tenant-scoped resource as an existing resource in both run and publish modes.
     /// </summary>
     /// <typeparam name="T">The type of the resource.</typeparam>
     /// <param name="builder">The resource builder.</param>

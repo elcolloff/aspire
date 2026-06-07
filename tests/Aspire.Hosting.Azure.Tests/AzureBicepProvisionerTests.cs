@@ -237,7 +237,7 @@ public class AzureBicepProvisionerTests
         Assert.True(existingResourceGroup.Deployments.WasCreateOrUpdateCalled);
         Assert.False(scopedSubscription.Deployments.WasCreateOrUpdateCalled);
         Assert.False(deploymentResourceGroup.Deployments.WasCreateOrUpdateCalled);
-        Assert.Equal(AzureLocation.WestUS2.Name, existingResourceGroup.Deployments.Content!.Location?.Name);
+        Assert.Null(existingResourceGroup.Deployments.Content!.Location);
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public class AzureBicepProvisionerTests
         Assert.True(resourceGroup.Deployments.WasCreateOrUpdateCalled);
         Assert.False(subscription.Deployments.WasCreateOrUpdateCalled);
         Assert.False(tenant.Deployments.WasCreateOrUpdateCalled);
-        Assert.Equal(AzureLocation.WestUS2.Name, resourceGroup.Deployments.Content!.Location?.Name);
+        Assert.Null(resourceGroup.Deployments.Content!.Location);
         Assert.StartsWith("defaultScoped-", resourceGroup.Deployments.DeploymentName);
     }
 

@@ -186,10 +186,13 @@ internal sealed class BicepProvisioner(
         resourceLogger.LogInformation("Deploying {Name} to {DeploymentTarget}", resource.Name, deploymentTargetName);
         logger.LogDebug("Starting deployment of resource {ResourceName} to {DeploymentTarget}", resource.Name, deploymentTargetName);
 
-        var deployments = BicepUtilities.IsTenantScoped(resource)
+        var isTenantScoped = BicepUtilities.IsTenantScoped(resource);
+        var isSubscriptionScoped = BicepUtilities.GetExistingSubscription(resource) is not null &&
+            BicepUtilities.GetExistingResourceGroup(resource) is null;
+
+        var deployments = isTenantScoped
             ? context.Tenant.GetArmDeployments()
-            : BicepUtilities.GetExistingSubscription(resource) is not null &&
-                BicepUtilities.GetExistingResourceGroup(resource) is null
+            : isSubscriptionScoped
                 ? subscription.GetArmDeployments()
                 : resourceGroup.GetArmDeployments();
         var deploymentName = executionContext.IsPublishMode ? $"{resource.Name}-{DateTimeOffset.Now.ToUnixTimeSeconds()}" : resource.Name;
@@ -199,10 +202,13 @@ internal sealed class BicepProvisioner(
             Template = BinaryData.FromString(armTemplateContents),
             Parameters = BinaryData.FromObjectAsJson(parameters),
             DebugSettingDetailLevel = "ResponseContent"
-        })
+        });
+
+        if (isTenantScoped || isSubscriptionScoped)
         {
-            Location = context.Location
-        };
+            deploymentContent.Location = context.Location;
+        }
+
         var operation = await deployments.CreateOrUpdateAsync(WaitUntil.Started, deploymentName, deploymentContent, cancellationToken).ConfigureAwait(false);
 
         // Resolve the deployment URL before waiting for the operation to complete
