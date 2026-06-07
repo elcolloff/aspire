@@ -221,18 +221,18 @@
                                     <svg class="resource-graph @(PageViewModel.SelectedGraphMode == ResourceGraphMode.Telemetry ? "resource-graph-telemetry" : null)">
                                     </svg>
                                     <div class="resource-graph-controls">
-                                        <FluentRadioGroup TValue="ResourceGraphMode"
-                                                          Class="resource-graph-mode"
-                                                          Label="@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphModeLabel)]"
-                                                          Orientation="Orientation.Horizontal"
-                                                          @bind-Value="@PageViewModel.SelectedGraphMode"
-                                                          @bind-Value:after="OnGraphModeChangedAsync">
-                                            @if (DashboardClient.IsEnabled)
-                                            {
+                                        @if (DashboardClient.IsEnabled)
+                                        {
+                                            <FluentRadioGroup TValue="ResourceGraphMode"
+                                                              Class="resource-graph-mode"
+                                                              Label="@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphModeLabel)]"
+                                                              Orientation="Orientation.Horizontal"
+                                                              @bind-Value="@PageViewModel.SelectedGraphMode"
+                                                              @bind-Value:after="OnGraphModeChangedAsync">
                                                 <FluentRadio Value="@ResourceGraphMode.Relationships">@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphModeRelationships)]</FluentRadio>
-                                            }
-                                            <FluentRadio Value="@ResourceGraphMode.Telemetry">@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphModeTelemetry)]</FluentRadio>
-                                        </FluentRadioGroup>
+                                                <FluentRadio Value="@ResourceGraphMode.Telemetry">@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphModeTelemetry)]</FluentRadio>
+                                            </FluentRadioGroup>
+                                        }
                                         <FluentButton Appearance="Appearance.Stealth"
                                                       Class="graph-zoom-in"
                                                       Title="@Loc[nameof(Dashboard.Resources.Resources.ResourcesGraphZoomInButton)]"

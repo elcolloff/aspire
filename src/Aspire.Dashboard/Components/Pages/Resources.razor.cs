@@ -1143,7 +1143,11 @@ public partial class Resources : ComponentBase, IComponentWithTelemetry, IAsyncD
             ViewKind = IsGraphPage
                 ? ResourceViewKind.Graph.ToString()
                 : PageViewModel.SelectedViewKind != ResourceViewKind.Table ? PageViewModel.SelectedViewKind.ToString() : null,
-            GraphMode = PageViewModel.SelectedViewKind == ResourceViewKind.Graph && PageViewModel.SelectedGraphMode != ResourceGraphMode.Relationships ? PageViewModel.SelectedGraphMode.ToString() : null,
+            GraphMode = DashboardClient.IsEnabled &&
+                PageViewModel.SelectedViewKind == ResourceViewKind.Graph &&
+                PageViewModel.SelectedGraphMode != ResourceGraphMode.Relationships
+                ? PageViewModel.SelectedGraphMode.ToString()
+                : null,
             ResourceTypesToVisibility = PageViewModel.ResourceTypesToVisibility,
             ResourceStatesToVisibility = PageViewModel.ResourceStatesToVisibility,
             ResourceHealthStatusesToVisibility = PageViewModel.ResourceHealthStatusesToVisibility

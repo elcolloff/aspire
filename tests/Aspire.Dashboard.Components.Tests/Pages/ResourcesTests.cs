@@ -256,6 +256,9 @@ public partial class ResourcesTests : DashboardTestContext
         Assert.Equal(Components.Pages.Resources.ResourceGraphMode.Telemetry, cut.Instance.PageViewModel.SelectedGraphMode);
         Assert.Equal("Graph", cut.Find("h1").TextContent);
         Assert.DoesNotContain("tab-Graph", cut.Markup);
+        Assert.Contains("Graph mode", cut.Markup);
+        Assert.Contains("Relationships", cut.Markup);
+        Assert.Contains("Telemetry flow", cut.Markup);
     }
 
     [Fact]
@@ -540,6 +543,10 @@ public partial class ResourcesTests : DashboardTestContext
         Assert.Equal(Components.Pages.Resources.ResourceViewKind.Graph, cut.Instance.PageViewModel.SelectedViewKind);
         Assert.Equal(Components.Pages.Resources.ResourceGraphMode.Telemetry, cut.Instance.PageViewModel.SelectedGraphMode);
         cut.Render();
+        Assert.DoesNotContain("Graph mode", cut.Markup);
+        Assert.DoesNotContain("Relationships", cut.Markup);
+        Assert.DoesNotContain("Telemetry flow", cut.Markup);
+        Assert.Null(cut.Instance.ConvertViewModelToSerializable().GraphMode);
 
         Assert.NotEmpty(initializeGraphInvocationHandler.Invocations);
         await AsyncTestHelpers.AssertIsTrueRetryAsync(() => updateGraphInvocationHandler.Invocations.Count > 0, "Resource graph updated");
