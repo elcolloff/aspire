@@ -140,6 +140,171 @@ public class AzureBicepProvisionerTests
     }
 
     [Fact]
+    public async Task GetOrCreateResourceAsync_WithSubscriptionScope_UsesSubscriptionDeploymentCollection()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+        builder.Services.AddSingleton<IDeploymentStateManager>(new MockDeploymentStateManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var subscription = new TestSubscriptionResource([], subscriptionId: "00000000-0000-0000-0000-000000000042");
+        var tenant = new TestTenantResource([]);
+        var deploymentResourceGroup = new TestResourceGroupResource("deploy-rg");
+        var resource = new AzureBicepResource("subscriptionScoped", templateString: """
+            targetScope = 'subscription'
+            output result string = 'ok'
+            """);
+        resource.Scope = AzureBicepResourceScope.ForSubscription(subscription.Id.Name);
+
+        var provisioner = CreateProvisioner(services);
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            armClient: new TestArmClient(subscription, tenant),
+            subscription: subscription,
+            resourceGroup: deploymentResourceGroup,
+            tenant: tenant,
+            location: AzureLocation.WestUS2,
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish));
+
+        await provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None);
+
+        Assert.True(subscription.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(deploymentResourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(tenant.Deployments.WasCreateOrUpdateCalled);
+        Assert.Equal(AzureLocation.WestUS2.Name, subscription.Deployments.Content!.Location?.Name);
+        Assert.StartsWith("subscriptionScoped-", subscription.Deployments.DeploymentName);
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_WithTenantScope_UsesTenantDeploymentCollection()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+        builder.Services.AddSingleton<IDeploymentStateManager>(new MockDeploymentStateManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var subscription = new TestSubscriptionResource([]);
+        var tenant = new TestTenantResource([]);
+        var deploymentResourceGroup = new TestResourceGroupResource("deploy-rg");
+        var resource = new AzureBicepResource("tenantScoped", templateString: """
+            targetScope = 'tenant'
+            output result string = 'ok'
+            """);
+        resource.Scope = AzureBicepResourceScope.ForTenant();
+
+        var provisioner = CreateProvisioner(services);
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            armClient: new TestArmClient(subscription, tenant),
+            subscription: subscription,
+            resourceGroup: deploymentResourceGroup,
+            tenant: tenant,
+            location: AzureLocation.WestUS2,
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish));
+
+        await provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None);
+
+        Assert.True(tenant.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(subscription.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(deploymentResourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.Equal(AzureLocation.WestUS2.Name, tenant.Deployments.Content!.Location?.Name);
+        Assert.StartsWith("tenantScoped-", tenant.Deployments.DeploymentName);
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_WithResourceGroupAndSubscriptionScope_UsesScopedResourceGroupDeploymentCollection()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+        builder.Services.AddSingleton<IDeploymentStateManager>(new MockDeploymentStateManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var scopedSubscriptionId = "00000000-0000-0000-0000-000000000043";
+        var existingResourceGroup = new TestResourceGroupResource("existing-rg", [], scopedSubscriptionId);
+        var scopedSubscription = new TestSubscriptionResource([], existingResourceGroup, scopedSubscriptionId);
+        var deploymentResourceGroup = new TestResourceGroupResource("deploy-rg");
+        var tenant = new TestTenantResource([]);
+        var resource = new AzureBicepResource("existingbus", templateString: "output result string = 'ok'");
+        resource.Scope = new AzureBicepResourceScope(existingResourceGroup.Name, scopedSubscriptionId);
+
+        var provisioner = CreateProvisioner(services);
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            armClient: new TestArmClient(scopedSubscription, tenant),
+            subscription: new TestSubscriptionResource([]),
+            resourceGroup: deploymentResourceGroup,
+            tenant: tenant,
+            location: AzureLocation.WestUS2,
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish));
+
+        await provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None);
+
+        Assert.Equal(existingResourceGroup.Name, scopedSubscription.ResourceGroups.LastRequestedResourceGroupName);
+        Assert.True(existingResourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(scopedSubscription.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(deploymentResourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.Equal(AzureLocation.WestUS2.Name, existingResourceGroup.Deployments.Content!.Location?.Name);
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_WithDefaultScope_UsesResourceGroupDeploymentCollection()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish);
+        builder.Services.AddSingleton<IDeploymentStateManager>(new MockDeploymentStateManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var subscription = new TestSubscriptionResource([]);
+        var tenant = new TestTenantResource([]);
+        var resourceGroup = new TestResourceGroupResource("deploy-rg");
+        var resource = new AzureBicepResource("defaultScoped", templateString: "output result string = 'ok'");
+
+        var provisioner = CreateProvisioner(services);
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            armClient: new TestArmClient(subscription, tenant),
+            subscription: subscription,
+            resourceGroup: resourceGroup,
+            tenant: tenant,
+            location: AzureLocation.WestUS2,
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Publish));
+
+        await provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None);
+
+        Assert.True(resourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(subscription.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(tenant.Deployments.WasCreateOrUpdateCalled);
+        Assert.Equal(AzureLocation.WestUS2.Name, resourceGroup.Deployments.Content!.Location?.Name);
+        Assert.StartsWith("defaultScoped-", resourceGroup.Deployments.DeploymentName);
+    }
+
+    [Fact]
+    public async Task GetOrCreateResourceAsync_WithSubscriptionScopeInRunMode_UsesSubscriptionDeploymentCollection()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
+        builder.Services.AddSingleton<IDeploymentStateManager>(new MockDeploymentStateManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var subscription = new TestSubscriptionResource([], subscriptionId: "00000000-0000-0000-0000-000000000044");
+        var tenant = new TestTenantResource([]);
+        var deploymentResourceGroup = new TestResourceGroupResource("deploy-rg");
+        var resource = new AzureBicepResource("subscriptionScoped", templateString: """
+            targetScope = 'subscription'
+            output result string = 'ok'
+            """);
+        resource.Scope = AzureBicepResourceScope.ForSubscription(subscription.Id.Name);
+
+        var provisioner = CreateProvisioner(services, DistributedApplicationOperation.Run);
+        var context = ProvisioningTestHelpers.CreateTestProvisioningContext(
+            armClient: new TestArmClient(subscription, tenant),
+            subscription: subscription,
+            resourceGroup: deploymentResourceGroup,
+            tenant: tenant,
+            location: AzureLocation.WestUS2,
+            executionContext: new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run));
+
+        await provisioner.GetOrCreateResourceAsync(resource, context, CancellationToken.None);
+
+        Assert.True(subscription.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(deploymentResourceGroup.Deployments.WasCreateOrUpdateCalled);
+        Assert.False(tenant.Deployments.WasCreateOrUpdateCalled);
+        Assert.Equal(AzureLocation.WestUS2.Name, subscription.Deployments.Content!.Location?.Name);
+        Assert.Equal("subscriptionScoped", subscription.Deployments.DeploymentName);
+    }
+
+    [Fact]
     public async Task BicepCliExecutor_CompilesBicepToArm()
     {
         // Test the mock bicep executor behavior
@@ -209,6 +374,19 @@ public class AzureBicepProvisionerTests
         // Assert
         Assert.Equal("mock-token", token.Token);
         Assert.True(token.ExpiresOn > DateTimeOffset.UtcNow);
+    }
+
+    private static BicepProvisioner CreateProvisioner(IServiceProvider services, DistributedApplicationOperation operation = DistributedApplicationOperation.Publish)
+    {
+        return new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            services.GetRequiredService<IDeploymentStateManager>(),
+            new DistributedApplicationExecutionContext(operation),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
     }
 
     private sealed class TestTokenCredentialProvider : ITokenCredentialProvider

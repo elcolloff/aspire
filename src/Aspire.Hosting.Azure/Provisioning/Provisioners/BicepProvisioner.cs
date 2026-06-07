@@ -116,14 +116,19 @@ internal sealed class BicepProvisioner(
     public async Task GetOrCreateResourceAsync(AzureBicepResource resource, ProvisioningContext context, CancellationToken cancellationToken)
     {
         var resourceGroup = context.ResourceGroup;
+        var subscription = context.Subscription;
         var resourceLogger = loggerService.GetLogger(resource);
+
+        if (BicepUtilities.GetExistingSubscription(resource) is { } existingSubscription)
+        {
+            var existingSubscriptionId = await ResolveScopeValueAsync(existingSubscription, cancellationToken).ConfigureAwait(false);
+            subscription = await context.ArmClient.GetSubscriptionAsync(existingSubscriptionId, cancellationToken).ConfigureAwait(false);
+        }
 
         if (BicepUtilities.GetExistingResourceGroup(resource) is { } existingResourceGroup)
         {
-            var existingResourceGroupName = existingResourceGroup is ParameterResource parameterResource
-                ? (await parameterResource.GetValueAsync(cancellationToken).ConfigureAwait(false))!
-                : (string)existingResourceGroup;
-            var response = await context.Subscription.GetResourceGroups().GetAsync(existingResourceGroupName, cancellationToken).ConfigureAwait(false);
+            var existingResourceGroupName = await ResolveScopeValueAsync(existingResourceGroup, cancellationToken).ConfigureAwait(false);
+            var response = await subscription.GetResourceGroups().GetAsync(existingResourceGroupName, cancellationToken).ConfigureAwait(false);
             resourceGroup = response.Value;
         }
 
@@ -132,7 +137,7 @@ internal sealed class BicepProvisioner(
             ResourceType = resource.GetType().Name,
             State = new("Starting", KnownResourceStateStyles.Info),
             Properties = state.Properties.SetResourcePropertyRange([
-                new("azure.subscription.id", context.Subscription.Id.Name),
+                new("azure.subscription.id", subscription.Id.Name),
                 new("azure.resource.group", resourceGroup.Id.Name),
                 new("azure.tenant.domain", context.Tenant.DefaultDomain),
                 new("azure.location", context.Location.ToString()),
@@ -177,13 +182,16 @@ internal sealed class BicepProvisioner(
         })
         .ConfigureAwait(false);
 
-        resourceLogger.LogInformation("Deploying {Name} to {ResourceGroup}", resource.Name, resourceGroup.Name);
-        logger.LogDebug("Starting deployment of resource {ResourceName} to resource group {ResourceGroupName}", resource.Name, resourceGroup.Name);
+        var deploymentTargetName = GetDeploymentTargetName(resource, subscription, resourceGroup);
+        resourceLogger.LogInformation("Deploying {Name} to {DeploymentTarget}", resource.Name, deploymentTargetName);
+        logger.LogDebug("Starting deployment of resource {ResourceName} to {DeploymentTarget}", resource.Name, deploymentTargetName);
 
-        // Resources with a Subscription scope should use a subscription-level deployment.
-        var deployments = resource.Scope?.Subscription != null
-            ? context.Subscription.GetArmDeployments()
-            : resourceGroup.GetArmDeployments();
+        var deployments = BicepUtilities.IsTenantScoped(resource)
+            ? context.Tenant.GetArmDeployments()
+            : BicepUtilities.GetExistingSubscription(resource) is not null &&
+                BicepUtilities.GetExistingResourceGroup(resource) is null
+                ? subscription.GetArmDeployments()
+                : resourceGroup.GetArmDeployments();
         var deploymentName = executionContext.IsPublishMode ? $"{resource.Name}-{DateTimeOffset.Now.ToUnixTimeSeconds()}" : resource.Name;
 
         var deploymentContent = new ArmDeploymentContent(new(ArmDeploymentMode.Incremental)
@@ -191,11 +199,14 @@ internal sealed class BicepProvisioner(
             Template = BinaryData.FromString(armTemplateContents),
             Parameters = BinaryData.FromObjectAsJson(parameters),
             DebugSettingDetailLevel = "ResponseContent"
-        });
+        })
+        {
+            Location = context.Location
+        };
         var operation = await deployments.CreateOrUpdateAsync(WaitUntil.Started, deploymentName, deploymentContent, cancellationToken).ConfigureAwait(false);
 
         // Resolve the deployment URL before waiting for the operation to complete
-        var url = GetDeploymentUrl(context, resourceGroup, resource.Name);
+        var url = GetDeploymentUrl(resource, subscription, resourceGroup, deploymentName);
 
         resourceLogger.LogInformation("Deployment started: {Url}", url);
 
@@ -212,8 +223,8 @@ internal sealed class BicepProvisioner(
         await operation.WaitForCompletionAsync(cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
-        resourceLogger.LogInformation("Deployment of {Name} to {ResourceGroup} took {Elapsed}", resource.Name, resourceGroup.Name, sw.Elapsed);
-        logger.LogDebug("Deployment of resource {ResourceName} to resource group {ResourceGroupName} completed in {Elapsed}", resource.Name, resourceGroup.Name, sw.Elapsed);
+        resourceLogger.LogInformation("Deployment of {Name} to {DeploymentTarget} took {Elapsed}", resource.Name, deploymentTargetName, sw.Elapsed);
+        logger.LogDebug("Deployment of resource {ResourceName} to {DeploymentTarget} completed in {Elapsed}", resource.Name, deploymentTargetName, sw.Elapsed);
 
         var deployment = operation.Value;
 
@@ -228,7 +239,7 @@ internal sealed class BicepProvisioner(
         }
         else
         {
-            throw new InvalidOperationException($"Deployment of {resource.Name} to {resourceGroup.Name} failed with {deployment.Data.Properties.ProvisioningState}");
+            throw new InvalidOperationException($"Deployment of {resource.Name} to {deploymentTargetName} failed with {deployment.Data.Properties.ProvisioningState}");
         }
 
         // e.g. {  "sqlServerName": { "type": "String", "value": "<value>" }}
@@ -298,6 +309,16 @@ internal sealed class BicepProvisioner(
         .ConfigureAwait(false);
     }
 
+    private static async Task<string> ResolveScopeValueAsync(object scopeValue, CancellationToken cancellationToken)
+    {
+        return scopeValue switch
+        {
+            string value => value,
+            IValueProvider valueProvider => await valueProvider.GetValueAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("The Azure resource scope value cannot be null."),
+            _ => throw new NotSupportedException($"The scope value type {scopeValue.GetType()} is not supported.")
+        };
+    }
+
     private void ConfigureSecretResolver(IAzureKeyVaultResource kvr)
     {
         var resource = (AzureBicepResource)kvr;
@@ -355,11 +376,32 @@ internal sealed class BicepProvisioner(
         resource.Parameters[AzureBicepResource.KnownParameters.Location] = context.Location.Name;
     }
 
-    private static string GetDeploymentUrl(ProvisioningContext provisioningContext, IResourceGroupResource resourceGroup, string deploymentName)
+    private static string GetDeploymentUrl(AzureBicepResource resource, ISubscriptionResource subscription, IResourceGroupResource resourceGroup, string deploymentName)
     {
-        var subId = provisioningContext.Subscription.Id.ToString();
-        var rgName = resourceGroup.Name;
-        return AzurePortalUrls.GetDeploymentUrl(subId, rgName, deploymentName);
+        var deploymentId = BicepUtilities.IsTenantScoped(resource)
+            ? $"/providers/Microsoft.Resources/deployments/{deploymentName}"
+            : BicepUtilities.GetExistingSubscription(resource) is not null &&
+                BicepUtilities.GetExistingResourceGroup(resource) is null
+                ? $"{subscription.Id}/providers/Microsoft.Resources/deployments/{deploymentName}"
+                : $"{subscription.Id}/resourceGroups/{resourceGroup.Name}/providers/Microsoft.Resources/deployments/{deploymentName}";
+
+        return AzurePortalUrls.GetDeploymentUrl(new ResourceIdentifier(deploymentId));
+    }
+
+    private static string GetDeploymentTargetName(AzureBicepResource resource, ISubscriptionResource subscription, IResourceGroupResource resourceGroup)
+    {
+        if (BicepUtilities.IsTenantScoped(resource))
+        {
+            return "tenant";
+        }
+
+        if (BicepUtilities.GetExistingSubscription(resource) is not null &&
+            BicepUtilities.GetExistingResourceGroup(resource) is null)
+        {
+            return $"subscription {subscription.Id.Name}";
+        }
+
+        return $"resource group {resourceGroup.Name}";
     }
 
     public static string GetDeploymentUrl(ResourceIdentifier deploymentId) =>

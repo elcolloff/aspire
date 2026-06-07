@@ -657,6 +657,14 @@
                 "resourceGroup": {
                   "type": "string",
                   "description": "The name of the resource group to deploy the resource to."
+                },
+                "subscription": {
+                  "type": "string",
+                  "description": "The subscription identifier to deploy the resource to."
+                },
+                "tenant": {
+                  "type": "string",
+                  "description": "The tenant scope to deploy the resource to."
                 }
               }
             }

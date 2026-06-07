@@ -347,6 +347,71 @@ public class BicepUtilitiesTests
     }
 
     [Fact]
+    public async Task SetScopeAsync_SetsResourceGroupAndSubscriptionFromScope()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var bicep = builder.AddBicepTemplateString("test", "param name string").Resource;
+        bicep.Scope = new("test-rg", "12345678-1234-1234-1234-123456789012");
+
+        var scope = new JsonObject();
+
+        await BicepUtilities.SetScopeAsync(scope, bicep);
+
+        Assert.Equal(2, scope.Count);
+        Assert.Equal("test-rg", scope["resourceGroup"]?.ToString());
+        Assert.Equal("12345678-1234-1234-1234-123456789012", scope["subscription"]?.ToString());
+    }
+
+    [Fact]
+    public async Task SetScopeAsync_SetsSubscriptionFromScope()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var bicep = builder.AddBicepTemplateString("test", "param name string").Resource;
+        bicep.Scope = AzureBicepResourceScope.ForSubscription("12345678-1234-1234-1234-123456789012");
+
+        var scope = new JsonObject();
+
+        await BicepUtilities.SetScopeAsync(scope, bicep);
+
+        Assert.Single(scope);
+        Assert.Equal("12345678-1234-1234-1234-123456789012", scope["subscription"]?.ToString());
+    }
+
+    [Fact]
+    public async Task SetScopeAsync_RemovesStaleScopeValues()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var bicep = builder.AddBicepTemplateString("test", "param name string").Resource;
+        bicep.Scope = AzureBicepResourceScope.ForSubscription("12345678-1234-1234-1234-123456789012");
+
+        var scope = new JsonObject
+        {
+            ["resourceGroup"] = "old-rg",
+            ["tenant"] = "current"
+        };
+
+        await BicepUtilities.SetScopeAsync(scope, bicep);
+
+        Assert.Single(scope);
+        Assert.Equal("12345678-1234-1234-1234-123456789012", scope["subscription"]?.ToString());
+    }
+
+    [Fact]
+    public async Task SetScopeAsync_SetsTenantFromScope()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var bicep = builder.AddBicepTemplateString("test", "param name string").Resource;
+        bicep.Scope = AzureBicepResourceScope.ForTenant();
+
+        var scope = new JsonObject();
+
+        await BicepUtilities.SetScopeAsync(scope, bicep);
+
+        Assert.Single(scope);
+        Assert.Equal("current", scope["tenant"]?.ToString());
+    }
+
+    [Fact]
     public async Task SetScopeAsync_SetsNullWhenNoScope()
     {
         // Arrange
