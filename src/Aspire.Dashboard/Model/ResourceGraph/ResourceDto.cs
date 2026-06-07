@@ -12,7 +12,7 @@ public sealed class ResourceDto
     public required string DisplayName { get; init; }
     public required string Uid { get; init; }
     public required IconDto ResourceIcon { get; init; }
-    public required IconDto StateIcon { get; init; }
+    public required IconDto? StateIcon { get; init; }
     public required string? EndpointUrl { get; init; }
     public required string? EndpointText { get; init; }
     public required ImmutableArray<string> ReferencedNames { get; init; }

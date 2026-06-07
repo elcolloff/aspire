@@ -286,6 +286,9 @@ class ResourceGraph {
         this.nodes = updatedNodes;
 
         function createIcon(resourceIcon) {
+            if (!resourceIcon) {
+                return null;
+            }
             return {
                 path: resourceIcon.path,
                 color: resourceIcon.color,
@@ -416,7 +419,9 @@ class ResourceGraph {
         // Resource status
         var statusGroup = newNodesContainer
             .append("g")
-            .attr("transform", "scale(1.6) translate(14,-34)");
+            .attr("class", "resource-status")
+            .attr("transform", "scale(1.6) translate(14,-34)")
+            .style("display", n => n.stateIcon ? null : "none");
         statusGroup
             .append("circle")
             .attr("r", 8)
@@ -461,16 +466,20 @@ class ResourceGraph {
             .text(n => n.endpointText || "");
         this.nodeElementsG
             .selectAll(".resource-group")
+            .select(".resource-status")
+            .style("display", n => n.stateIcon ? null : "none");
+        this.nodeElementsG
+            .selectAll(".resource-group")
             .select(".resource-status-circle")
             .select("title")
-            .text(n => n.stateIcon.tooltip);
+            .text(n => n.stateIcon?.tooltip || "");
         this.nodeElementsG
             .selectAll(".resource-group")
             .select(".resource-status-path")
-            .attr("d", n => n.stateIcon.path)
-            .attr("fill", n => n.stateIcon.color)
+            .attr("d", n => n.stateIcon?.path || null)
+            .attr("fill", n => n.stateIcon?.color || null)
             .select("title")
-            .text(n => n.stateIcon.tooltip);
+            .text(n => n.stateIcon?.tooltip || "");
 
         // Update links
         this.linkElements = this.linkElementsG

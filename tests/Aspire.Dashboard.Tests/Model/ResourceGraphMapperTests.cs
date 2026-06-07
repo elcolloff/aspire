@@ -189,12 +189,18 @@ public class ResourceGraphMapperTests
             {
                 Assert.Equal("api-def456", r.Name);
                 Assert.Equal("Telemetry", r.ResourceType);
+                Assert.Null(r.StateIcon);
+                Assert.Null(r.EndpointUrl);
+                Assert.Null(r.EndpointText);
                 Assert.Empty(r.ReferencedNames);
             },
             r =>
             {
                 Assert.Equal("frontend-abc123", r.Name);
                 Assert.Equal("Telemetry", r.ResourceType);
+                Assert.Null(r.StateIcon);
+                Assert.Null(r.EndpointUrl);
+                Assert.Null(r.EndpointText);
                 var referencedName = Assert.Single(r.ReferencedNames);
                 Assert.Equal("api-def456", referencedName);
             });
@@ -227,12 +233,57 @@ public class ResourceGraphMapperTests
             {
                 Assert.Equal("api-def456", r.Name);
                 Assert.Equal("Container", r.ResourceType);
+                Assert.NotNull(r.StateIcon);
+                Assert.NotNull(r.EndpointText);
                 Assert.Empty(r.ReferencedNames);
             },
             r =>
             {
                 Assert.Equal("frontend-abc123", r.Name);
                 Assert.Equal("Project", r.ResourceType);
+                Assert.NotNull(r.StateIcon);
+                Assert.NotNull(r.EndpointText);
+                var referencedName = Assert.Single(r.ReferencedNames);
+                Assert.Equal("api-def456", referencedName);
+            });
+    }
+
+    [Fact]
+    public void TelemetryGraphResources_CreateResourceDtos_KeepsUnmatchedTelemetryPeersMetadataFree()
+    {
+        var frontend = ModelTestHelpers.CreateResource("frontend-abc123", displayName: "frontend", resourceType: "Project", relationships: ImmutableArray<RelationshipViewModel>.Empty);
+        var resources = new Dictionary<string, ResourceViewModel>
+        {
+            [frontend.Name] = frontend,
+        };
+
+        var graphResources = TelemetryGraphResources.CreateResourceDtos(
+            [frontend],
+            [
+                new TelemetryGraphEdge(ResourceKey.Create("frontend", "frontend-abc123"), ResourceKey.Create("api", "api-def456"))
+            ],
+            resources,
+            new TestStringLocalizer<Columns>(),
+            "Telemetry",
+            showHiddenResources: false,
+            _iconResolver);
+
+        Assert.Collection(graphResources.OrderBy(r => r.Name, StringComparers.ResourceName),
+            r =>
+            {
+                Assert.Equal("api-def456", r.Name);
+                Assert.Equal("Telemetry", r.ResourceType);
+                Assert.Null(r.StateIcon);
+                Assert.Null(r.EndpointUrl);
+                Assert.Null(r.EndpointText);
+                Assert.Empty(r.ReferencedNames);
+            },
+            r =>
+            {
+                Assert.Equal("frontend-abc123", r.Name);
+                Assert.Equal("Project", r.ResourceType);
+                Assert.NotNull(r.StateIcon);
+                Assert.NotNull(r.EndpointText);
                 var referencedName = Assert.Single(r.ReferencedNames);
                 Assert.Equal("api-def456", referencedName);
             });

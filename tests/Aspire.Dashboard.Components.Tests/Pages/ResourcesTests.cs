@@ -557,12 +557,18 @@ public partial class ResourcesTests : DashboardTestContext
             {
                 Assert.Equal("api-def", r.Name);
                 Assert.Equal("Telemetry", r.ResourceType);
+                Assert.Null(r.StateIcon);
+                Assert.Null(r.EndpointUrl);
+                Assert.Null(r.EndpointText);
                 Assert.Empty(r.ReferencedNames);
             },
             r =>
             {
                 Assert.Equal("frontend-abc", r.Name);
                 Assert.Equal("Telemetry", r.ResourceType);
+                Assert.Null(r.StateIcon);
+                Assert.Null(r.EndpointUrl);
+                Assert.Null(r.EndpointText);
                 var referencedName = Assert.Single(r.ReferencedNames);
                 Assert.Equal("api-def", referencedName);
             });

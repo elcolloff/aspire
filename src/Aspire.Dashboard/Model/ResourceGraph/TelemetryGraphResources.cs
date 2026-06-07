@@ -6,8 +6,6 @@ using System.Runtime.InteropServices;
 using Aspire.Dashboard.Otlp.Storage;
 using Aspire.Dashboard.Resources;
 using Microsoft.Extensions.Localization;
-using Microsoft.FluentUI.AspNetCore.Components;
-using Microsoft.FluentUI.AspNetCore.Components.Extensions;
 using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons;
 
 namespace Aspire.Dashboard.Model.ResourceGraph;
@@ -144,7 +142,6 @@ internal sealed class TelemetryGraphResources
     private static ResourceDto CreateTelemetryResourceDto(string name, ResourceKey resourceKey, string telemetryResourceType, IEnumerable<string> referencedNames)
     {
         var resourceIcon = new Icons.Regular.Size24.AppGeneric();
-        var stateIcon = new Icons.Regular.Size16.CircleHint();
         return new ResourceDto
         {
             Name = name,
@@ -157,15 +154,10 @@ internal sealed class TelemetryGraphResources
                 Color = ColorGenerator.Instance.GetColorVariableByKey(name),
                 Tooltip = resourceKey.GetCompositeName()
             },
-            StateIcon = new IconDto
-            {
-                Path = ResourceGraphMapper.GetIconPathData(stateIcon),
-                Color = Color.Info.ToAttributeValue()!,
-                Tooltip = null
-            },
+            StateIcon = null,
             ReferencedNames = referencedNames.Distinct(StringComparers.ResourceName).Order(StringComparers.ResourceName).ToImmutableArray(),
             EndpointUrl = null,
-            EndpointText = ControlsStrings.ResourceGraphNoEndpoints
+            EndpointText = null
         };
     }
 }
