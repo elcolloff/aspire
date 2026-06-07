@@ -583,6 +583,10 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
             _disposing = true;
             if (innerHost is IAsyncDisposable asyncDisposable)
             {
+                // The factory disposal token is canceled before the app is disposed. Using it here
+                // cancels host disposal before DI can dispose singleton services registered by the AppHost.
+                // The outer DistributedApplicationFactory.DisposeAsync path already bounds app disposal
+                // with the configured shutdown timeout.
                 await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             }
             else
