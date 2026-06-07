@@ -43,6 +43,7 @@ internal static class KnownConfigNames
     public const string AppHostLogLevel = "ASPIRE_APPHOST_LOGLEVEL";
     public const string AspireLogLevel = "ASPIRE_LOGLEVEL";
     public const string TestingDisableHttpClient = "ASPIRE_TESTING_DISABLE_HTTP_CLIENT";
+    public const string TestingIsolateUserSecrets = "ASPIRE_TESTING_ISOLATE_USER_SECRETS";
     public const string InteractivityEnabled = "ASPIRE_INTERACTIVITY_ENABLED";
     public const string EnableContainerTunnel = "ASPIRE_ENABLE_CONTAINER_TUNNEL";
     public const string AspireUserSecretsId = "ASPIRE_USER_SECRETS_ID";

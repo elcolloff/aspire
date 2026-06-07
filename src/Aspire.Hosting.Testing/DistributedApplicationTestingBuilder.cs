@@ -112,7 +112,15 @@ public static class DistributedApplicationTestingBuilder
         ArgumentNullException.ThrowIfNull(configureBuilder, nameof(configureBuilder));
 
         var factory = new SuspendingDistributedApplicationFactory(entryPoint, args, configureBuilder);
-        return await factory.CreateBuilderAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await factory.CreateBuilderAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await factory.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     /// <summary>
@@ -175,6 +183,17 @@ public static class DistributedApplicationTestingBuilder
                 }
                 throw new ArgumentException($"Array params contains empty item: [{values}]", nameof(args));
             }
+        }
+    }
+
+    private static void DisposeFileSystemService(IDistributedApplicationBuilder builder)
+    {
+        // FileSystemService owns temp directories allocated before the host is built. It isn't
+        // guaranteed to be resolved by the host service provider in builder-only tests, so dispose it
+        // explicitly as a fallback to clean temp-backed user secrets.
+        if (builder.FileSystemService is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 
@@ -262,12 +281,26 @@ public static class DistributedApplicationTestingBuilder
 
             public void Dispose()
             {
-                factory.Dispose();
+                try
+                {
+                    factory.Dispose();
+                }
+                finally
+                {
+                    DisposeFileSystemService(innerBuilder);
+                }
             }
 
             public async ValueTask DisposeAsync()
             {
-                await factory.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    await factory.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    DisposeFileSystemService(innerBuilder);
+                }
             }
         }
 
@@ -321,19 +354,23 @@ public static class DistributedApplicationTestingBuilder
         }
     }
 
-    private sealed class TestingBuilder(
-        string[] args,
-        Action<DistributedApplicationOptions, HostApplicationBuilderSettings> configureBuilder,
-        Assembly? appHostAssembly = null)
-        : IDistributedApplicationTestingBuilder
+    private sealed class TestingBuilder : IDistributedApplicationTestingBuilder
     {
-        private readonly DistributedApplicationBuilder _innerBuilder = CreateInnerBuilder(args, configureBuilder, appHostAssembly);
+        private readonly DistributedApplicationBuilder _innerBuilder;
         private DistributedApplication? _app;
+
+        public TestingBuilder(
+            string[] args,
+            Action<DistributedApplicationOptions, HostApplicationBuilderSettings> configureBuilder,
+            Assembly? appHostAssembly = null)
+        {
+            _innerBuilder = CreateInnerBuilder(args, configureBuilder, appHostAssembly);
+        }
 
         private static DistributedApplicationBuilder CreateInnerBuilder(
             string[] args,
             Action<DistributedApplicationOptions, HostApplicationBuilderSettings> configureBuilder,
-            Assembly? appHostAssembly = null)
+            Assembly? appHostAssembly)
         {
             var builder = TestingBuilderFactory.CreateBuilder(args, onConstructing: (applicationOptions, hostBuilderOptions) =>
             {
@@ -420,41 +457,55 @@ public static class DistributedApplicationTestingBuilder
 
         public void Dispose()
         {
-            if (_app is null)
+            try
             {
-                try
+                if (_app is null)
                 {
-                    Build();
+                    try
+                    {
+                        Build();
+                    }
+                    catch
+                    {
+                        // Suppress.
+                    }
                 }
-                catch
+
+                if (_app is { } app)
                 {
-                    // Suppress.
+                    app.Dispose();
                 }
             }
-
-            if (_app is { } app)
+            finally
             {
-                app.Dispose();
+                DisposeFileSystemService(_innerBuilder);
             }
         }
 
         public async ValueTask DisposeAsync()
         {
-            if (_app is null)
+            try
             {
-                try
+                if (_app is null)
                 {
-                    Build();
+                    try
+                    {
+                        Build();
+                    }
+                    catch
+                    {
+                        // Suppress.
+                    }
                 }
-                catch
+
+                if (_app is IAsyncDisposable asyncDisposable)
                 {
-                    // Suppress.
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
                 }
             }
-
-            if (_app is IAsyncDisposable asyncDisposable)
+            finally
             {
-                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                DisposeFileSystemService(_innerBuilder);
             }
         }
     }

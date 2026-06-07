@@ -202,8 +202,17 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         _innerBuilder = new HostApplicationBuilder(innerBuilderOptions);
 
         var configuredUserSecretsId = _innerBuilder.Configuration[KnownConfigNames.AspireUserSecretsId];
+        var assemblyUserSecretsId = AppHostAssembly?.GetCustomAttribute<UserSecretsIdAttribute>()?.UserSecretsId;
         var userSecretsId = ResolveUserSecretsId(AppHostAssembly, _innerBuilder.Configuration);
-        AddConfiguredUserSecrets(_innerBuilder.Configuration, AppHostAssembly, configuredUserSecretsId, _innerBuilder.Environment.IsDevelopment());
+        var isolateUserSecrets = _innerBuilder.Configuration.GetValue(KnownConfigNames.TestingIsolateUserSecrets, false);
+        if (isolateUserSecrets)
+        {
+            RemoveUserSecretsSource(_innerBuilder.Configuration, assemblyUserSecretsId);
+        }
+        else
+        {
+            AddConfiguredUserSecrets(_innerBuilder.Configuration, AppHostAssembly, configuredUserSecretsId, _innerBuilder.Environment.IsDevelopment());
+        }
 
         _innerBuilder.Services.AddSingleton(TimeProvider.System);
 
@@ -340,12 +349,28 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
             return _directoryService;
         });
 
-        // Create and register the user secrets manager (uses the userSecretsId resolved at top of constructor)
+        // Create and register the user secrets manager. Testing builders redirect this to a temp-backed
+        // store so parallel AppHost instances don't share generated parameter writes.
         var userSecretsFactory = new UserSecretsManagerFactory(_directoryService);
 
-        _userSecretsManager = !string.IsNullOrEmpty(userSecretsId)
-            ? userSecretsFactory.GetOrCreateFromId(userSecretsId)
-            : NoopUserSecretsManager.Instance;
+        if (isolateUserSecrets && !string.IsNullOrEmpty(userSecretsId))
+        {
+            var tempUserSecretsDirectory = _directoryService.TempDirectory.CreateTempSubdirectory("aspire-testing-usersecrets");
+            var tempUserSecretsFilePath = Path.Combine(tempUserSecretsDirectory.Path, UserSecretsPathHelper.SecretsFileName);
+
+            if (_innerBuilder.Environment.IsDevelopment())
+            {
+                _innerBuilder.Configuration.AddJsonFile(tempUserSecretsFilePath, optional: true, reloadOnChange: false);
+            }
+
+            _userSecretsManager = userSecretsFactory.GetOrCreate(tempUserSecretsFilePath);
+        }
+        else
+        {
+            _userSecretsManager = !string.IsNullOrEmpty(userSecretsId)
+                ? userSecretsFactory.GetOrCreateFromId(userSecretsId)
+                : NoopUserSecretsManager.Instance;
+        }
 
         // Always register IUserSecretsManager so dependencies can resolve
         _innerBuilder.Services.AddSingleton(_userSecretsManager);
