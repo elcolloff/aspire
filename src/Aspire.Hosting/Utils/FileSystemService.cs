@@ -12,7 +12,7 @@ namespace Aspire.Hosting;
 /// <summary>
 /// Default implementation of <see cref="IFileSystemService"/>.
 /// </summary>
-internal sealed class FileSystemService : IFileSystemService, IDisposable
+internal sealed class FileSystemService : IFileSystemService, IDisposable, IAsyncDisposable
 {
     private readonly TempFileSystemService _tempDirectory;
     private ILogger? _logger;
@@ -122,6 +122,12 @@ internal sealed class FileSystemService : IFileSystemService, IDisposable
                 _logger?.LogWarning(ex, "Failed to clean up temporary item");
             }
         }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
