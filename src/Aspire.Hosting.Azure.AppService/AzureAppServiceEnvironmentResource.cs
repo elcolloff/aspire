@@ -3,6 +3,7 @@
 
 #pragma warning disable ASPIREPIPELINES001
 #pragma warning disable ASPIREAZURE001
+#pragma warning disable ASPIREAZURE003 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -199,6 +200,17 @@ public class AzureAppServiceEnvironmentResource :
             this,
             services);
 
+        // Deployment prerequisites such as the AcrPull role assignment are owned by the environment,
+        // not by each generated website.
+        // AzureBicepResource.References is the infrastructure dependency list used for module ordering;
+        // add them here and to every deployment target so image push/deploy steps wait for the
+        // environment-level infrastructure they need.
+        var environmentDeploymentPrerequisites = GetEnvironmentDeploymentPrerequisites();
+        foreach (var prerequisite in environmentDeploymentPrerequisites)
+        {
+            References.Add(prerequisite);
+        }
+
         // Annotate the environment with its context
         Annotations.Add(new AzureAppServiceEnvironmentContextAnnotation(appServiceEnvironmentContext));
 
@@ -217,6 +229,7 @@ public class AzureAppServiceEnvironmentResource :
                 continue;
             }
 
+            AddDeploymentPrerequisites(resource, environmentDeploymentPrerequisites);
             var website = await appServiceEnvironmentContext.CreateAppServiceAsync(resource, provisioningOptions.Value, cancellationToken).ConfigureAwait(false);
 
             resource.Annotations.Add(new DeploymentTargetAnnotation(website)
@@ -228,6 +241,35 @@ public class AzureAppServiceEnvironmentResource :
 
         // Log once about all HTTP endpoints upgraded to HTTPS
         appServiceEnvironmentContext.LogHttpsUpgradeIfNeeded();
+    }
+
+    private IReadOnlySet<AzureBicepResource> GetEnvironmentDeploymentPrerequisites()
+    {
+        if (!this.TryGetAnnotationsOfType<DeploymentPrerequisitesAnnotation>(out var prerequisiteAnnotations))
+        {
+            return new HashSet<AzureBicepResource>();
+        }
+
+        return prerequisiteAnnotations.SelectMany(a => a.Resources).ToHashSet();
+    }
+
+    private static void AddDeploymentPrerequisites(IResource resource, IReadOnlySet<AzureBicepResource> prerequisites)
+    {
+        if (prerequisites.Count == 0)
+        {
+            return;
+        }
+
+        var newPrerequisites = prerequisites.ToHashSet();
+        if (resource.TryGetAnnotationsOfType<DeploymentPrerequisitesAnnotation>(out var existingAnnotations))
+        {
+            newPrerequisites.ExceptWith(existingAnnotations.SelectMany(a => a.Resources));
+        }
+
+        if (newPrerequisites.Count > 0)
+        {
+            resource.Annotations.Add(new DeploymentPrerequisitesAnnotation(newPrerequisites));
+        }
     }
 
     private async Task PrintDashboardUrlAsync(PipelineStepContext context)

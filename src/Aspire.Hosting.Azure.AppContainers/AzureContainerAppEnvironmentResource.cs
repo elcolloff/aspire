@@ -199,6 +199,17 @@ public class AzureContainerAppEnvironmentResource :
             this,
             services);
 
+        // Deployment prerequisites such as the AcrPull role assignment are owned by the environment,
+        // not by each generated container app.
+        // AzureBicepResource.References is the infrastructure dependency list used for module ordering;
+        // add them here and to every deployment target so image push/deploy steps wait for the
+        // environment-level infrastructure they need.
+        var environmentDeploymentPrerequisites = GetEnvironmentDeploymentPrerequisites();
+        foreach (var prerequisite in environmentDeploymentPrerequisites)
+        {
+            References.Add(prerequisite);
+        }
+
         foreach (var r in appModel.GetComputeResources())
         {
             // Skip resources that are explicitly targeted to a different compute environment
@@ -208,6 +219,7 @@ public class AzureContainerAppEnvironmentResource :
                 continue;
             }
 
+            AddDeploymentPrerequisites(r, environmentDeploymentPrerequisites);
             var containerApp = await containerAppEnvironmentContext.CreateContainerAppAsync(r, options.Value, cancellationToken).ConfigureAwait(false);
 
             // Capture information about the container registry used by the
@@ -222,6 +234,35 @@ public class AzureContainerAppEnvironmentResource :
 
         // Log once about all HTTP endpoints upgraded to HTTPS
         containerAppEnvironmentContext.LogHttpsUpgradeIfNeeded();
+    }
+
+    private IReadOnlySet<AzureBicepResource> GetEnvironmentDeploymentPrerequisites()
+    {
+        if (!this.TryGetAnnotationsOfType<DeploymentPrerequisitesAnnotation>(out var prerequisiteAnnotations))
+        {
+            return new HashSet<AzureBicepResource>();
+        }
+
+        return prerequisiteAnnotations.SelectMany(a => a.Resources).ToHashSet();
+    }
+
+    private static void AddDeploymentPrerequisites(IResource resource, IReadOnlySet<AzureBicepResource> prerequisites)
+    {
+        if (prerequisites.Count == 0)
+        {
+            return;
+        }
+
+        var newPrerequisites = prerequisites.ToHashSet();
+        if (resource.TryGetAnnotationsOfType<DeploymentPrerequisitesAnnotation>(out var existingAnnotations))
+        {
+            newPrerequisites.ExceptWith(existingAnnotations.SelectMany(a => a.Resources));
+        }
+
+        if (newPrerequisites.Count > 0)
+        {
+            resource.Annotations.Add(new DeploymentPrerequisitesAnnotation(newPrerequisites));
+        }
     }
 
     internal bool UseAzdNamingConvention { get; set; }

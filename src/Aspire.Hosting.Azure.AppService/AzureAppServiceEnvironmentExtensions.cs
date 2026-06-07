@@ -14,7 +14,6 @@ using Azure.Provisioning.AppService;
 using Azure.Provisioning.ContainerRegistry;
 using Azure.Provisioning.Expressions;
 using Azure.Provisioning.OperationalInsights;
-using Azure.Provisioning.Roles;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aspire.Hosting;
@@ -24,6 +23,13 @@ namespace Aspire.Hosting;
 /// </summary>
 public static partial class AzureAppServiceEnvironmentExtensions
 {
+    private static readonly IReadOnlySet<RoleDefinition> s_acrPullRole = new HashSet<RoleDefinition>
+    {
+        new(
+            ContainerRegistryBuiltInRole.AcrPull.ToString(),
+            ContainerRegistryBuiltInRole.GetBuiltInRoleName(ContainerRegistryBuiltInRole.AcrPull))
+    };
+
     internal static IDistributedApplicationBuilder AddAzureAppServiceInfrastructureCore(this IDistributedApplicationBuilder builder)
     {
         builder.AddAzureProvisioning();
@@ -107,30 +113,16 @@ public static partial class AzureAppServiceEnvironmentExtensions
 
             infra.Add(tags);
 
-            UserAssignedIdentity? newIdentity = null;
             BicepValue<string> managedIdentityIdOutputValue;
             BicepValue<string> managedIdentityClientIdOutputValue;
 
-            if (resource.TryGetLastAnnotation<AzureAppServiceEnvironmentAcrPullIdentityAnnotation>(out var identityAnnotation))
+            if (!resource.TryGetLastAnnotation<AzureAppServiceEnvironmentAcrPullIdentityAnnotation>(out var identityAnnotation))
             {
-                // The user has supplied an existing identity (commonly via AddAzureUserAssignedIdentity +
-                // .WithRoleAssignments(acr, AcrPull)). Skip creating env_mi + the AcrPull role assignment
-                // here and have the env module read the identity id/client id from parameters wired to the
-                // identity module's outputs.
-                managedIdentityIdOutputValue = identityAnnotation.Identity.Id.AsProvisioningParameter(infra);
-                managedIdentityClientIdOutputValue = identityAnnotation.Identity.ClientId.AsProvisioningParameter(infra);
+                throw new InvalidOperationException($"No ACR pull identity associated with environment '{resource.Name}'. This should have been added automatically.");
             }
-            else
-            {
-                newIdentity = new UserAssignedIdentity($"{prefix}_mi")
-                {
-                    Tags = tags
-                };
 
-                infra.Add(newIdentity);
-                managedIdentityIdOutputValue = newIdentity.Id.ToBicepExpression();
-                managedIdentityClientIdOutputValue = newIdentity.ClientId.ToBicepExpression();
-            }
+            managedIdentityIdOutputValue = identityAnnotation.Identity.Id.AsProvisioningParameter(infra);
+            managedIdentityClientIdOutputValue = identityAnnotation.Identity.ClientId.AsProvisioningParameter(infra);
 
             AzureProvisioningResource? registry = null;
             if (resource.TryGetLastAnnotation<ContainerRegistryReferenceAnnotation>(out var registryReferenceAnnotation) &&
@@ -150,15 +142,6 @@ public static partial class AzureAppServiceEnvironmentExtensions
 
             var containerRegistry = (ContainerRegistryService)registry.AddAsExistingResource(infra);
             infra.Add(containerRegistry);
-
-            if (newIdentity is not null)
-            {
-                var pullRa = containerRegistry.CreateRoleAssignment(ContainerRegistryBuiltInRole.AcrPull, newIdentity);
-
-                // There's a bug in the CDK, see https://github.com/Azure/azure-sdk-for-net/issues/47265
-                pullRa.Name = BicepFunction.CreateGuid(containerRegistry.Id, newIdentity.Id, pullRa.RoleDefinitionId);
-                infra.Add(pullRa);
-            }
 
             AppServicePlan plan;
             if (resource.IsExisting())
@@ -291,6 +274,18 @@ public static partial class AzureAppServiceEnvironmentExtensions
         {
             DefaultContainerRegistry = defaultRegistry
         };
+        if (builder.ExecutionContext.IsPublishMode)
+        {
+            // The environment module needs the ACR-pull identity id/client id as input parameters, so the
+            // identity must exist in the model before the module Bicep is generated. The AcrPull role
+            // itself is declared as a deferred RoleAssignmentAnnotation so the preparer can emit it as a
+            // correctly scoped role-assignment module after WithAzureContainerRegistry has had a chance
+            // to replace the default registry.
+            var acrPullIdentity = CreateDefaultAcrPullIdentity(builder, name);
+            resource.Annotations.Add(new AzureAppServiceEnvironmentAcrPullIdentityAnnotation(acrPullIdentity, assignAcrPullRole: true));
+            resource.Annotations.Add(new AppIdentityAnnotation(acrPullIdentity));
+            resource.Annotations.Add(new RoleAssignmentAnnotation(() => GetContainerRegistryForGeneratedAcrPullRole(resource), s_acrPullRole));
+        }
 
         // Create the resource builder first, then attach the registry to avoid recreating builders
         var appServiceEnvBuilder = builder.ExecutionContext.IsPublishMode
@@ -534,9 +529,88 @@ public static partial class AzureAppServiceEnvironmentExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(identityBuilder);
 
-        builder.WithAnnotation(new AzureAppServiceEnvironmentAcrPullIdentityAnnotation(identityBuilder.Resource));
+        RemoveGeneratedAcrPullIdentity(builder);
+        builder.WithAnnotation(
+            new AzureAppServiceEnvironmentAcrPullIdentityAnnotation(identityBuilder.Resource, assignAcrPullRole: false),
+            ResourceAnnotationMutationBehavior.Replace);
 
         return builder;
+    }
+
+    private static void RemoveGeneratedAcrPullIdentity(IResourceBuilder<AzureAppServiceEnvironmentResource> builder)
+    {
+        if (!builder.Resource.TryGetLastAnnotation<AzureAppServiceEnvironmentAcrPullIdentityAnnotation>(out var identityAnnotation) ||
+            !identityAnnotation.AssignAcrPullRole)
+        {
+            return;
+        }
+
+        foreach (var appIdentityAnnotation in builder.Resource.Annotations.OfType<AppIdentityAnnotation>()
+                     .Where(a => a.IdentityResource == identityAnnotation.Identity)
+                     .ToArray())
+        {
+            builder.Resource.Annotations.Remove(appIdentityAnnotation);
+        }
+
+        // WithAcrPullIdentity means the caller owns the identity and its AcrPull permission. Remove the
+        // hidden identity from the model and let the deferred RoleAssignmentAnnotation resolve to null
+        // through the replacement AzureAppServiceEnvironmentAcrPullIdentityAnnotation.
+        builder.ApplicationBuilder.Resources.Remove(identityAnnotation.Identity);
+    }
+
+    private static AzureProvisioningResource? GetContainerRegistryForGeneratedAcrPullRole(AzureAppServiceEnvironmentResource environment)
+    {
+        if (!environment.TryGetLastAnnotation<AzureAppServiceEnvironmentAcrPullIdentityAnnotation>(out var identityAnnotation) ||
+            !identityAnnotation.AssignAcrPullRole)
+        {
+            return null;
+        }
+
+        // Resolve the registry late because WithAzureContainerRegistry can replace the default registry
+        // after AddAzureAppServiceEnvironment creates the annotation.
+        return GetContainerRegistryForAcrPullRole(environment);
+    }
+
+    private static AzureProvisioningResource GetContainerRegistryForAcrPullRole(AzureAppServiceEnvironmentResource environment)
+    {
+        if (environment.TryGetLastAnnotation<ContainerRegistryReferenceAnnotation>(out var registryReferenceAnnotation))
+        {
+            if (registryReferenceAnnotation.Registry is AzureProvisioningResource explicitRegistry)
+            {
+                return explicitRegistry;
+            }
+
+            throw new InvalidOperationException($"The container registry associated with environment '{environment.Name}' is not an Azure Container Registry.");
+        }
+
+        return environment.DefaultContainerRegistry ??
+            throw new InvalidOperationException($"No container registry associated with environment '{environment.Name}'. This should have been added automatically.");
+    }
+
+    private static AzureUserAssignedIdentityResource CreateDefaultAcrPullIdentity(IDistributedApplicationBuilder builder, string environmentName)
+    {
+        var identity = new AzureUserAssignedIdentityResource(GetUniqueAcrPullIdentityName(builder, environmentName));
+        builder.AddResource(identity);
+
+        return identity;
+    }
+
+    private static string GetUniqueAcrPullIdentityName(IDistributedApplicationBuilder builder, string environmentName)
+    {
+        var baseName = $"{environmentName}-acr-pull-identity";
+        if (!builder.Resources.TryGetByName(baseName, out _))
+        {
+            return baseName;
+        }
+
+        for (var i = 2; ; i++)
+        {
+            var candidate = $"{baseName}-{i}";
+            if (!builder.Resources.TryGetByName(candidate, out _))
+            {
+                return candidate;
+            }
+        }
     }
 
     private static AzureContainerRegistryResource CreateDefaultAzureContainerRegistry(IDistributedApplicationBuilder builder, string name)
