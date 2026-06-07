@@ -354,6 +354,30 @@ public class AzureFunctionsTests
     }
 
     [Fact]
+    public async Task AddAzureFunctionsApp_RemoveDefaultHostStorageWhenUseHostStorageIsUsed()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var storage = builder.AddAzureStorage("my-own-storage").RunAsEmulator();
+        var funcApp = builder.AddAzureFunctionsApp("funcapp", tempDir.Path, AzureFunctionsLanguage.TypeScript)
+            .WithHostStorage(storage);
+
+        using var app = builder.Build();
+
+        await ExecuteBeforeStartHooksAsync(app, default);
+
+        Assert.DoesNotContain(builder.Resources.OfType<AzureStorageResource>(),
+            r => r.Name.StartsWith(AzureFunctionsProjectResourceExtensions.DefaultAzureFunctionsHostStorageName));
+        var storageResource = Assert.Single(builder.Resources.OfType<AzureStorageResource>());
+        Assert.Equal("my-own-storage", storageResource.Name);
+
+        Assert.True(funcApp.Resource.TryGetAnnotationsOfType<ResourceRelationshipAnnotation>(out var relAnnotations));
+        var rel = Assert.Single(relAnnotations);
+        Assert.Equal("Reference", rel.Type);
+        Assert.Equal(storage.Resource, rel.Resource);
+    }
+
+    [Fact]
     public async Task AddAzureFunctionsApp_ConfiguresNodeWorkerEnvironment()
     {
         using var tempDir = new TestTempDirectory();
@@ -525,6 +549,26 @@ public class AzureFunctionsTests
     }
 
     [Fact]
+    public async Task AddAzureFunctionsApp_UsesExistingDockerfileWhenPresent()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputPath: tempDir.Path).WithResourceCleanUp(true);
+        var appDirectory = CreateNodeFunctionsAppDirectory(tempDir.Path, includePackageLock: true);
+        File.WriteAllText(Path.Combine(appDirectory, "Dockerfile"), "FROM custom-functions-image\n");
+
+        var funcApp = builder.AddAzureFunctionsApp("funcapp", appDirectory, AzureFunctionsLanguage.TypeScript);
+
+        var manifest = await ManifestUtils.GetManifest(funcApp.Resource, tempDir.Path);
+
+        Assert.Equal("functions", manifest["build"]?["context"]?.GetValue<string>());
+        Assert.Equal("functions/Dockerfile", manifest["build"]?["dockerfile"]?.GetValue<string>());
+        Assert.False(File.Exists(Path.Combine(tempDir.Path, "funcapp.Dockerfile")));
+
+        var dockerBuildAnnotation = funcApp.Resource.Annotations.OfType<DockerfileBuildAnnotation>().Single();
+        Assert.Null(dockerBuildAnnotation.BuildContextIgnoreContent);
+    }
+
+    [Fact]
     public async Task AddAzureFunctionsApp_WorksWithAddAzureContainerAppsInfrastructure()
     {
         using var tempDir = new TestTempDirectory();
@@ -547,7 +591,7 @@ public class AzureFunctionsTests
     }
 
     [Fact]
-    public void AddAzureFunctionsApp_AddsRequiredCommandAnnotations()
+    public void AddAzureFunctionsApp_AddsTypeScriptRequiredCommandAnnotations()
     {
         using var tempDir = new TestTempDirectory();
         using var builder = TestDistributedApplicationBuilder.Create();
@@ -556,8 +600,22 @@ public class AzureFunctionsTests
 
         var commands = funcApp.Resource.Annotations.OfType<RequiredCommandAnnotation>().Select(a => a.Command).ToArray();
 
-        Assert.Contains("func", commands);
         Assert.Contains("npm", commands);
+        Assert.DoesNotContain("func", commands);
+    }
+
+    [Fact]
+    public void AddAzureFunctionsApp_AddsJavaScriptRequiredCommandAnnotations()
+    {
+        using var tempDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var funcApp = builder.AddAzureFunctionsApp("funcapp", tempDir.Path, AzureFunctionsLanguage.JavaScript);
+
+        var commands = funcApp.Resource.Annotations.OfType<RequiredCommandAnnotation>().Select(a => a.Command).ToArray();
+
+        Assert.Contains("func", commands);
+        Assert.DoesNotContain("npm", commands);
     }
 
     [Fact]

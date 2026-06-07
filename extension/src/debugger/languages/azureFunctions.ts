@@ -303,7 +303,9 @@ export const azureFunctionsNodeDebuggerExtension: ResourceDebuggerExtension = {
         debugConfiguration.restart = true;
         debugConfiguration.sourceMaps = true;
         debugConfiguration.continueOnAttach = true;
-        debugConfiguration.outFiles = [path.join(launchConfig.app_directory, 'dist/**/*.js')];
+        if (launchConfig.language === 'typescript' && debugConfiguration.outFiles === undefined) {
+            debugConfiguration.outFiles = [path.join(launchConfig.app_directory, 'dist/**/*.js')];
+        }
         debugConfiguration.resolveSourceMapLocations = ['**', '!**/node_modules/**'];
         debugConfiguration.cwd = launchConfig.app_directory;
 

@@ -181,7 +181,9 @@ public static class AzureFunctionsProjectResourceExtensions
     /// This overload is intended for Azure Functions apps that do not have a .NET project file, such as
     /// TypeScript and JavaScript apps that run on the Node language worker. TypeScript apps are launched
     /// through <c>npm run start</c> so the standard Core Tools generated <c>prestart</c> script can build
-    /// the app before the Functions host starts.
+    /// the app before the Functions host starts. The <c>start</c> script should resolve Azure Functions
+    /// Core Tools from the app's local npm dependencies, for example by depending on the
+    /// <c>azure-functions-core-tools</c> package.
     /// </para>
     /// <para>
     /// By default, an implicit Azure Storage account is provisioned to be used as host storage for the Functions runtime.
@@ -291,11 +293,13 @@ public static class AzureFunctionsProjectResourceExtensions
             }, NodeFunctionsLaunchConfigurationType);
 #pragma warning restore ASPIREEXTENSION001
 
-            functionsBuilder.WithRequiredCommand("func", AzureFunctionsCoreToolsHelpLink);
-
             if (resource.Language is AzureFunctionsLanguage.TypeScript)
             {
                 functionsBuilder.WithRequiredCommand("npm", "https://docs.npmjs.com/downloading-and-installing-node-js-and-npm");
+            }
+            else
+            {
+                functionsBuilder.WithRequiredCommand("func", AzureFunctionsCoreToolsHelpLink);
             }
         }
 
@@ -497,7 +501,7 @@ public static class AzureFunctionsProjectResourceExtensions
     /// <param name="builder">The resource builder for the Azure Functions app resource.</param>
     /// <param name="storage">The resource builder for the Azure Storage resource to be used as host storage.</param>
     /// <returns>The resource builder for the Azure Functions app resource, configured with the specified host storage.</returns>
-    [AspireExportIgnore(Reason = "This overload collides with the AzureFunctionsProjectResource WithHostStorage export in ATS.")]
+    [AspireExport("withAzureFunctionsAppHostStorage", MethodName = "withHostStorage")]
     public static IResourceBuilder<AzureFunctionsAppResource> WithHostStorage(this IResourceBuilder<AzureFunctionsAppResource> builder, IResourceBuilder<AzureStorageResource> storage)
     {
         ArgumentNullException.ThrowIfNull(builder);

@@ -32,6 +32,8 @@ const nodeFuncApp = await builder.addAzureFunctionsApp(
     "../NodeFunctions",
     AzureFunctionsLanguage.TypeScript,
 );
-await nodeFuncApp.withReference(anotherStorage);
+await nodeFuncApp
+    .withHostStorage(storage)
+    .withReference(anotherStorage);
 
 await builder.build().run();

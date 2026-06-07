@@ -95,6 +95,57 @@ suite('Azure Functions Node Debugger Tests', () => {
         assert.strictEqual(debugConfig.env?.languageWorkers__node__arguments, undefined);
     });
 
+    test('does not force compiled outFiles for JavaScript functions apps', async () => {
+        const taskExecution = { terminate: sinon.spy() } as unknown as vscode.TaskExecution;
+        sinon.stub(vscode.tasks, 'executeTask').resolves(taskExecution);
+        const launchConfig: AzureFunctionsNodeLaunchConfiguration = {
+            type: 'azure-functions-node',
+            app_directory: '/workspace/functions',
+            command: 'func',
+            language: 'javascript',
+            worker_runtime: 'node'
+        };
+        const debugConfig = createDebugConfig();
+
+        await azureFunctionsNodeDebuggerExtension.createDebugSessionConfigurationCallback!(
+            launchConfig,
+            ['host', 'start', '--port', '7071'],
+            [{ name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }],
+            { debug: true, runId: '1', debugSessionId: '1', isApphost: false, debugSession: fakeAspireDebugSession },
+            debugConfig
+        );
+
+        assert.strictEqual(debugConfig.outFiles, undefined);
+
+        cleanupRun(debugConfig.runId);
+    });
+
+    test('preserves configured TypeScript outFiles', async () => {
+        const taskExecution = { terminate: sinon.spy() } as unknown as vscode.TaskExecution;
+        sinon.stub(vscode.tasks, 'executeTask').resolves(taskExecution);
+        const launchConfig: AzureFunctionsNodeLaunchConfiguration = {
+            type: 'azure-functions-node',
+            app_directory: '/workspace/functions',
+            command: 'npm',
+            language: 'typescript',
+            worker_runtime: 'node'
+        };
+        const debugConfig = createDebugConfig();
+        debugConfig.outFiles = [path.join('/workspace/functions', 'build/**/*.js')];
+
+        await azureFunctionsNodeDebuggerExtension.createDebugSessionConfigurationCallback!(
+            launchConfig,
+            ['run', 'start', '--', '--port', '7071'],
+            [{ name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }],
+            { debug: true, runId: '1', debugSessionId: '1', isApphost: false, debugSession: fakeAspireDebugSession },
+            debugConfig
+        );
+
+        assert.deepStrictEqual(debugConfig.outFiles, [path.join('/workspace/functions', 'build/**/*.js')]);
+
+        cleanupRun(debugConfig.runId);
+    });
+
     test('rejects invalid node functions launch configuration', async () => {
         const launchConfig: AzureFunctionsNodeLaunchConfiguration = {
             type: 'azure-functions-node',
