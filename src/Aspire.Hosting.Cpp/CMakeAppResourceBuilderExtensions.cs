@@ -24,8 +24,12 @@ public static class CMakeAppResourceBuilderExtensions
     private const string DefaultRunBuildType = "Debug";
     private const string DefaultPublishBuildType = "Release";
     private const string DefaultCMakeHelpLink = "https://cmake.org/download/";
+    private const string DefaultVcpkgHelpLink = "https://vcpkg.io/";
     private const string DefaultBuildImage = "debian:bookworm";
     private const string DefaultRuntimeImage = "debian:bookworm-slim";
+    private const string VcpkgCommand = "vcpkg";
+    private const string DockerVcpkgRoot = "/opt/vcpkg";
+    private const string DockerVcpkgToolchainFile = "/opt/vcpkg/scripts/buildsystems/vcpkg.cmake";
 
     /// <summary>
     /// Adds a C++ application built with CMake to the application model.
@@ -138,11 +142,24 @@ public static class CMakeAppResourceBuilderExtensions
                     var publishBuildType = GetBuildType(resource, DefaultPublishBuildType);
                     var targetName = resource.TargetName;
                     var executableName = GetDockerExecutableFileName(targetName);
+                    var usesVcpkg = resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _);
+                    var buildPackages = usesVcpkg
+                        ? "build-essential cmake ninja-build ca-certificates git curl zip unzip tar pkg-config"
+                        : "build-essential cmake ninja-build ca-certificates";
 
                     var buildStage = context.Builder
                         .From(buildImage, "build")
                         .WorkDir("/src")
-                        .Run("apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build ca-certificates && rm -rf /var/lib/apt/lists/*")
+                        .Run($"apt-get update && apt-get install -y --no-install-recommends {buildPackages} && rm -rf /var/lib/apt/lists/*");
+
+                    if (usesVcpkg)
+                    {
+                        buildStage
+                            .Run($"git clone --depth=1 https://github.com/microsoft/vcpkg {DockerVcpkgRoot} && {DockerVcpkgRoot}/bootstrap-vcpkg.sh -disableMetrics")
+                            .Env("VCPKG_ROOT", DockerVcpkgRoot);
+                    }
+
+                    buildStage
                         .Copy(".", ".")
                         .RunWithMounts(
                             BuildDockerConfigureCommand(resource, publishBuildType),
@@ -263,6 +280,55 @@ public static class CMakeAppResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Configures the CMake application to use vcpkg for dependency resolution.
+    /// </summary>
+    /// <typeparam name="T">The type of the CMake application resource.</typeparam>
+    /// <param name="builder">The resource builder for the CMake application.</param>
+    /// <param name="vcpkgRoot">
+    /// The path to the local vcpkg root. When <see langword="null"/> in run mode, the <c>VCPKG_ROOT</c>
+    /// environment variable is used.
+    /// </param>
+    /// <param name="helpLink">An optional URL shown to users when the local vcpkg command is missing.</param>
+    /// <returns>A reference to the <see cref="IResourceBuilder{T}"/> for chaining.</returns>
+    /// <ats-returns>The resource builder.</ats-returns>
+    /// <remarks>
+    /// <para>
+    /// In run mode, this method adds the local vcpkg CMake toolchain file to the configure command and
+    /// declares the <c>vcpkg</c> command as a required build tool. In publish mode, generated Dockerfiles
+    /// bootstrap vcpkg inside the build image and use the container-local toolchain path.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// Use vcpkg manifest mode for a CMake application:
+    /// <code lang="csharp">
+    /// builder.AddCMakeApp("api", "../cpp-api", targetName: "api")
+    ///        .WithVcpkg()
+    ///        .WithHttpEndpoint(env: "PORT");
+    /// </code>
+    /// </example>
+    [AspireExport]
+    public static IResourceBuilder<T> WithVcpkg<T>(this IResourceBuilder<T> builder, string? vcpkgRoot = null, string? helpLink = DefaultVcpkgHelpLink)
+        where T : CMakeAppResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (vcpkgRoot is not null)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(vcpkgRoot);
+        }
+
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            vcpkgRoot ??= Environment.GetEnvironmentVariable("VCPKG_ROOT")
+                ?? throw new InvalidOperationException("Set VCPKG_ROOT to the root of your vcpkg installation, or pass the vcpkg root path to WithVcpkg.");
+
+            builder.WithRequiredBuildTool(VcpkgCommand, helpLink);
+        }
+
+        return builder.WithAnnotation(new CMakeVcpkgAnnotation(vcpkgRoot), ResourceAnnotationMutationBehavior.Replace);
+    }
+
+    /// <summary>
     /// Configures the path to the executable produced by the CMake target.
     /// </summary>
     /// <typeparam name="T">The type of the CMake application resource.</typeparam>
@@ -366,9 +432,23 @@ public static class CMakeAppResourceBuilderExtensions
             args.Add($"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{configurationName.ToUpperInvariant()}={resource.RuntimeOutputDirectory}");
         }
 
+        var usesVcpkg = resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out var vcpkgAnnotation);
+        if (vcpkgAnnotation?.Root is not null)
+        {
+            args.Add($"-DCMAKE_TOOLCHAIN_FILE={GetVcpkgToolchainFile(vcpkgAnnotation.Root)}");
+        }
+
         if (resource.TryGetLastAnnotation<CMakeConfigureArgsAnnotation>(out var configureArgsAnnotation))
         {
-            AddRange(args, configureArgsAnnotation.Args);
+            foreach (var arg in configureArgsAnnotation.Args)
+            {
+                if (usesVcpkg && IsVcpkgToolchainFileArg(arg))
+                {
+                    continue;
+                }
+
+                args.Add(arg);
+            }
         }
     }
 
@@ -443,10 +523,21 @@ public static class CMakeAppResourceBuilderExtensions
             args.Add($"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{configurationName.ToUpperInvariant()}={runtimeOutputDirectory}");
         }
 
+        var usesVcpkg = resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _);
+        if (usesVcpkg)
+        {
+            args.Add($"-DCMAKE_TOOLCHAIN_FILE={DockerVcpkgToolchainFile}");
+        }
+
         if (resource.TryGetLastAnnotation<CMakeConfigureArgsAnnotation>(out var configureArgsAnnotation))
         {
             foreach (var arg in configureArgsAnnotation.Args)
             {
+                if (usesVcpkg && IsVcpkgToolchainFileArg(arg))
+                {
+                    continue;
+                }
+
                 args.Add(ShellQuote(arg));
             }
         }
@@ -476,6 +567,22 @@ public static class CMakeAppResourceBuilderExtensions
         }
 
         return string.Join(" ", args);
+    }
+
+    private static string GetVcpkgToolchainFile(string vcpkgRoot) =>
+        Path.Combine(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake");
+
+    private static bool IsVcpkgToolchainFileArg(string arg)
+    {
+        const string toolchainPrefix = "-DCMAKE_TOOLCHAIN_FILE=";
+
+        if (!arg.StartsWith(toolchainPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var toolchainPath = arg[toolchainPrefix.Length..].Replace('\\', '/');
+        return toolchainPath.EndsWith("/scripts/buildsystems/vcpkg.cmake", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

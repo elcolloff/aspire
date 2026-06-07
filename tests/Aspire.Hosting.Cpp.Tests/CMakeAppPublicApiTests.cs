@@ -174,6 +174,59 @@ public class CMakeAppPublicApiTests
         Assert.Contains(annotations, a => a.Command == "vcpkg");
     }
 
+    [Fact]
+    public void WithVcpkgShouldThrowWhenBuilderIsNull()
+    {
+        IResourceBuilder<CMakeAppResource> builder = null!;
+
+        var action = () => builder.WithVcpkg("/vcpkg");
+
+        var exception = Assert.Throws<ArgumentNullException>(action);
+        Assert.Equal(nameof(builder), exception.ParamName);
+    }
+
+    [Fact]
+    public void WithVcpkgShouldThrowWhenRootIsEmpty()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        var vcpkgRoot = string.Empty;
+
+        var action = () => builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithVcpkg(vcpkgRoot);
+
+        var exception = Assert.Throws<ArgumentException>(action);
+        Assert.Equal(nameof(vcpkgRoot), exception.ParamName);
+    }
+
+    [Fact]
+    public async Task WithVcpkgAddsRequiredCommandAndConfigureArgs()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
+        var vcpkgRoot = Path.Combine(builder.AppHostDirectory, "vcpkg");
+
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithVcpkg(vcpkgRoot);
+
+        Assert.True(app.Resource.TryGetAnnotationsOfType<RequiredCommandAnnotation>(out var annotations));
+        Assert.Contains(annotations, a => a.Command == "vcpkg" && a.HelpLink == "https://vcpkg.io/");
+
+        var configure = app.Resource.Annotations.OfType<CMakeConfigureResourceAnnotation>().Single().ResourceBuilder.Resource;
+        var args = await ArgumentEvaluator.GetArgumentListAsync(configure);
+        Assert.Contains($"-DCMAKE_TOOLCHAIN_FILE={Path.Combine(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake")}", args);
+    }
+
+    [Fact]
+    public void WithVcpkgDoesNotRequireLocalRootInPublishMode()
+    {
+        using var outputDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputDir.Path, step: "publish-manifest");
+
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithVcpkg();
+
+        Assert.True(app.Resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _));
+    }
+
     private static string GetExecutableFileName(string targetName) =>
         OperatingSystem.IsWindows() ? $"{targetName}.exe" : targetName;
 }

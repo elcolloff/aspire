@@ -80,6 +80,22 @@ public class AddCMakeAppTests
     }
 
     [Fact]
+    public async Task ConfigureResourceUsesVcpkgToolchainInRunMode()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
+        var vcpkgRoot = Path.Combine(builder.AppHostDirectory, "vcpkg");
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithVcpkg(vcpkgRoot)
+            .WithConfigureArgs($"-DCMAKE_TOOLCHAIN_FILE={Path.Combine(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake")}");
+
+        var configureBuilder = GetConfigureBuilder(app.Resource);
+        var args = await ArgumentEvaluator.GetArgumentListAsync(configureBuilder.Resource);
+
+        Assert.Single(args, arg => arg is string value && value.StartsWith("-DCMAKE_TOOLCHAIN_FILE=", StringComparison.Ordinal));
+        Assert.Contains($"-DCMAKE_TOOLCHAIN_FILE={Path.Combine(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake")}", args);
+    }
+
+    [Fact]
     public async Task BuildResourceBuildsSelectedTarget()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
@@ -194,6 +210,43 @@ public class AddCMakeAppTests
         builder.AddCMakeApp("api", sourceDir.Path, "api")
             .WithConfigureArgs("-DENABLE_HTTP=ON", "-DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake")
             .WithBuildArgs("--parallel", "4");
+
+        builder.Build().Run();
+
+        var content = await File.ReadAllTextAsync(Path.Combine(outputDir.Path, "api.Dockerfile"));
+
+        await Verify(content);
+    }
+
+    [Fact]
+    public async Task VerifyPublish_GeneratesVcpkgDockerfile()
+    {
+        using var sourceDir = new TestTempDirectory();
+        using var outputDir = new TestTempDirectory();
+
+        File.WriteAllText(Path.Combine(sourceDir.Path, "CMakeLists.txt"), """
+            cmake_minimum_required(VERSION 3.20)
+            project(api LANGUAGES CXX)
+            find_package(httplib CONFIG REQUIRED)
+            add_executable(api main.cpp)
+            target_link_libraries(api PRIVATE httplib::httplib)
+            """);
+        File.WriteAllText(Path.Combine(sourceDir.Path, "main.cpp"), "int main() { return 0; }");
+        File.WriteAllText(Path.Combine(sourceDir.Path, "vcpkg.json"), """
+            {
+              "dependencies": [
+                {
+                  "name": "cpp-httplib",
+                  "default-features": false
+                }
+              ]
+            }
+            """);
+
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputDir.Path, step: "publish-manifest");
+        builder.AddCMakeApp("api", sourceDir.Path, "api")
+            .WithVcpkg()
+            .WithConfigureArgs(@"-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake");
 
         builder.Build().Run();
 

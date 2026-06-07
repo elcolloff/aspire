@@ -25,6 +25,11 @@ internal sealed class CMakeBuildTypeAnnotation(string buildType) : IResourceAnno
     public string BuildType { get; } = buildType;
 }
 
+internal sealed class CMakeVcpkgAnnotation(string? root) : IResourceAnnotation
+{
+    public string? Root { get; } = root;
+}
+
 internal sealed class CMakeConfigureResourceAnnotation(IResourceBuilder<ExecutableResource> resourceBuilder) : IResourceAnnotation
 {
     public IResourceBuilder<ExecutableResource> ResourceBuilder { get; } = resourceBuilder;

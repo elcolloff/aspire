@@ -12,7 +12,7 @@
   <ItemGroup>
     <AspireProjectOrPackageReference Include="Aspire.Hosting.AppHost" />
     <AspireProjectOrPackageReference Include="Aspire.Hosting.Cpp" />
+    <AspireProjectOrPackageReference Include="Aspire.Hosting.Docker" />
   </ItemGroup>
 
 </Project>
-
