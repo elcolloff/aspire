@@ -55,6 +55,17 @@ internal sealed class UserSecretsManagerFactory
     }
 
     /// <summary>
+    /// Creates a user secrets manager backed by the specified temporary directory.
+    /// </summary>
+    public IUserSecretsManager CreateIsolated(TempDirectory directory)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+
+        var filePath = Path.Combine(directory.Path, UserSecretsPathHelper.SecretsFileName);
+        return new UserSecretsManager(filePath, _fileSystemService, directory);
+    }
+
+    /// <summary>
     /// Gets or creates a user secrets manager for the specified user secrets ID.
     /// </summary>
     public IUserSecretsManager GetOrCreateFromId(string? userSecretsId)
@@ -77,17 +88,19 @@ internal sealed class UserSecretsManagerFactory
         return GetOrCreateFromId(userSecretsId);
     }
 
-    private sealed class UserSecretsManager : IUserSecretsManager
+    private sealed class UserSecretsManager : IUserSecretsManager, IDisposable, IAsyncDisposable
     {
         private static readonly JsonSerializerOptions s_jsonSerializerOptions = new() { WriteIndented = true };
 
         private readonly SemaphoreSlim _semaphore = new(1, 1);
         private readonly IFileSystemService _fileSystemService;
+        private readonly TempDirectory? _ownedDirectory;
 
-        public UserSecretsManager(string filePath, IFileSystemService fileSystemService)
+        public UserSecretsManager(string filePath, IFileSystemService fileSystemService, TempDirectory? ownedDirectory = null)
         {
             FilePath = filePath;
             _fileSystemService = fileSystemService;
+            _ownedDirectory = ownedDirectory;
         }
 
         public bool IsAvailable => true;
@@ -174,6 +187,17 @@ internal sealed class UserSecretsManagerFactory
             {
                 _semaphore.Release();
             }
+        }
+
+        public void Dispose()
+        {
+            _ownedDirectory?.Dispose();
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
         }
 
         private void SetSecretCore(string name, string value)

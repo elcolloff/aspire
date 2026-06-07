@@ -356,16 +356,12 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         if (isolateUserSecrets && !string.IsNullOrEmpty(userSecretsId))
         {
             var tempUserSecretsDirectory = _directoryService.TempDirectory.CreateTempSubdirectory("aspire-testing-usersecrets");
-            var tempUserSecretsFilePath = Path.Combine(tempUserSecretsDirectory.Path, UserSecretsPathHelper.SecretsFileName);
+            _userSecretsManager = userSecretsFactory.CreateIsolated(tempUserSecretsDirectory);
 
             if (_innerBuilder.Environment.IsDevelopment())
             {
-                _innerBuilder.Configuration.AddJsonFile(tempUserSecretsFilePath, optional: true, reloadOnChange: false);
+                _innerBuilder.Configuration.AddJsonFile(_userSecretsManager.FilePath, optional: true, reloadOnChange: false);
             }
-
-            _userSecretsManager = new IsolatedUserSecretsManager(
-                userSecretsFactory.GetOrCreate(tempUserSecretsFilePath),
-                tempUserSecretsDirectory);
         }
         else
         {
