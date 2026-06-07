@@ -201,10 +201,11 @@ public class AzureAppServiceEnvironmentResource :
             services);
 
         // Deployment prerequisites such as the AcrPull role assignment are owned by the environment,
-        // not by each generated website.
-        // AzureBicepResource.References is the infrastructure dependency list used for module ordering;
-        // add them here and to every deployment target so image push/deploy steps wait for the
-        // environment-level infrastructure they need.
+        // not by each generated website. The role-assignment module does not produce a value that the
+        // environment or website Bicep naturally references, so there is no implicit data-flow dependency
+        // for Bicep to infer. References carries the explicit ordering edge: the environment module and
+        // each generated deployment target must wait for the environment-owned prerequisite modules before
+        // image push/deploy steps can rely on the permission being present.
         var environmentDeploymentPrerequisites = GetEnvironmentDeploymentPrerequisites();
         foreach (var prerequisite in environmentDeploymentPrerequisites)
         {
