@@ -250,6 +250,39 @@ public class TestingBuilderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void CreateDisposesIsolatedUserSecretsStoreWhenBuildFailsBeforeHostIsBuilt()
+    {
+        var sourceUserSecretsId = Guid.NewGuid().ToString();
+        var sourceManager = CreateUserSecretsManager(sourceUserSecretsId);
+        DeleteUserSecretsFile(sourceManager.FilePath);
+
+        string? isolatedUserSecretsFilePath = null;
+
+        try
+        {
+            using var builder = DistributedApplicationTestingBuilder.Create(
+                [$"{AspireUserSecretsIdConfigKey}={sourceUserSecretsId}"],
+                (_, _) => { },
+                typeof(Projects.TestingAppHost1_AppHost).Assembly);
+
+            var longName = new string('a', 65);
+
+            isolatedUserSecretsFilePath = builder.UserSecretsManager.FilePath;
+            Assert.True(Directory.Exists(Path.GetDirectoryName(isolatedUserSecretsFilePath)));
+            builder.Resources.Add(new ContainerResource(longName));
+
+            var ex = Assert.Throws<ArgumentException>(builder.Build);
+            Assert.Equal($"Resource name '{longName}' is invalid. Name must be between 1 and 64 characters long. (Parameter 'name')", ex.Message);
+        }
+        finally
+        {
+            DeleteUserSecretsFile(sourceManager.FilePath);
+        }
+
+        Assert.False(Directory.Exists(Path.GetDirectoryName(isolatedUserSecretsFilePath)));
+    }
+
+    [Fact]
     public async Task ConcurrentTestingBuildersPersistGeneratedParametersToIsolatedStores()
     {
         var sourceUserSecretsId = Guid.NewGuid().ToString();

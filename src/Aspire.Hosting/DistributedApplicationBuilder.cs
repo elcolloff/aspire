@@ -805,34 +805,52 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
     /// <inheritdoc />
     public DistributedApplication Build()
     {
-        ProfilingTelemetry.RecordAppHostStartupEvent(ProfilingTelemetry.Events.AppHostBuildStarted, _innerBuilder.Configuration);
-        LogAppBuilding(this);
+        DistributedApplication? application = null;
 
-        // ResourceCollection enforces unique names on Add/Insert/Set, but IResourceCollection
-        // could have a different implementation that doesn't. Validate as a safety net.
-        foreach (var duplicateResourceName in Resources.GroupBy(r => r.Name, StringComparers.ResourceName)
-            .Where(g => g.Count() > 1)
-            .Select(g => g.Key))
+        try
         {
-            throw new DistributedApplicationException($"Multiple resources with the name '{duplicateResourceName}'. Resource names are case-insensitive.");
-        }
+            ProfilingTelemetry.RecordAppHostStartupEvent(ProfilingTelemetry.Events.AppHostBuildStarted, _innerBuilder.Configuration);
+            LogAppBuilding(this);
 
-        // Validate resource names. Resources added directly to the collection bypass AddResource validation.
-        foreach (var resource in Resources)
+            // ResourceCollection enforces unique names on Add/Insert/Set, but IResourceCollection
+            // could have a different implementation that doesn't. Validate as a safety net.
+            foreach (var duplicateResourceName in Resources.GroupBy(r => r.Name, StringComparers.ResourceName)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key))
+            {
+                throw new DistributedApplicationException($"Multiple resources with the name '{duplicateResourceName}'. Resource names are case-insensitive.");
+            }
+
+            // Validate resource names. Resources added directly to the collection bypass AddResource validation.
+            foreach (var resource in Resources)
+            {
+                ValidateResourceName(resource);
+            }
+
+            application = new DistributedApplication(_innerBuilder.Build());
+
+            _executionContextOptions.ServiceProvider = application.Services.GetRequiredService<IServiceProvider>();
+            // UserSecretsManager can own temp-backed stores allocated while configuring the builder. Resolve it
+            // after the host is built so DI tracks and disposes those stores with the host.
+            application.Services.GetRequiredService<IUserSecretsManager>();
+
+            LogAppBuilt(application);
+            ProfilingTelemetry.RecordAppHostStartupEvent(ProfilingTelemetry.Events.AppHostBuildCompleted, _innerBuilder.Configuration);
+            return application;
+        }
+        catch
         {
-            ValidateResourceName(resource);
+            if (application is not null)
+            {
+                application.Dispose();
+            }
+            else if (_userSecretsManager is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+
+            throw;
         }
-
-        var application = new DistributedApplication(_innerBuilder.Build());
-
-        _executionContextOptions.ServiceProvider = application.Services.GetRequiredService<IServiceProvider>();
-        // UserSecretsManager can own temp-backed stores allocated while configuring the builder. Resolve it
-        // after the host is built so DI tracks and disposes those stores with the host.
-        application.Services.GetRequiredService<IUserSecretsManager>();
-
-        LogAppBuilt(application);
-        ProfilingTelemetry.RecordAppHostStartupEvent(ProfilingTelemetry.Events.AppHostBuildCompleted, _innerBuilder.Configuration);
-        return application;
     }
 
     /// <inheritdoc />

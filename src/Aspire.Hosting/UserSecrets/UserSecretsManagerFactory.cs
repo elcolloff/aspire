@@ -95,6 +95,7 @@ internal sealed class UserSecretsManagerFactory
         private readonly SemaphoreSlim _semaphore = new(1, 1);
         private readonly IFileSystemService _fileSystemService;
         private readonly TempDirectory? _ownedDirectory;
+        private bool _disposed;
 
         public UserSecretsManager(string filePath, IFileSystemService fileSystemService, TempDirectory? ownedDirectory = null)
         {
@@ -191,6 +192,13 @@ internal sealed class UserSecretsManagerFactory
 
         public void Dispose()
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _semaphore.Dispose();
             _ownedDirectory?.Dispose();
         }
 
