@@ -25,9 +25,13 @@ public static class CMakeAppResourceBuilderExtensions
     private const string DefaultPublishBuildType = "Release";
     private const string DefaultCMakeHelpLink = "https://cmake.org/download/";
     private const string DefaultVcpkgHelpLink = "https://vcpkg.io/";
+    private const string DefaultInstallDirectoryName = "aspire-install";
     private const string DefaultBuildImage = "debian:bookworm";
     private const string DefaultRuntimeImage = "debian:bookworm-slim";
     private const string VcpkgCommand = "vcpkg";
+    private const string DockerBuildDirectory = "/src/.aspire/cmake/docker-build";
+    private const string DockerRuntimeOutputDirectory = "/src/.aspire/cmake/docker-bin";
+    private const string DockerInstallDirectory = "/src/.aspire/cmake/docker-install";
     private const string DockerVcpkgRoot = "/opt/vcpkg";
     private const string DockerVcpkgToolchainFile = "/opt/vcpkg/scripts/buildsystems/vcpkg.cmake";
 
@@ -142,6 +146,7 @@ public static class CMakeAppResourceBuilderExtensions
                     var publishBuildType = GetBuildType(resource, DefaultPublishBuildType);
                     var targetName = resource.TargetName;
                     var executableName = GetDockerExecutableFileName(targetName);
+                    resource.TryGetLastAnnotation<CMakeInstallAnnotation>(out var installAnnotation);
                     var usesVcpkg = resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _);
                     var buildPackages = usesVcpkg
                         ? "build-essential cmake ninja-build ca-certificates git curl zip unzip tar pkg-config"
@@ -163,22 +168,38 @@ public static class CMakeAppResourceBuilderExtensions
                         .Copy(".", ".")
                         .RunWithMounts(
                             BuildDockerConfigureCommand(resource, publishBuildType),
-                            "type=cache,target=/src/.aspire/cmake/docker-build")
+                            $"type=cache,target={DockerBuildDirectory}")
                         .RunWithMounts(
                             BuildDockerBuildCommand(resource, publishBuildType),
-                            "type=cache,target=/src/.aspire/cmake/docker-build");
+                            $"type=cache,target={DockerBuildDirectory}");
+
+                    if (installAnnotation is not null)
+                    {
+                        buildStage.RunWithMounts(
+                            BuildDockerInstallCommand(publishBuildType),
+                            $"type=cache,target={DockerBuildDirectory}");
+                    }
 
                     context.Builder.AddContainerFilesStages(context.Resource, logger);
 
-                    context.Builder
+                    var runtimeStage = context.Builder
                         .From(runtimeImage)
                         .Run("apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 && rm -rf /var/lib/apt/lists/*")
                         .Run("groupadd --system --gid 999 app && useradd --system --gid 999 --uid 999 --no-create-home app")
                         .WorkDir("/app")
-                        .AddContainerFiles(context.Resource, "/app", logger)
-                        .CopyFrom(buildStage.StageName!, $"/src/.aspire/cmake/docker-bin/{executableName}", $"/app/{executableName}")
-                        .User("app")
-                        .Entrypoint([$"/app/{executableName}"]);
+                        .AddContainerFiles(context.Resource, "/app", logger);
+
+                    if (installAnnotation is not null)
+                    {
+                        var executableRelativePath = GetDockerInstallExecutableRelativePath(resource, installAnnotation.ExecutableRelativePath);
+                        runtimeStage.CopyFrom(buildStage.StageName!, $"{DockerInstallDirectory}/", "/app/");
+                        runtimeStage.User("app").Entrypoint([$"/app/{executableRelativePath}"]);
+                    }
+                    else
+                    {
+                        runtimeStage.CopyFrom(buildStage.StageName!, $"{DockerRuntimeOutputDirectory}/{executableName}", $"/app/{executableName}");
+                        runtimeStage.User("app").Entrypoint([$"/app/{executableName}"]);
+                    }
                 });
             });
 
@@ -329,6 +350,56 @@ public static class CMakeAppResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Configures the CMake application to run from the output of <c>cmake --install</c>.
+    /// </summary>
+    /// <typeparam name="T">The type of the CMake application resource.</typeparam>
+    /// <param name="builder">The resource builder for the CMake application.</param>
+    /// <param name="executableRelativePath">
+    /// The executable path relative to the CMake install prefix. When <see langword="null"/>, defaults to
+    /// <c>bin/&lt;targetName&gt;</c>.
+    /// </param>
+    /// <returns>A reference to the <see cref="IResourceBuilder{T}"/> for chaining.</returns>
+    /// <ats-returns>The resource builder.</ats-returns>
+    /// <remarks>
+    /// <para>
+    /// Use this method when the CMake project has <c>install()</c> rules that define the runtime closure.
+    /// Local run mode adds a hidden <c>cmake --install</c> resource after the build resource. Generated
+    /// Dockerfiles install into an intermediate prefix and copy the full installed tree into the runtime image.
+    /// </para>
+    /// <para>
+    /// If the installed executable is not under <c>bin/&lt;targetName&gt;</c>, pass the relative path to
+    /// <paramref name="executableRelativePath"/>. Use this parameter instead of <see cref="WithExecutablePath{T}"/>
+    /// when install mode is enabled.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// Run and publish a CMake application from its install output:
+    /// <code lang="csharp">
+    /// builder.AddCMakeApp("api", "../cpp-api", targetName: "api")
+    ///        .WithCMakeInstall()
+    ///        .WithHttpEndpoint(env: "PORT");
+    /// </code>
+    /// </example>
+    [AspireExport]
+    public static IResourceBuilder<T> WithCMakeInstall<T>(this IResourceBuilder<T> builder, string? executableRelativePath = null)
+        where T : CMakeAppResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ValidateExecutableRelativePath(executableRelativePath);
+
+        builder.WithAnnotation(new CMakeInstallAnnotation(executableRelativePath), ResourceAnnotationMutationBehavior.Replace);
+        builder.WithCommand(GetLocalInstallExecutablePath(builder.Resource, executableRelativePath));
+
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode &&
+            !builder.Resource.TryGetLastAnnotation<CMakeInstallResourceAnnotation>(out _))
+        {
+            AddCMakeInstallResource(builder);
+        }
+
+        return builder;
+    }
+
+    /// <summary>
     /// Configures the path to the executable produced by the CMake target.
     /// </summary>
     /// <typeparam name="T">The type of the CMake application resource.</typeparam>
@@ -342,6 +413,11 @@ public static class CMakeAppResourceBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrEmpty(executablePath);
+
+        if (builder.Resource.TryGetLastAnnotation<CMakeInstallAnnotation>(out _))
+        {
+            throw new InvalidOperationException("WithExecutablePath cannot be used after WithCMakeInstall. Pass the installed executable path to WithCMakeInstall instead.");
+        }
 
         executablePath = Path.GetFullPath(executablePath, builder.ApplicationBuilder.AppHostDirectory);
         return builder.WithCommand(executablePath);
@@ -416,6 +492,29 @@ public static class CMakeAppResourceBuilderExtensions
             .WaitForCompletion(build);
     }
 
+    private static void AddCMakeInstallResource(IResourceBuilder<CMakeAppResource> builder)
+    {
+        var resource = builder.Resource;
+
+        if (!resource.TryGetLastAnnotation<CMakeBuildResourceAnnotation>(out var buildAnnotation))
+        {
+            throw new InvalidOperationException("CMake install resources can only be added in run mode after the CMake build resource has been created.");
+        }
+
+        var installResource = new ExecutableResource($"{resource.Name}-cmake-install", CMakeCommand, resource.SourceDirectory);
+
+        var install = builder.ApplicationBuilder
+            .AddResource(installResource)
+            .WithArgs(ctx => AddInstallArgs(resource, ctx.Args))
+            .WithRequiredCommand(CMakeCommand, DefaultCMakeHelpLink)
+            .ExcludeFromManifest()
+            .WaitForCompletion(buildAnnotation.ResourceBuilder);
+
+        builder
+            .WithAnnotation(new CMakeInstallResourceAnnotation(install))
+            .WaitForCompletion(install);
+    }
+
     private static void AddConfigureArgs(CMakeAppResource resource, IList<object> args)
     {
         var buildType = GetBuildType(resource, DefaultRunBuildType);
@@ -467,6 +566,16 @@ public static class CMakeAppResourceBuilderExtensions
         }
     }
 
+    private static void AddInstallArgs(CMakeAppResource resource, IList<object> args)
+    {
+        args.Add("--install");
+        args.Add(resource.BuildDirectory);
+        args.Add("--config");
+        args.Add(GetBuildType(resource, DefaultRunBuildType));
+        args.Add("--prefix");
+        args.Add(GetInstallDirectory(resource));
+    }
+
     private static void AddRange(IList<object> args, IEnumerable<object> values)
     {
         foreach (var value in values)
@@ -506,21 +615,19 @@ public static class CMakeAppResourceBuilderExtensions
 
     private static string BuildDockerConfigureCommand(CMakeAppResource resource, string buildType)
     {
-        var runtimeOutputDirectory = "/src/.aspire/cmake/docker-bin";
-
         var args = new List<string>
         {
             "cmake",
             "-S", ".",
-            "-B", "/src/.aspire/cmake/docker-build",
+            "-B", DockerBuildDirectory,
             "-G", "Ninja",
             $"-DCMAKE_BUILD_TYPE={ShellQuote(buildType)}",
-            $"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={runtimeOutputDirectory}"
+            $"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={DockerRuntimeOutputDirectory}"
         };
 
         foreach (var configurationName in GetCommonConfigurationNames(buildType))
         {
-            args.Add($"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{configurationName.ToUpperInvariant()}={runtimeOutputDirectory}");
+            args.Add($"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{configurationName.ToUpperInvariant()}={DockerRuntimeOutputDirectory}");
         }
 
         var usesVcpkg = resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _);
@@ -551,7 +658,7 @@ public static class CMakeAppResourceBuilderExtensions
         {
             "cmake",
             "--build",
-            "/src/.aspire/cmake/docker-build",
+            DockerBuildDirectory,
             "--config",
             ShellQuote(buildType),
             "--target",
@@ -569,8 +676,63 @@ public static class CMakeAppResourceBuilderExtensions
         return string.Join(" ", args);
     }
 
+    private static string BuildDockerInstallCommand(string buildType)
+    {
+        var args = new List<string>
+        {
+            "cmake",
+            "--install",
+            DockerBuildDirectory,
+            "--config",
+            ShellQuote(buildType),
+            "--prefix",
+            DockerInstallDirectory
+        };
+
+        return string.Join(" ", args);
+    }
+
     private static string GetVcpkgToolchainFile(string vcpkgRoot) =>
         Path.Combine(vcpkgRoot, "scripts", "buildsystems", "vcpkg.cmake");
+
+    private static string GetInstallDirectory(CMakeAppResource resource) =>
+        Path.Combine(resource.BuildDirectory, DefaultInstallDirectoryName);
+
+    private static string GetLocalInstallExecutablePath(CMakeAppResource resource, string? executableRelativePath)
+    {
+        var relativePath = executableRelativePath ?? Path.Combine("bin", GetExecutableFileName(resource.TargetName));
+        relativePath = NormalizeLocalRelativePath(relativePath);
+
+        return Path.Combine(GetInstallDirectory(resource), relativePath);
+    }
+
+    private static string GetDockerInstallExecutableRelativePath(CMakeAppResource resource, string? executableRelativePath) =>
+        NormalizeDockerRelativePath(executableRelativePath ?? $"bin/{GetDockerExecutableFileName(resource.TargetName)}");
+
+    private static string NormalizeLocalRelativePath(string path) =>
+        path.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+
+    private static string NormalizeDockerRelativePath(string path) =>
+        path.Replace('\\', '/');
+
+    private static void ValidateExecutableRelativePath(string? executableRelativePath)
+    {
+        if (executableRelativePath is null)
+        {
+            return;
+        }
+
+        ArgumentException.ThrowIfNullOrEmpty(executableRelativePath);
+
+        if (Path.IsPathRooted(executableRelativePath) ||
+            executableRelativePath.StartsWith('/') ||
+            executableRelativePath.StartsWith('\\') ||
+            executableRelativePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Contains("..", StringComparer.Ordinal) ||
+            (executableRelativePath.Length >= 2 && char.IsAsciiLetter(executableRelativePath[0]) && executableRelativePath[1] == ':'))
+        {
+            throw new ArgumentException("The executable path must be relative to the CMake install prefix.", nameof(executableRelativePath));
+        }
+    }
 
     private static bool IsVcpkgToolchainFileArg(string arg)
     {

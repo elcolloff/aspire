@@ -4,6 +4,7 @@ builder.AddDockerComposeEnvironment("docker-compose");
 
 builder.AddCMakeApp("cpp-api", "../cpp-api", targetName: "cpp-api")
        .WithVcpkg()
+       .WithCMakeInstall()
        .WithHttpEndpoint(env: "PORT")
        .WithExternalHttpEndpoints();
 

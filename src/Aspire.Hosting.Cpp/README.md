@@ -25,6 +25,7 @@ Then, in the AppHost, add a C++ CMake application resource with either C# or Typ
 ```csharp
 var api = builder.AddCMakeApp("api", "../cpp-api", targetName: "api")
                  .WithVcpkg()
+                 .WithCMakeInstall()
                  .WithHttpEndpoint(env: "PORT")
                  .WithExternalHttpEndpoints();
 ```
@@ -34,6 +35,7 @@ var api = builder.AddCMakeApp("api", "../cpp-api", targetName: "api")
 ```typescript
 const api = await builder.addCMakeApp("api", "../cpp-api", "api")
     .withVcpkg()
+    .withCMakeInstall()
     .withHttpEndpoint({ env: "PORT" })
     .withExternalHttpEndpoints();
 ```
@@ -41,6 +43,8 @@ const api = await builder.addCMakeApp("api", "../cpp-api", "api")
 `AddCMakeApp` runs `cmake -S ... -B ...` and `cmake --build ... --target ...` before launching the built executable. Pass application arguments with `WithAppArgs`, CMake configure arguments with `WithConfigureArgs`, and CMake build arguments with `WithBuildArgs`.
 
 `WithVcpkg` uses the local `VCPKG_ROOT` value in run mode and bootstraps vcpkg in generated Dockerfiles for deployment.
+
+`WithCMakeInstall` runs `cmake --install` after building and launches the executable from the install prefix. Use it when the CMake project has `install()` rules that define the files to include in the runtime container image.
 
 ## Additional documentation
 

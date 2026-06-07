@@ -122,6 +122,50 @@ public class AddCMakeAppTests
     }
 
     [Fact]
+    public async Task InstallResourceInstallsAfterBuildAndAppWaitsForInstall()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithBuildType("RelWithDebInfo")
+            .WithCMakeInstall();
+
+        var buildBuilder = GetBuildBuilder(app.Resource);
+        var installBuilder = GetInstallBuilder(app.Resource);
+        var installDirectory = Path.Combine(app.Resource.BuildDirectory, "aspire-install");
+        var args = await ArgumentEvaluator.GetArgumentListAsync(installBuilder.Resource);
+
+        Assert.Same(installBuilder.Resource, builder.Resources.First(r => r.Name == "api-cmake-install"));
+        Assert.Equal(["--install", app.Resource.BuildDirectory, "--config", "RelWithDebInfo", "--prefix", installDirectory], args);
+        Assert.Contains(installBuilder.Resource.Annotations.OfType<WaitAnnotation>(), a => a.Resource == buildBuilder.Resource && a.WaitType == WaitType.WaitForCompletion);
+        Assert.Contains(app.Resource.Annotations.OfType<WaitAnnotation>(), a => a.Resource == installBuilder.Resource && a.WaitType == WaitType.WaitForCompletion);
+        Assert.EndsWith(Path.Combine(".aspire", "cmake", "api", "build", "aspire-install", "bin", GetExecutableFileName("api")), app.Resource.Command);
+    }
+
+    [Fact]
+    public void WithCMakeInstallCreatesSingleInstallResource()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithCMakeInstall("bin/api")
+            .WithCMakeInstall("sbin/api");
+
+        Assert.Equal(1, builder.Resources.Count(r => r.Name == "api-cmake-install"));
+        Assert.EndsWith(Path.Combine("aspire-install", "sbin", "api"), app.Resource.Command);
+    }
+
+    [Fact]
+    public void WithCMakeInstallDoesNotCreateInstallResourceInPublishMode()
+    {
+        using var outputDir = new TestTempDirectory();
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputDir.Path, step: "publish-manifest");
+
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithCMakeInstall();
+
+        Assert.False(app.Resource.TryGetLastAnnotation<CMakeInstallResourceAnnotation>(out _));
+    }
+
+    [Fact]
     public void AddCMakeAppCreatesConfigureAndBuildSiblingsInRunMode()
     {
         using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Run);
@@ -219,6 +263,33 @@ public class AddCMakeAppTests
     }
 
     [Fact]
+    public async Task VerifyPublish_GeneratesInstallDockerfile()
+    {
+        using var sourceDir = new TestTempDirectory();
+        using var outputDir = new TestTempDirectory();
+
+        File.WriteAllText(Path.Combine(sourceDir.Path, "CMakeLists.txt"), """
+            cmake_minimum_required(VERSION 3.20)
+            project(api LANGUAGES CXX)
+            add_executable(api main.cpp)
+            install(TARGETS api RUNTIME DESTINATION bin)
+            install(FILES config.json DESTINATION etc/api)
+            """);
+        File.WriteAllText(Path.Combine(sourceDir.Path, "main.cpp"), "int main() { return 0; }");
+        File.WriteAllText(Path.Combine(sourceDir.Path, "config.json"), "{}");
+
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputDir.Path, step: "publish-manifest");
+        builder.AddCMakeApp("api", sourceDir.Path, "api")
+            .WithCMakeInstall();
+
+        builder.Build().Run();
+
+        var content = await File.ReadAllTextAsync(Path.Combine(outputDir.Path, "api.Dockerfile"));
+
+        await Verify(content);
+    }
+
+    [Fact]
     public async Task VerifyPublish_GeneratesVcpkgDockerfile()
     {
         using var sourceDir = new TestTempDirectory();
@@ -247,6 +318,44 @@ public class AddCMakeAppTests
         builder.AddCMakeApp("api", sourceDir.Path, "api")
             .WithVcpkg()
             .WithConfigureArgs(@"-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake");
+
+        builder.Build().Run();
+
+        var content = await File.ReadAllTextAsync(Path.Combine(outputDir.Path, "api.Dockerfile"));
+
+        await Verify(content);
+    }
+
+    [Fact]
+    public async Task VerifyPublish_GeneratesVcpkgInstallDockerfile()
+    {
+        using var sourceDir = new TestTempDirectory();
+        using var outputDir = new TestTempDirectory();
+
+        File.WriteAllText(Path.Combine(sourceDir.Path, "CMakeLists.txt"), """
+            cmake_minimum_required(VERSION 3.20)
+            project(api LANGUAGES CXX)
+            find_package(httplib CONFIG REQUIRED)
+            add_executable(api main.cpp)
+            target_link_libraries(api PRIVATE httplib::httplib)
+            install(TARGETS api RUNTIME DESTINATION bin)
+            """);
+        File.WriteAllText(Path.Combine(sourceDir.Path, "main.cpp"), "int main() { return 0; }");
+        File.WriteAllText(Path.Combine(sourceDir.Path, "vcpkg.json"), """
+            {
+              "dependencies": [
+                {
+                  "name": "cpp-httplib",
+                  "default-features": false
+                }
+              ]
+            }
+            """);
+
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, outputDir.Path, step: "publish-manifest");
+        builder.AddCMakeApp("api", sourceDir.Path, "api")
+            .WithVcpkg()
+            .WithCMakeInstall();
 
         builder.Build().Run();
 
@@ -290,4 +399,13 @@ public class AddCMakeAppTests
         Assert.True(resource.TryGetLastAnnotation<CMakeBuildResourceAnnotation>(out var annotation));
         return annotation.ResourceBuilder;
     }
+
+    private static IResourceBuilder<ExecutableResource> GetInstallBuilder(CMakeAppResource resource)
+    {
+        Assert.True(resource.TryGetLastAnnotation<CMakeInstallResourceAnnotation>(out var annotation));
+        return annotation.ResourceBuilder;
+    }
+
+    private static string GetExecutableFileName(string targetName) =>
+        OperatingSystem.IsWindows() ? $"{targetName}.exe" : targetName;
 }

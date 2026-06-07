@@ -227,6 +227,57 @@ public class CMakeAppPublicApiTests
         Assert.True(app.Resource.TryGetLastAnnotation<CMakeVcpkgAnnotation>(out _));
     }
 
+    [Fact]
+    public void WithCMakeInstallShouldThrowWhenBuilderIsNull()
+    {
+        IResourceBuilder<CMakeAppResource> builder = null!;
+
+        var action = () => builder.WithCMakeInstall();
+
+        var exception = Assert.Throws<ArgumentNullException>(action);
+        Assert.Equal(nameof(builder), exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("/bin/api")]
+    [InlineData("../api")]
+    [InlineData("bin/../api")]
+    [InlineData(@"C:\api\bin\api.exe")]
+    public void WithCMakeInstallShouldThrowWhenExecutableRelativePathIsInvalid(string executableRelativePath)
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var action = () => builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithCMakeInstall(executableRelativePath);
+
+        var exception = Assert.Throws<ArgumentException>(action);
+        Assert.Equal(nameof(executableRelativePath), exception.ParamName);
+    }
+
+    [Fact]
+    public void WithCMakeInstallUpdatesExecutablePath()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithCMakeInstall("sbin/api");
+
+        Assert.EndsWith(Path.Combine(".aspire", "cmake", "api", "build", "aspire-install", "sbin", "api"), app.Resource.Command);
+    }
+
+    [Fact]
+    public void WithExecutablePathShouldThrowAfterWithCMakeInstall()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+
+        var app = builder.AddCMakeApp("api", builder.AppHostDirectory, "api")
+            .WithCMakeInstall();
+        var action = () => app.WithExecutablePath("/bin/api");
+
+        Assert.Throws<InvalidOperationException>(action);
+    }
+
     private static string GetExecutableFileName(string targetName) =>
         OperatingSystem.IsWindows() ? $"{targetName}.exe" : targetName;
 }
