@@ -669,6 +669,22 @@ internal static class TestEvaluator
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Apply restrictedTestProjects: a restricted project runs ONLY when an explicit
+        // sourceToTestMapping entry resolved to it (it's in mappedProjects). dotnet-affected
+        // pulling it in via a transitive reference is not enough — the user opt-in is the
+        // mapping. See RestrictedProjectFilter for the contract and unit tests.
+        if (config.RestrictedTestProjects.Count > 0)
+        {
+            var beforeCount = allTestProjects.Count;
+            allTestProjects = RestrictedProjectFilter.Apply(
+                allTestProjects, config.RestrictedTestProjects, mappedProjects);
+            var dropped = beforeCount - allTestProjects.Count;
+            if (dropped > 0)
+            {
+                logger.LogInfo($"Dropped {dropped} restricted test project(s) not matched by a sourceToTestMapping");
+            }
+        }
+
         logger.LogInfo($"From source-to-test mappings: {mappedProjects.Count}");
         logger.LogInfo($"From dotnet-affected: {testProjects.Count}");
         logger.LogInfo($"Total unique test projects: {allTestProjects.Count}");

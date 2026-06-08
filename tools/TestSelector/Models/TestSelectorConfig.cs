@@ -59,6 +59,23 @@ public sealed class TestSelectorConfig
     public Dictionary<string, CategoryConfig> Categories { get; set; } = [];
 
     /// <summary>
+    /// Test projects (by .csproj path) that opt out of broad runs — they run only when
+    /// a <see cref="SourceToTestMappings"/> entry explicitly resolves to them.
+    /// <c>trigger_all</c> and category sweeps subtract these from the test matrix.
+    /// </summary>
+    /// <remarks>
+    /// Use for tests whose dependencies are genuinely self-contained — e.g. installer
+    /// scripts (Acquisition.Tests) and CI/build infrastructure (Infrastructure.Tests).
+    /// These cannot be broken by an Aspire.Hosting runtime change, so running them
+    /// for every PR wastes CI time. Pair with a <see cref="SourceToTestMappings"/>
+    /// entry that maps the project's real source files (its scripts, helpers, and the
+    /// test project itself) to the test project, so it still runs when its own surface
+    /// changes.
+    /// </remarks>
+    [JsonPropertyName("restrictedTestProjects")]
+    public List<string> RestrictedTestProjects { get; set; } = [];
+
+    /// <summary>
     /// Loads a TestSelectorConfig from a JSON file.
     /// </summary>
     public static TestSelectorConfig LoadFromFile(string filePath)

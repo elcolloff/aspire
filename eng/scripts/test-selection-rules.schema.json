@@ -41,6 +41,11 @@
       "additionalProperties": {
         "$ref": "#/definitions/category"
       }
+    },
+    "restrictedTestProjects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Test project .csproj paths that opt out of trigger_all and category sweeps. They run only when a sourceToTestMappings entry explicitly resolves to them. Use for tests whose dependencies are self-contained (e.g. installer scripts, CI infrastructure)."
     }
   },
   "required": ["categories"],

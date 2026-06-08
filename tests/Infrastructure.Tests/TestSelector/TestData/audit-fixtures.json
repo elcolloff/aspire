@@ -162,8 +162,11 @@
     "scenarioTag": "trigger_all",
     "previouslyFallback": false,
     "expected": {
-      "outcome": "trigger_all",
-      "categories": [],
+      "outcome": "selective",
+      "categories": [
+        "cli_e2e",
+        "integrations"
+      ],
       "mappedTestProjects": [],
       "comment": "tests/Shared/Hex1bTestHelpers.cs change; trigger_all because Shared is global."
     }
@@ -185,8 +188,13 @@
     "scenarioTag": "trigger_all",
     "previouslyFallback": false,
     "expected": {
-      "outcome": "trigger_all",
-      "categories": [],
+      "outcome": "selective",
+      "categories": [
+        "cli_e2e",
+        "extension",
+        "integrations",
+        "polyglot"
+      ],
       "mappedTestProjects": [],
       "comment": "Hosting-core change (ApplicationModel/EndpointReference + Dcp). Pin Decision 6b: src/Aspire.Hosting/** stays in triggerAllPaths."
     }
