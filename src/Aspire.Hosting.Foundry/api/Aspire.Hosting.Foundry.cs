@@ -456,6 +456,8 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel ClaudeOpus47;
             [AspireValue("FoundryModels")]
+            public static readonly FoundryModel ClaudeOpus48;
+            [AspireValue("FoundryModels")]
             public static readonly FoundryModel ClaudeSonnet45;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel ClaudeSonnet46;
@@ -477,10 +479,6 @@ namespace Aspire.Hosting.Foundry
         {
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel CohereCommandA;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel CohereCommandR082024;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel CohereCommandRPlus082024;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel CohereEmbedV3English;
             [AspireValue("FoundryModels")]
@@ -507,8 +505,6 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel DeepSeekR10528;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel DeepSeekV3;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel DeepSeekV30324;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel DeepSeekV32;
@@ -530,6 +526,8 @@ namespace Aspire.Hosting.Foundry
             public static readonly FoundryModel DeepseekR17b;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel GptOss20b;
+            [AspireValue("FoundryModels")]
+            public static readonly FoundryModel Ministral33bInstruct2512;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Mistral7bV02;
             [AspireValue("FoundryModels")]
@@ -669,29 +667,15 @@ namespace Aspire.Hosting.Foundry
             [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
             public static readonly FoundryModel LanguageDetection;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel MaiDSR1;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel MaiTranscribe1;
+            [AspireValue("FoundryModels")]
+            public static readonly FoundryModel MaiTranscribe15;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel MaiVoice1;
             [AspireValue("FoundryModels")]
+            public static readonly FoundryModel MaiVoice2;
+            [AspireValue("FoundryModels")]
             public static readonly FoundryModel ModelRouter;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi35MiniInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi35MoEInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi35VisionInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi3Medium128kInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi3Medium4kInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi3Mini128kInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi3Mini4kInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Phi3Small128kInstruct;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Phi3Small8kInstruct;
             [AspireValue("FoundryModels")]
@@ -736,17 +720,9 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel ComputerUsePreview;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel DallE3;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel Davinci002;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt35Turbo;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt35Turbo16k;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt35TurboInstruct;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt4;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt41;
             [AspireValue("FoundryModels")]
@@ -754,25 +730,13 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt41Nano;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt432k;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt45Preview;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt4o;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt4oAudioPreview;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt4oMini;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt4oMiniAudioPreview;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt4oMiniRealtimePreview;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt4oMiniTranscribe;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt4oMiniTts;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Gpt4oRealtimePreview;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Gpt4oTranscribe;
             [AspireValue("FoundryModels")]
@@ -838,6 +802,8 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel GptOss120b;
             [AspireValue("FoundryModels")]
+            public static readonly FoundryModel GptOss20b;
+            [AspireValue("FoundryModels")]
             public static readonly FoundryModel GptRealtime;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel GptRealtime15;
@@ -852,10 +818,6 @@ namespace Aspire.Hosting.Foundry
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel O1;
             [AspireValue("FoundryModels")]
-            public static readonly FoundryModel O1Mini;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel O1Preview;
-            [AspireValue("FoundryModels")]
             public static readonly FoundryModel O3;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel O3DeepResearch;
@@ -865,8 +827,6 @@ namespace Aspire.Hosting.Foundry
             public static readonly FoundryModel O3Pro;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel O4Mini;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Sora;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel TextEmbedding3Large;
             [AspireValue("FoundryModels")]
@@ -905,10 +865,6 @@ namespace Aspire.Hosting.Foundry
             public static readonly FoundryModel Grok420Reasoning;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel Grok43;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Grok4FastNonReasoning;
-            [AspireValue("FoundryModels")]
-            public static readonly FoundryModel Grok4FastReasoning;
             [AspireValue("FoundryModels")]
             public static readonly FoundryModel GrokCodeFast1;
         }

@@ -1022,7 +1022,7 @@ namespace Aspire.Hosting
         public static ApplicationModel.IResourceBuilder<T> PublishAsDockerFile<T>(this ApplicationModel.IResourceBuilder<T> builder, System.Action<ApplicationModel.IResourceBuilder<ApplicationModel.ContainerResource>>? configure = null)
             where T : ApplicationModel.ProjectResource { throw null; }
 
-        [AspireExportIgnore(Reason = "Uses Func<EndpointAnnotation, bool> which is not ATS-compatible.")]
+        [AspireExportIgnore(Reason = "Uses Func<EndpointAnnotation, bool> which is not ATS-compatible. The ATS-friendly implementation is in src/Aspire.Hosting/Ats/CoreExports.cs and accepts endpoint names instead of a predicate.")]
         public static ApplicationModel.IResourceBuilder<ApplicationModel.ProjectResource> WithEndpointsInEnvironment(this ApplicationModel.IResourceBuilder<ApplicationModel.ProjectResource> builder, System.Func<ApplicationModel.EndpointAnnotation, bool> filter) { throw null; }
 
         [AspireExport]
@@ -2748,6 +2748,8 @@ namespace Aspire.Hosting.ApplicationModel
 
     public sealed partial class HttpCommandRequestContext
     {
+        public InteractionInputCollection Arguments { get { throw null; } init { } }
+
         public required System.Threading.CancellationToken CancellationToken { get { throw null; } init { } }
 
         public required EndpointReference Endpoint { get { throw null; } init { } }
@@ -2763,6 +2765,8 @@ namespace Aspire.Hosting.ApplicationModel
 
     public sealed partial class HttpCommandResultContext
     {
+        public InteractionInputCollection Arguments { get { throw null; } init { } }
+
         public required System.Threading.CancellationToken CancellationToken { get { throw null; } init { } }
 
         public required EndpointReference Endpoint { get { throw null; } init { } }
@@ -3401,6 +3405,8 @@ namespace Aspire.Hosting.ApplicationModel
     [System.Diagnostics.CodeAnalysis.Experimental("ASPIREPROCESSCOMMAND001", UrlFormat = "https://aka.ms/aspire/diagnostics/{0}")]
     public sealed partial class ProcessCommandResultContext
     {
+        public InteractionInputCollection Arguments { get { throw null; } init { } }
+
         public required System.Threading.CancellationToken CancellationToken { get { throw null; } init { } }
 
         public required int ExitCode { get { throw null; } init { } }
