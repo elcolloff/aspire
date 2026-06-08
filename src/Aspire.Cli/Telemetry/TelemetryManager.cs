@@ -45,6 +45,12 @@ internal sealed class TelemetryManager : IDisposable
 #endif
     private const int ProfilingForceFlushTimeoutMilliseconds = 5000;
 
+    // The agent telemetry command runs fire-and-forget from an agent hook and exits immediately,
+    // so the short Release shutdown flush (200ms) is not enough to reliably export the single
+    // just-created span. The command path force-flushes the reported provider with this larger
+    // bound before exit so the event is not silently dropped.
+    private const int ReportedForceFlushTimeoutMilliseconds = 3000;
+
     private readonly TracerProvider? _azureMonitorProvider;
     private readonly TracerProvider? _profilingProvider;
     private readonly TracerProvider? _debugDiagnosticProvider;
@@ -60,7 +66,15 @@ internal sealed class TelemetryManager : IDisposable
     {
         // Don't send telemetry for informational commands or if the user has opted out.
         var hasOptOutArg = args?.Any(a => CommonOptionNames.InformationalOptionNames.Contains(a)) ?? false;
-        var telemetryOptOut = hasOptOutArg || configuration.GetBool(AspireCliTelemetry.TelemetryOptOutConfigKey, defaultValue: false);
+
+        // The dedicated AI opt-out only suppresses the agent telemetry command path so that
+        // setting ASPIRE_CLI_AGENT_TELEMETRY_OPTOUT does not disable general CLI telemetry. It is
+        // applied here (before any reported provider is created) so the opt-out reliably prevents
+        // the agent_telemetry span from being exported, not just from being populated.
+        var agentTelemetryOptOut = AgentTelemetryInvocation.Matches(args) &&
+            configuration.GetBool(AspireCliTelemetry.AgentTelemetryOptOutConfigKey, defaultValue: false);
+
+        var telemetryOptOut = hasOptOutArg || agentTelemetryOptOut || configuration.GetBool(AspireCliTelemetry.TelemetryOptOutConfigKey, defaultValue: false);
 
         var profilingEnabled =
             configuration.GetBool(Aspire.Hosting.KnownConfigNames.ProfilingEnabled) ??
@@ -173,6 +187,24 @@ internal sealed class TelemetryManager : IDisposable
         return Task.Run(() =>
         {
             _profilingProvider?.ForceFlush(ProfilingForceFlushTimeoutMilliseconds);
+        });
+    }
+
+    /// <summary>
+    /// Flushes reported telemetry without shutting down other telemetry providers.
+    /// </summary>
+    /// <remarks>
+    /// Used by the <c>aspire agent telemetry</c> command, which is invoked fire-and-forget from an
+    /// agent hook and exits immediately. The normal shutdown flush window is too short to reliably
+    /// drain a single just-created span, so this bounded flush ensures the event leaves the process.
+    /// </remarks>
+    public Task ForceFlushReportedAsync()
+    {
+        // See ForceFlushProfilingAsync for why this runs the synchronous, bounded
+        // ForceFlush(int) on the thread pool rather than taking a CancellationToken.
+        return Task.Run(() =>
+        {
+            _azureMonitorProvider?.ForceFlush(ReportedForceFlushTimeoutMilliseconds);
         });
     }
 
