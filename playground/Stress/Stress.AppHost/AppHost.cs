@@ -85,6 +85,14 @@ var telemetryBuilder = builder.AddProject<Projects.Stress_TelemetryService>("str
        .WithUrl("https://extremely-long-url.com/abcdefghijklmnopqrstuvwxyz/abcdefghijklmnopqrstuvwxyz/abcdefghijklmnopqrstuvwxyz//abcdefghijklmnopqrstuvwxyz/abcdefghijklmnopqrstuvwxyz/abcdefghijklmnopqrstuvwxyz/abcdefghijklmnopqrstuvwxyz/abcdefghijklmno");
 
 builder.AddCommandResources(serviceBuilder, telemetryBuilder);
+
+builder.OnBeforeStart((@event, ct) =>
+{
+    InteractionPages.Register(@event.Services);
+
+    return Task.CompletedTask;
+});
+
 new TodoInteraction(serviceBuilder).Register(builder);
 
 #if !SKIP_DASHBOARD_REFERENCE
@@ -124,11 +132,5 @@ builder.AddProject<Projects.Stress_Empty>("empty-profile-2", launchProfileName: 
 
 builder.AddNoStatusResource("no-status-resource");
 
-builder.OnBeforeStart((@event, ct) =>
-{
-    InteractionPages.Register(@event.Services);
-
-    return Task.CompletedTask;
-});
-
 builder.Build().Run();
+

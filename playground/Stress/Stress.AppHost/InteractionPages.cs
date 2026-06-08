@@ -3,6 +3,7 @@
 
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 #pragma warning disable ASPIREINTERACTION001 // Type is for evaluation purposes only.
@@ -15,44 +16,52 @@ internal static class InteractionPages
     {
         var interactionService = services.GetRequiredService<IInteractionService>();
 
-        RegisterCounterPage(interactionService);
+        RegisterHelloWorldPage(interactionService);
         RegisterMarkdownPage(interactionService);
-        RegisterImageAssetPage(interactionService);
+        RegisterCounterPage(interactionService);
     }
 
     private static void RegisterCounterPage(IInteractionService interactionService)
     {
+        var resetRequested = 0;
+
         interactionService.RegisterPage("counter", new ContentPageOptions
         {
             Title = "Counter",
+            Actions = new Dictionary<string, Func<ActionContext, Task>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["reset-count"] = _ =>
+                {
+                    Interlocked.Exchange(ref resetRequested, 1);
+                    return Task.CompletedTask;
+                }
+            },
             OnVisit = async visitContext =>
             {
-                var logger = visitContext.Services.GetRequiredService<ILoggerFactory>().CreateLogger("CounterPage");
-
-                visitContext.CancellationToken.Register(() => logger.LogInformation("Visitor {SessionId} left the counter page.", visitContext.SessionId));
-
                 var count = 0;
-                var resets = 0;
                 while (!visitContext.CancellationToken.IsCancellationRequested)
                 {
-                    count++;
-                    if (count > 10)
-                    {
-                        count = 1;
-                        resets++;
-                    }
-
                     await visitContext.RenderAsync(
                         $"""
                         # Counter
 
                         Current count: **{count}**
 
-                        Resets: **{resets}**
-
                         Updates every second.
+
+                        [Reset Counter](type=button action=reset-count)
                         """, visitContext.CancellationToken);
+
                     await Task.Delay(1000, visitContext.CancellationToken);
+
+                    if (Interlocked.CompareExchange(ref resetRequested, 0, 1) == 1)
+                    {
+                        count = 0;
+                    }
+                    else
+                    {
+                        count++;
+                    }
                 }
             }
         });
@@ -68,7 +77,7 @@ internal static class InteractionPages
 
     private static void RegisterMarkdownPage(IInteractionService interactionService)
     {
-        var markdownShowcase = LoadEmbeddedTextResource("MarkdownShowcase.txt");
+        var markdownShowcase = LoadEmbeddedTextResource("MarkdownShowcase.md");
 
         interactionService.RegisterPage("markdown", new ContentPageOptions
         {
@@ -88,33 +97,34 @@ internal static class InteractionPages
         });
     }
 
-    private static void RegisterImageAssetPage(IInteractionService interactionService)
+    private static void RegisterHelloWorldPage(IInteractionService interactionService)
     {
         var logoBytes = LoadEmbeddedBinaryResource("AspireLogo.svg");
         interactionService.RegisterAsset(LogoAssetRoute, "image/svg+xml", logoBytes);
 
-        interactionService.RegisterPage("image-asset", new ContentPageOptions
+        interactionService.RegisterPage("hello-world", new ContentPageOptions
         {
-            Title = "Image Asset",
+            Title = "Hello world",
             OnVisit = async visitContext =>
             {
+                var host = visitContext.Services.GetRequiredService<IHostEnvironment>();
+                var appName = host.ApplicationName;
+
                 await visitContext.RenderAsync(
                     $"""
-                    # Image Asset
+                    Hello **{appName}**
 
-                    This image is served from a globally registered embedded resource asset.
-
-                    ![Aspire logo](/assets/{LogoAssetRoute})
+                    ![Aspire](/assets/{LogoAssetRoute})
                     """, visitContext.CancellationToken);
             }
         });
 
         interactionService.RegisterMenuButton(new MenuButtonOptions
         {
-            IconName = "Image",
-            Text = "Image Asset",
-            Tooltip = "View an image served from embedded resources",
-            Url = "/pages/image-asset"
+            IconName = "Book",
+            Text = "Hello world",
+            Tooltip = "Hello world",
+            Url = "/pages/hello-world"
         });
     }
 

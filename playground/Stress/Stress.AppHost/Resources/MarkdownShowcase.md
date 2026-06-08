@@ -62,10 +62,10 @@ This document demonstrates *all* the main features.
 ## 5. Images
 
 Inline image:
-![Example](/img/TokenExample.png)
+![Aspire Logo](/assets/aspire-logo.svg)
 
 Linked image:
-[![Example](/img/TokenExample.png)](https://openai.com)
+[![Aspire Logo](/assets/aspire-logo.svg)](https://learn.microsoft.com/dotnet/aspire)
 
 ---
 
