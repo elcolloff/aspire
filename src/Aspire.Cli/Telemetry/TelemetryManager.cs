@@ -67,14 +67,7 @@ internal sealed class TelemetryManager : IDisposable
         // Don't send telemetry for informational commands or if the user has opted out.
         var hasOptOutArg = args?.Any(a => CommonOptionNames.InformationalOptionNames.Contains(a)) ?? false;
 
-        // The dedicated AI opt-out only suppresses the agent telemetry command path so that
-        // setting ASPIRE_CLI_AGENT_TELEMETRY_OPTOUT does not disable general CLI telemetry. It is
-        // applied here (before any reported provider is created) so the opt-out reliably prevents
-        // the agent_telemetry span from being exported, not just from being populated.
-        var agentTelemetryOptOut = AgentTelemetryInvocation.Matches(args) &&
-            configuration.GetBool(AspireCliTelemetry.AgentTelemetryOptOutConfigKey, defaultValue: false);
-
-        var telemetryOptOut = hasOptOutArg || agentTelemetryOptOut || configuration.GetBool(AspireCliTelemetry.TelemetryOptOutConfigKey, defaultValue: false);
+        var telemetryOptOut = hasOptOutArg || configuration.GetBool(AspireCliTelemetry.TelemetryOptOutConfigKey, defaultValue: false);
 
         var profilingEnabled =
             configuration.GetBool(Aspire.Hosting.KnownConfigNames.ProfilingEnabled) ??

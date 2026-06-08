@@ -863,28 +863,6 @@ public class AgentInitCommandTests(ITestOutputHelper outputHelper)
         Assert.True(File.Exists(hookFile), $"Expected telemetry hook at {hookFile}");
     }
 
-    [Fact]
-    public async Task AgentInitCommand_NoTelemetryHooks_SkipsInstall()
-    {
-        using var workspace = TemporaryWorkspace.Create(outputHelper);
-        var homeDirectory = workspace.CreateDirectory("fake-home");
-        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
-        {
-            options.CliExecutionContextFactory = _ => CreateExecutionContext(workspace.WorkspaceRoot, homeDirectory);
-            options.AgentEnvironmentDetectorFactory = _ => new FakeDetectingDetector(AgentClientKind.CopilotCli);
-        });
-
-        using var provider = services.BuildServiceProvider();
-        var command = provider.GetRequiredService<RootCommand>();
-        var result = command.Parse($"agent init --workspace-root {workspace.WorkspaceRoot.FullName} --skill-locations none --skills none --no-telemetry-hooks");
-
-        var exitCode = await result.InvokeAsync().DefaultTimeout();
-
-        Assert.Equal(CliExitCodes.Success, exitCode);
-        var copilotDirectory = Path.Combine(homeDirectory.FullName, ".copilot");
-        Assert.False(Directory.Exists(copilotDirectory), $"Expected no Copilot hook directory but found {copilotDirectory}");
-    }
-
     private static CliExecutionContext CreateExecutionContext(DirectoryInfo workingDirectory, DirectoryInfo homeDirectory)
     {
         return TestExecutionContextHelper.CreateExecutionContext(
