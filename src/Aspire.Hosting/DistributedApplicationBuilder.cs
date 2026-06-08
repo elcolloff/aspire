@@ -30,11 +30,13 @@ using Aspire.Hosting.Pipelines;
 using Aspire.Hosting.Pipelines.Internal;
 using Aspire.Hosting.Publishing;
 using Aspire.Hosting.UserSecrets;
+using Aspire.Hosting.VersionChecking;
 using Aspire.Shared;
 using Aspire.Shared.UserSecrets;
-using Microsoft.Extensions.Configuration.UserSecrets;
-using Aspire.Hosting.VersionChecking;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.CommandLine;
+using Microsoft.Extensions.Configuration.EnvironmentVariables;
+using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -205,9 +207,14 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         var assemblyUserSecretsId = AppHostAssembly?.GetCustomAttribute<UserSecretsIdAttribute>()?.UserSecretsId;
         var userSecretsId = ResolveUserSecretsId(AppHostAssembly, _innerBuilder.Configuration);
         var isolateUserSecrets = _innerBuilder.Configuration.GetValue(KnownConfigNames.IsolateUserSecrets, false);
+        var isolatedUserSecretsSourceIndex = -1;
         if (isolateUserSecrets)
         {
-            RemoveUserSecretsSource(_innerBuilder.Configuration, assemblyUserSecretsId);
+            isolatedUserSecretsSourceIndex = RemoveUserSecretsSource(_innerBuilder.Configuration, assemblyUserSecretsId);
+            if (isolatedUserSecretsSourceIndex < 0)
+            {
+                isolatedUserSecretsSourceIndex = FindUserSecretsSourceInsertionIndex(_innerBuilder.Configuration);
+            }
         }
         else
         {
@@ -359,7 +366,7 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
 
             if (_innerBuilder.Environment.IsDevelopment())
             {
-                _innerBuilder.Configuration.AddJsonFile(_userSecretsManager.FilePath, optional: true, reloadOnChange: false);
+                AddJsonFileAt(_innerBuilder.Configuration, _userSecretsManager.FilePath, isolatedUserSecretsSourceIndex);
             }
         }
         else
@@ -899,16 +906,17 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         }
     }
 
-    internal static void RemoveUserSecretsSource(IConfigurationManager configuration, string? userSecretsId)
+    internal static int RemoveUserSecretsSource(IConfigurationManager configuration, string? userSecretsId)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
         if (string.IsNullOrWhiteSpace(userSecretsId))
         {
-            return;
+            return -1;
         }
 
         var userSecretsFilePath = Path.GetFullPath(UserSecretsPathHelper.GetSecretsPathFromSecretsId(userSecretsId));
+        var removedSourceIndex = -1;
 
         for (var i = configuration.Sources.Count - 1; i >= 0; i--)
         {
@@ -927,8 +935,39 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
             if (filePath is not null && PathsEqual(filePath, userSecretsFilePath))
             {
                 configuration.Sources.RemoveAt(i);
+                removedSourceIndex = i;
             }
         }
+
+        return removedSourceIndex;
+    }
+
+    private static void AddJsonFileAt(IConfigurationManager configuration, string filePath, int sourceIndex)
+    {
+        var sourceCount = configuration.Sources.Count;
+        configuration.AddJsonFile(filePath, optional: true, reloadOnChange: false);
+
+        if (sourceIndex < 0 || sourceIndex >= sourceCount)
+        {
+            return;
+        }
+
+        var source = configuration.Sources[configuration.Sources.Count - 1];
+        configuration.Sources.RemoveAt(configuration.Sources.Count - 1);
+        configuration.Sources.Insert(sourceIndex, source);
+    }
+
+    private static int FindUserSecretsSourceInsertionIndex(IConfigurationManager configuration)
+    {
+        for (var i = 0; i < configuration.Sources.Count; i++)
+        {
+            if (configuration.Sources[i] is EnvironmentVariablesConfigurationSource { Prefix: null or "" } or CommandLineConfigurationSource)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static void ValidateResourceName(IResource resource)

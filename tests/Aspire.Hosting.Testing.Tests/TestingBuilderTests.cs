@@ -203,6 +203,34 @@ public class TestingBuilderTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task CreateAsyncCommandLineConfigurationOverridesCopiedIsolatedUserSecretsStore()
+    {
+        var sourceUserSecretsId = Guid.NewGuid().ToString();
+        var sourceManager = CreateUserSecretsManager(sourceUserSecretsId);
+        var probeKey = $"IsolationProbe{Guid.NewGuid():N}";
+        Assert.True(sourceManager.TrySetSecret(probeKey, "secret"));
+
+        string? isolatedUserSecretsFilePath = null;
+        try
+        {
+            await using var builder = await DistributedApplicationTestingBuilder.CreateAsync(
+                typeof(Projects.TestingAppHost1_AppHost),
+                [$"{AspireUserSecretsIdConfigKey}={sourceUserSecretsId}", $"{probeKey}=command-line"],
+                (_, _) => { });
+
+            isolatedUserSecretsFilePath = builder.UserSecretsManager.FilePath;
+
+            Assert.Equal("command-line", builder.Configuration[probeKey]);
+        }
+        finally
+        {
+            DeleteUserSecretsFile(sourceManager.FilePath);
+        }
+
+        Assert.False(File.Exists(isolatedUserSecretsFilePath));
+    }
+
+    [Fact]
     public void CreateUsesUniqueIsolatedUserSecretsStoresWhenConfiguredStoreDoesNotExist()
     {
         var sourceUserSecretsId = Guid.NewGuid().ToString();
