@@ -82,6 +82,9 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
             throw new ArgumentOutOfRangeException(nameof(randomWalkStep), randomWalkStep, "Random walk step must be coprime with the configured range size.");
         }
 
+        // The scan range is dense and bounded, so indexable visited state is cheaper and simpler than
+        // hashing individual ports. The default range is only about 23 KB while still giving O(1)
+        // lookups for both random-walk and incremental scans.
         _visited = new bool[_rangeSize];
         _randomWalkCursor = randomWalkOffset;
         _randomWalkStep = randomWalkStep;
@@ -145,21 +148,21 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
             // the same port to another endpoint in this app model.
             if (_tryProbe(port, protocol))
             {
-                _nextCandidate = GetNextIncrementalCandidate(candidate);
+                _nextCandidate = _visitedCount == _rangeSize ? null : GetNextIncrementalCandidate(candidate);
                 return port;
             }
 
             _nextCandidate = GetNextRandomWalkCandidate();
         }
 
-        throw new InvalidOperationException($"No available ports were found in the configured proxyless endpoint port range {_rangeStart}-{_rangeEnd}.");
+        throw CreateNoAvailablePortsException();
     }
 
-    private int? GetNextIncrementalCandidate(int afterIndex)
+    private int GetNextIncrementalCandidate(int afterIndex)
     {
         if (_visitedCount == _rangeSize)
         {
-            return null;
+            throw CreateNoAvailablePortsException();
         }
 
         for (var i = 1; i <= _rangeSize; i++)
@@ -171,14 +174,14 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
             }
         }
 
-        return null;
+        throw CreateNoAvailablePortsException();
     }
 
-    private int? GetNextRandomWalkCandidate()
+    private int GetNextRandomWalkCandidate()
     {
         if (_visitedCount == _rangeSize)
         {
-            return null;
+            throw CreateNoAvailablePortsException();
         }
 
         for (var i = 0; i < _rangeSize; i++)
@@ -192,7 +195,12 @@ internal sealed class ProxylessEndpointPortAllocator : IDisposable
             }
         }
 
-        return null;
+        throw CreateNoAvailablePortsException();
+    }
+
+    private InvalidOperationException CreateNoAvailablePortsException()
+    {
+        return new InvalidOperationException($"No available ports were found in the configured proxyless endpoint port range {_rangeStart}-{_rangeEnd}.");
     }
 
     private void MarkVisited(int index)
