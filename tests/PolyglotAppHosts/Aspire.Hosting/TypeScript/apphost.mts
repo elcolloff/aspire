@@ -806,27 +806,24 @@ await container.withCommand("interaction-showcase", "Interaction Showcase", asyn
     }
 
     const confirmation = await interactionService.promptConfirmation("Confirm", "Proceed?", {
-        options: {
-            primaryButtonText: "Yes",
-            secondaryButtonText: "No",
-            showSecondaryButton: true,
-            showDismiss: true,
-            enableMessageMarkdown: true,
-            intent: MessageIntent.Confirmation
-        }
+        primaryButtonText: "Yes",
+        secondaryButtonText: "No",
+        showSecondaryButton: true,
+        showDismiss: true,
+        enableMessageMarkdown: true,
+        intent: MessageIntent.Confirmation
     });
 
     const messageBox = await interactionService.promptMessageBox("Notice", "Read this.", {
-        options: { primaryButtonText: "OK", intent: MessageIntent.Information }
+        primaryButtonText: "OK",
+        intent: MessageIntent.Information
     });
 
     const notification = await interactionService.promptNotification("Heads up", "Something happened.", {
-        options: {
-            intent: MessageIntent.Warning,
-            linkText: "Learn more",
-            linkUrl: "https://aspire.dev",
-            showDismiss: true
-        }
+        intent: MessageIntent.Warning,
+        linkText: "Learn more",
+        linkUrl: "https://aspire.dev",
+        showDismiss: true
     });
 
     const textInput = await interactionService.createTextInput("name", {
@@ -870,13 +867,11 @@ await container.withCommand("interaction-showcase", "Interaction Showcase", asyn
         "Enter a value.",
         interactionService.createTextInput("solo"),
         {
-            options: {
-                primaryButtonText: "Save",
-                validationCallback: async (validationContext) => {
-                    const solo = await validationContext.inputs().value("solo");
-                    if (!solo) {
-                        await validationContext.addValidationError("solo", "A value is required.");
-                    }
+            primaryButtonText: "Save",
+            validationCallback: async (validationContext) => {
+                const solo = await validationContext.inputs().value("solo");
+                if (!solo) {
+                    await validationContext.addValidationError("solo", "A value is required.");
                 }
             }
         });
@@ -886,14 +881,12 @@ await container.withCommand("interaction-showcase", "Interaction Showcase", asyn
         "Fill out the form.",
         [textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput],
         {
-            options: {
-                primaryButtonText: "Submit",
-                enableMessageMarkdown: true,
-                validationCallback: async (validationContext) => {
-                    const name = await validationContext.inputs().value("name");
-                    if (name === "bad") {
-                        await validationContext.addValidationError("name", "Name cannot be 'bad'.");
-                    }
+            primaryButtonText: "Submit",
+            enableMessageMarkdown: true,
+            validationCallback: async (validationContext) => {
+                const name = await validationContext.inputs().value("name");
+                if (name === "bad") {
+                    await validationContext.addValidationError("name", "Name cannot be 'bad'.");
                 }
             }
         });

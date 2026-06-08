@@ -1471,31 +1471,6 @@ export interface GetValueAsyncOptions {
     cancellationToken?: AbortSignal | CancellationToken;
 }
 
-export interface PromptConfirmationOptions {
-    options?: InteractionMessageBoxOptions;
-    cancellationToken?: AbortSignal | CancellationToken;
-}
-
-export interface PromptInputOptions {
-    options?: InteractionInputsDialogOptions;
-    cancellationToken?: AbortSignal | CancellationToken;
-}
-
-export interface PromptInputsOptions {
-    options?: InteractionInputsDialogOptions;
-    cancellationToken?: AbortSignal | CancellationToken;
-}
-
-export interface PromptMessageBoxOptions {
-    options?: InteractionMessageBoxOptions;
-    cancellationToken?: AbortSignal | CancellationToken;
-}
-
-export interface PromptNotificationOptions {
-    options?: InteractionNotificationOptions;
-    cancellationToken?: AbortSignal | CancellationToken;
-}
-
 export interface PublishAsDockerFileOptions {
     /** Optional action to configure the container resource */
     configure?: (obj: ContainerResource) => Promise<void>;
@@ -11340,27 +11315,27 @@ export interface InteractionService {
      * Prompts the user for confirmation with an OK/Cancel dialog.
      * @param options Additional options.
      */
-    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult>;
+    promptConfirmation(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user with a message box dialog.
      * @param options Additional options.
      */
-    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult>;
+    promptMessageBox(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user with a notification.
      * @param options Additional options.
      */
-    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult>;
+    promptNotification(title: string, message: string, options?: InteractionNotificationOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user for a single input.
      * @param options Additional options.
      */
-    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult>;
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<InputInteractionResult>;
     /**
      * Prompts the user for multiple inputs.
      * @param options Additional options.
      */
-    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): InputsInteractionResultPromise;
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): InputsInteractionResultPromise;
     /**
      * Creates a single-line text input.
      * @param options Additional options.
@@ -11399,27 +11374,27 @@ export interface InteractionServicePromise extends PromiseLike<InteractionServic
      * Prompts the user for confirmation with an OK/Cancel dialog.
      * @param options Additional options.
      */
-    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult>;
+    promptConfirmation(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user with a message box dialog.
      * @param options Additional options.
      */
-    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult>;
+    promptMessageBox(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user with a notification.
      * @param options Additional options.
      */
-    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult>;
+    promptNotification(title: string, message: string, options?: InteractionNotificationOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult>;
     /**
      * Prompts the user for a single input.
      * @param options Additional options.
      */
-    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult>;
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<InputInteractionResult>;
     /**
      * Prompts the user for multiple inputs.
      * @param options Additional options.
      */
-    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): InputsInteractionResultPromise;
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): InputsInteractionResultPromise;
     /**
      * Creates a single-line text input.
      * @param options Additional options.
@@ -11473,11 +11448,9 @@ class InteractionServiceImpl implements InteractionService {
 
     /**
      * Prompts the user for confirmation with an OK/Cancel dialog.
-     * @param optionsBag Additional options.
+     * @param options Additional options.
      */
-    async promptConfirmation(title: string, message: string, optionsBag?: PromptConfirmationOptions): Promise<BoolInteractionResult> {
-        const options = optionsBag?.options;
-        const cancellationToken = optionsBag?.cancellationToken;
+    async promptConfirmation(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
         const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
         if (options !== undefined) rpcArgs.options = options;
         if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
@@ -11489,11 +11462,9 @@ class InteractionServiceImpl implements InteractionService {
 
     /**
      * Prompts the user with a message box dialog.
-     * @param optionsBag Additional options.
+     * @param options Additional options.
      */
-    async promptMessageBox(title: string, message: string, optionsBag?: PromptMessageBoxOptions): Promise<BoolInteractionResult> {
-        const options = optionsBag?.options;
-        const cancellationToken = optionsBag?.cancellationToken;
+    async promptMessageBox(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
         const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
         if (options !== undefined) rpcArgs.options = options;
         if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
@@ -11505,11 +11476,9 @@ class InteractionServiceImpl implements InteractionService {
 
     /**
      * Prompts the user with a notification.
-     * @param optionsBag Additional options.
+     * @param options Additional options.
      */
-    async promptNotification(title: string, message: string, optionsBag?: PromptNotificationOptions): Promise<BoolInteractionResult> {
-        const options = optionsBag?.options;
-        const cancellationToken = optionsBag?.cancellationToken;
+    async promptNotification(title: string, message: string, options?: InteractionNotificationOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
         const rpcArgs: Record<string, unknown> = { interactionService: this._handle, title, message };
         if (options !== undefined) rpcArgs.options = options;
         if (cancellationToken !== undefined) rpcArgs.cancellationToken = CancellationToken.fromValue(cancellationToken);
@@ -11521,11 +11490,9 @@ class InteractionServiceImpl implements InteractionService {
 
     /**
      * Prompts the user for a single input.
-     * @param optionsBag Additional options.
+     * @param options Additional options.
      */
-    async promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, optionsBag?: PromptInputOptions): Promise<InputInteractionResult> {
-        const options = optionsBag?.options;
-        const cancellationToken = optionsBag?.cancellationToken;
+    async promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<InputInteractionResult> {
         input = isPromiseLike(input) ? await input : input;
         const __optionsForRpc = options === undefined || options === null ? options : { ...options };
         if (__optionsForRpc !== undefined && __optionsForRpc !== null) {
@@ -11576,11 +11543,9 @@ class InteractionServiceImpl implements InteractionService {
 
     /**
      * Prompts the user for multiple inputs.
-     * @param optionsBag Additional options.
+     * @param options Additional options.
      */
-    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], optionsBag?: PromptInputsOptions): InputsInteractionResultPromise {
-        const options = optionsBag?.options;
-        const cancellationToken = optionsBag?.cancellationToken;
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): InputsInteractionResultPromise {
         return new InputsInteractionResultPromiseImpl(this._promptInputsInternal(title, message, inputs, options, cancellationToken), this._client);
     }
 
@@ -11704,24 +11669,24 @@ class InteractionServicePromiseImpl implements InteractionServicePromise {
         return this._promise.then(obj => obj.isAvailable());
     }
 
-    promptConfirmation(title: string, message: string, options?: PromptConfirmationOptions): Promise<BoolInteractionResult> {
-        return this._promise.then(obj => obj.promptConfirmation(title, message, options));
+    promptConfirmation(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptConfirmation(title, message, options, cancellationToken));
     }
 
-    promptMessageBox(title: string, message: string, options?: PromptMessageBoxOptions): Promise<BoolInteractionResult> {
-        return this._promise.then(obj => obj.promptMessageBox(title, message, options));
+    promptMessageBox(title: string, message: string, options?: InteractionMessageBoxOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptMessageBox(title, message, options, cancellationToken));
     }
 
-    promptNotification(title: string, message: string, options?: PromptNotificationOptions): Promise<BoolInteractionResult> {
-        return this._promise.then(obj => obj.promptNotification(title, message, options));
+    promptNotification(title: string, message: string, options?: InteractionNotificationOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<BoolInteractionResult> {
+        return this._promise.then(obj => obj.promptNotification(title, message, options, cancellationToken));
     }
 
-    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: PromptInputOptions): Promise<InputInteractionResult> {
-        return this._promise.then(obj => obj.promptInput(title, message, input, options));
+    promptInput(title: string, message: string, input: Awaitable<InteractionInputBuilder>, options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): Promise<InputInteractionResult> {
+        return this._promise.then(obj => obj.promptInput(title, message, input, options, cancellationToken));
     }
 
-    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: PromptInputsOptions): InputsInteractionResultPromise {
-        return new InputsInteractionResultPromiseImpl(this._promise.then(obj => obj.promptInputs(title, message, inputs, options)), this._client);
+    promptInputs(title: string, message: string, inputs: InteractionInputBuilder[], options?: InteractionInputsDialogOptions, cancellationToken?: AbortSignal | CancellationToken): InputsInteractionResultPromise {
+        return new InputsInteractionResultPromiseImpl(this._promise.then(obj => obj.promptInputs(title, message, inputs, options, cancellationToken)), this._client);
     }
 
     createTextInput(name: string, options?: CreateInteractionInputOptions): InteractionInputBuilderPromise {
