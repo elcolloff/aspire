@@ -97,6 +97,10 @@ public class AtsExportsTests
         var result = await promptTask;
 
         Assert.False(result.Canceled);
+        // Inputs is now the InteractionInputCollection handle, so callers can read submitted values by name
+        // (mirroring the .NET indexer) in addition to enumerating them.
+        Assert.Equal("westus", result.Inputs["region"].Value);
+        Assert.Equal("a", result.Inputs["zone"].Value);
         Assert.Collection(
             result.Inputs,
             input =>

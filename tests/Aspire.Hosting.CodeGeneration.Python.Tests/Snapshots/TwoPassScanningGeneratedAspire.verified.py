@@ -1872,10 +1872,6 @@ class InputInteractionResult(typing.TypedDict, total=False):
     Canceled: bool
     Input: InteractionInput
 
-class InputsInteractionResult(typing.TypedDict, total=False):
-    Canceled: bool
-    Inputs: typing.Iterable[InteractionInput]
-
 class InteractionChoiceOption(typing.TypedDict, total=False):
     Value: str
     Label: str
@@ -5220,6 +5216,40 @@ class InputsDialogValidationContext:
             'Aspire.Hosting/InputsDialogValidationContext.addValidationError',
             rpc_args
         )
+
+
+class InputsInteractionResult:
+    """Type class for InputsInteractionResult."""
+
+    def __init__(self, handle: Handle, client: AspireClient) -> None:
+        self._handle = handle
+        self._client = client
+
+    def __repr__(self) -> str:
+        return f"InputsInteractionResult(handle={self._handle.handle_id})"
+
+    @_uncached_property
+    def handle(self) -> Handle:
+        """The underlying object reference handle."""
+        return self._handle
+
+    @_cached_property
+    def canceled(self) -> bool:
+        """Gets a value indicating whether the interaction was canceled by the user."""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/InputsInteractionResult.canceled',
+            {'context': self._handle}
+        )
+        return typing.cast(bool, result)
+
+    @_cached_property
+    def inputs(self) -> InteractionInputCollection:
+        """Gets the inputs returned from the interaction. Empty when `Canceled` is `true`."""
+        result = self._client.invoke_capability(
+            'Aspire.Hosting.Ats/InputsInteractionResult.inputs',
+            {'context': self._handle}
+        )
+        return typing.cast(InteractionInputCollection, result)
 
 
 class InteractionInputBuilder:
@@ -12000,6 +12030,7 @@ _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.Execute
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.HttpCommandPrepareRequestContext", HttpCommandPrepareRequestContext)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.InitializeResourceEvent", InitializeResourceEvent)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.InputsDialogValidationContext", InputsDialogValidationContext)
+_register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.InputsInteractionResult", InputsInteractionResult)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", InteractionInputBuilder)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.InteractionInputCollection", InteractionInputCollection)
 _register_handle_wrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext", InteractionInputLoadContext)

@@ -1100,26 +1100,6 @@ impl InputInteractionResult {
     }
 }
 
-/// InputsInteractionResult
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct InputsInteractionResult {
-    #[serde(rename = "Canceled")]
-    pub canceled: bool,
-    #[serde(rename = "Inputs", skip_serializing_if = "Option::is_none")]
-    pub inputs: Option<Vec<InteractionInput>>,
-}
-
-impl InputsInteractionResult {
-    pub fn to_map(&self) -> HashMap<String, Value> {
-        let mut map = HashMap::new();
-        map.insert("Canceled".to_string(), serde_json::to_value(&self.canceled).unwrap_or(Value::Null));
-        if let Some(ref v) = self.inputs {
-            map.insert("Inputs".to_string(), serde_json::to_value(v).unwrap_or(Value::Null));
-        }
-        map
-    }
-}
-
 /// ResourceEventDto
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResourceEventDto {
@@ -11212,7 +11192,8 @@ impl IInteractionService {
             args.insert("cancellationToken".to_string(), Value::String(token_id));
         }
         let result = self.client.invoke_capability("Aspire.Hosting/promptInputs", args)?;
-        Ok(serde_json::from_value(result)?)
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(InputsInteractionResult::new(handle, self.client.clone()))
     }
 
     /// Creates a single-line text input.
@@ -12151,6 +12132,49 @@ impl InputsDialogValidationContext {
         args.insert("errorMessage".to_string(), serde_json::to_value(&error_message).unwrap_or(Value::Null));
         let result = self.client.invoke_capability("Aspire.Hosting/InputsDialogValidationContext.addValidationError", args)?;
         Ok(())
+    }
+}
+
+/// Wrapper for Aspire.Hosting/Aspire.Hosting.Ats.InputsInteractionResult
+pub struct InputsInteractionResult {
+    handle: Handle,
+    client: Arc<AspireClient>,
+}
+
+impl HasHandle for InputsInteractionResult {
+    fn handle(&self) -> &Handle {
+        &self.handle
+    }
+}
+
+impl InputsInteractionResult {
+    pub fn new(handle: Handle, client: Arc<AspireClient>) -> Self {
+        Self { handle, client }
+    }
+
+    pub fn handle(&self) -> &Handle {
+        &self.handle
+    }
+
+    pub fn client(&self) -> &Arc<AspireClient> {
+        &self.client
+    }
+
+    /// Gets a value indicating whether the interaction was canceled by the user.
+    pub fn canceled(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("context".to_string(), self.handle.to_json());
+        let result = self.client.invoke_capability("Aspire.Hosting.Ats/InputsInteractionResult.canceled", args)?;
+        Ok(serde_json::from_value(result)?)
+    }
+
+    /// Gets the inputs returned from the interaction. Empty when `Canceled` is `true`.
+    pub fn inputs(&self) -> Result<InteractionInputCollection, Box<dyn std::error::Error>> {
+        let mut args: HashMap<String, Value> = HashMap::new();
+        args.insert("context".to_string(), self.handle.to_json());
+        let result = self.client.invoke_capability("Aspire.Hosting.Ats/InputsInteractionResult.inputs", args)?;
+        let handle: Handle = serde_json::from_value(result)?;
+        Ok(InteractionInputCollection::new(handle, self.client.clone()))
     }
 }
 

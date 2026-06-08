@@ -792,7 +792,8 @@ await container.withCommand("pick-zone", "Pick Zone", async (ctx) => {
         "Choose a region, then pick a zone from the dynamically loaded options.",
         [regionInput, zoneInput]);
 
-    return { success: !result.canceled, canceled: result.canceled };
+    const canceled = await result.canceled();
+    return { success: !canceled, canceled };
 });
 // Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
 // exercised by the polyglot typecheck: all prompt overloads, every input factory and builder method,
@@ -897,19 +898,20 @@ await container.withCommand("interaction-showcase", "Interaction Showcase", asyn
             }
         });
 
-    const selectedColor = multi.inputs?.find(input => input.name === "color")?.value;
+    const selectedColor = await (await multi.inputs()).value("color");
     const soloValue = single.input?.value;
 
+    const multiCanceled = await multi.canceled();
     const success = !confirmation.canceled
         && confirmation.value === true
         && !messageBox.canceled
         && !notification.canceled
         && !single.canceled
-        && !multi.canceled;
+        && !multiCanceled;
 
     return {
         success,
-        canceled: multi.canceled,
+        canceled: multiCanceled,
         message: `color=${selectedColor ?? ""} solo=${soloValue ?? ""}`
     };
 });

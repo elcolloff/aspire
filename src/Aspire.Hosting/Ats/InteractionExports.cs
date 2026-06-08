@@ -702,7 +702,13 @@ internal sealed class InputInteractionResult
 /// <summary>
 /// The result of a multi-input interaction prompt.
 /// </summary>
-[AspireDto]
+/// <remarks>
+/// Modeled as a handle (not a by-value DTO) so the returned inputs are surfaced as the
+/// <see cref="InteractionInputCollection"/> handle. That lets polyglot callers reuse the same name-based
+/// accessors (for example <c>result.inputs().value("color")</c>) that the validation and command-argument
+/// collections already expose, instead of having to scan a serialized array by hand.
+/// </remarks>
+[AspireExport(ExposeProperties = true)]
 internal sealed class InputsInteractionResult
 {
     /// <summary>
@@ -713,16 +719,21 @@ internal sealed class InputsInteractionResult
     /// <summary>
     /// Gets the inputs returned from the interaction. Empty when <see cref="Canceled"/> is <see langword="true"/>.
     /// </summary>
-    public IReadOnlyList<InteractionInput> Inputs { get; init; } = [];
+    public required InteractionInputCollection Inputs { get; init; }
 
     internal static InputsInteractionResult From(InteractionResult<InteractionInputCollection> result)
     {
+        // The engine returns the live input instances, which still carry the non-serializable dynamic-loading
+        // callback on DynamicLoading. Project onto callback-free copies (ToResultInput) before wrapping them in a
+        // fresh collection so the handle can be enumerated/serialized safely after the prompt completes.
+        var inputs = result.Canceled || result.Data is null
+            ? new InteractionInputCollection([])
+            : new InteractionInputCollection(result.Data.Select(InteractionExports.ToResultInput).ToArray());
+
         return new InputsInteractionResult
         {
             Canceled = result.Canceled,
-            Inputs = result.Canceled || result.Data is null
-                ? []
-                : result.Data.Select(InteractionExports.ToResultInput).ToArray(),
+            Inputs = inputs,
         };
     }
 }

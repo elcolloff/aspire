@@ -305,9 +305,10 @@ void main() throws Exception {
                 "Choose a region, then pick a zone from the dynamically loaded options.",
                 new InteractionInputBuilder[] { regionInput, zoneInput });
 
+            var canceled = result.canceled();
             var commandResult = new ExecuteCommandResult();
-            commandResult.setSuccess(!result.getCanceled());
-            commandResult.setCanceled(result.getCanceled());
+            commandResult.setSuccess(!canceled);
+            commandResult.setCanceled(canceled);
             return commandResult;
         });
         // Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
@@ -414,26 +415,20 @@ void main() throws Exception {
                 new InteractionInputBuilder[] { textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput },
                 new PromptInputsOptions().options(multiDialogOptions));
 
-            String selectedColor = "";
-            if (multi.getInputs() != null) {
-                for (var input : multi.getInputs()) {
-                    if ("color".equals(input.getName())) {
-                        selectedColor = input.getValue();
-                    }
-                }
-            }
+            String selectedColor = multi.inputs().value("color");
             String soloValue = single.getInput() != null ? single.getInput().getValue() : "";
 
+            var multiCanceled = multi.canceled();
             var success = !confirmation.getCanceled()
                 && Boolean.TRUE.equals(confirmation.getValue())
                 && !messageBox.getCanceled()
                 && !notification.getCanceled()
                 && !single.getCanceled()
-                && !multi.getCanceled();
+                && !multiCanceled;
 
             var commandResult = new ExecuteCommandResult();
             commandResult.setSuccess(success);
-            commandResult.setCanceled(multi.getCanceled());
+            commandResult.setCanceled(multiCanceled);
             commandResult.setMessage("color=" + (selectedColor == null ? "" : selectedColor)
                 + " solo=" + (soloValue == null ? "" : soloValue));
             return commandResult;

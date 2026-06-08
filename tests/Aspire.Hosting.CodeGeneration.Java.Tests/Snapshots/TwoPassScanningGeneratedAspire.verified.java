@@ -1374,6 +1374,7 @@ public class AspireRegistrations {
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.EventingSubscriberRegistrationContext", (h, c) -> new EventingSubscriberRegistrationContext(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", (h, c) -> new InteractionInputBuilder(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputLoadContext", (h, c) -> new InteractionInputLoadContext(h, c));
+        AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InputsInteractionResult", (h, c) -> new InputsInteractionResult(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.AfterResourcesCreatedEvent", (h, c) -> new AfterResourcesCreatedEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeResourceStartedEvent", (h, c) -> new BeforeResourceStartedEvent(h, c));
         AspireClient.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.ApplicationModel.BeforeStartEvent", (h, c) -> new BeforeStartEvent(h, c));
@@ -14120,7 +14121,7 @@ public class IInteractionService extends HandleWrapperBase {
             reqArgs.put("cancellationToken", getClient().registerCancellation(cancellationToken));
         }
         var result = getClient().invokeCapability("Aspire.Hosting/promptInputs", reqArgs);
-        return InputsInteractionResult.fromMap((Map<String, Object>) result);
+        return (InputsInteractionResult) result;
     }
 
     public InteractionInputBuilder createTextInput(String name) {
@@ -15074,32 +15075,28 @@ package aspire;
 import java.util.*;
 import java.util.function.*;
 
-/** InputsInteractionResult DTO. */
-public class InputsInteractionResult implements JsonSerializable {
-    private boolean canceled;
-    private InteractionInput[] inputs;
-
-    public boolean getCanceled() { return canceled; }
-    public void setCanceled(boolean value) { this.canceled = value; }
-    public InteractionInput[] getInputs() { return inputs; }
-    public void setInputs(InteractionInput[] value) { this.inputs = value; }
-
-    @SuppressWarnings("unchecked")
-    public static InputsInteractionResult fromMap(Map<String, Object> map) {
-        var value = new InputsInteractionResult();
-        var canceledValue = map.get("Canceled");
-        value.setCanceled((Boolean) canceledValue);
-        var inputsValue = map.get("Inputs");
-        value.setInputs((InteractionInput[]) inputsValue);
-        return value;
+/** Wrapper for Aspire.Hosting/Aspire.Hosting.Ats.InputsInteractionResult. */
+public class InputsInteractionResult extends HandleWrapperBase {
+    InputsInteractionResult(Handle handle, AspireClient client) {
+        super(handle, client);
     }
 
-    public Map<String, Object> toMap() {
-        Map<String, Object> map = new HashMap<>();
-        map.put("Canceled", AspireClient.serializeValue(canceled));
-        map.put("Inputs", AspireClient.serializeValue(inputs));
-        return map;
+    /** Gets a value indicating whether the interaction was canceled by the user. */
+    public boolean canceled() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/InputsInteractionResult.canceled", reqArgs);
+        return (Boolean) result;
     }
+
+    /** Gets the inputs returned from the interaction. Empty when `Canceled` is `true`. */
+    public InteractionInputCollection inputs() {
+        Map<String, Object> reqArgs = new HashMap<>();
+        reqArgs.put("context", AspireClient.serializeValue(getHandle()));
+        var result = getClient().invokeCapability("Aspire.Hosting.Ats/InputsInteractionResult.inputs", reqArgs);
+        return (InteractionInputCollection) result;
+    }
+
 }
 
 // ===== InteractionChoiceOption.java =====

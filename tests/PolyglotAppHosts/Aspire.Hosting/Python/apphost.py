@@ -476,7 +476,8 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
             "Choose a region, then pick a zone from the dynamically loaded options.",
             [region_input, zone_input]
         )
-        return {"success": not result.get("Canceled", False), "canceled": result.get("Canceled", False)}
+        canceled = result.canceled()
+        return {"success": not canceled, "canceled": canceled}
 
     container.with_command("pick-zone", "Pick Zone", pick_zone_command)
     # Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
@@ -578,19 +579,20 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
             options={"PrimaryButtonText": "Submit", "EnableMessageMarkdown": True, "ValidationCallback": validate_form},
         )
 
-        selected_color = next((i.get("Value") for i in (multi.get("Inputs") or []) if i.get("Name") == "color"), None)
+        selected_color = multi.inputs().value("color")
         solo_value = (single.get("Input") or {}).get("Value")
 
+        multi_canceled = multi.canceled()
         success = (not confirmation.get("Canceled", False)
                    and confirmation.get("Value", False)
                    and not message_box.get("Canceled", False)
                    and not notification.get("Canceled", False)
                    and not single.get("Canceled", False)
-                   and not multi.get("Canceled", False))
+                   and not multi_canceled)
 
         return {
             "success": bool(success),
-            "canceled": multi.get("Canceled", False),
+            "canceled": multi_canceled,
             "message": f"color={selected_color or ''} solo={solo_value or ''}",
         }
 

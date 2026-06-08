@@ -570,20 +570,6 @@ func (d *InputInteractionResult) ToMap() map[string]any {
 	return m
 }
 
-// InputsInteractionResult represents InputsInteractionResult.
-type InputsInteractionResult struct {
-	Canceled bool `json:"Canceled,omitempty"`
-	Inputs []*InteractionInput `json:"Inputs,omitempty"`
-}
-
-// ToMap converts the DTO to a map for JSON serialization.
-func (d *InputsInteractionResult) ToMap() map[string]any {
-	m := map[string]any{}
-	m["Canceled"] = serializeValue(d.Canceled)
-	if d.Inputs != nil { m["Inputs"] = serializeValue(d.Inputs) }
-	return m
-}
-
 // ResourceEventDto represents ResourceEventDto.
 type ResourceEventDto struct {
 	ResourceName string `json:"ResourceName,omitempty"`
@@ -16176,6 +16162,58 @@ func (s *inputsDialogValidationContext) Inputs() InteractionInputCollection {
 	return &interactionInputCollection{resourceBuilderBase: newResourceBuilderBase(href.getHandle(), s.client)}
 }
 
+// InputsInteractionResult is the public interface for handle type InputsInteractionResult.
+type InputsInteractionResult interface {
+	handleReference
+	Canceled() (bool, error)
+	Inputs() InteractionInputCollection
+	Err() error
+}
+
+// inputsInteractionResult is the unexported impl of InputsInteractionResult.
+type inputsInteractionResult struct {
+	*resourceBuilderBase
+}
+
+// newInputsInteractionResultFromHandle wraps an existing handle as InputsInteractionResult.
+func newInputsInteractionResultFromHandle(h *handle, c *client) InputsInteractionResult {
+	return &inputsInteractionResult{resourceBuilderBase: newResourceBuilderBase(h, c)}
+}
+
+// Canceled gets a value indicating whether the interaction was canceled by the user.
+func (s *inputsInteractionResult) Canceled() (bool, error) {
+	if s.err != nil { var zero bool; return zero, s.err }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"context": s.handle.ToJSON(),
+	}
+	result, err := s.client.invokeCapability(ctx, "Aspire.Hosting.Ats/InputsInteractionResult.canceled", reqArgs)
+	if err != nil {
+		var zero bool
+		return zero, err
+	}
+	return decodeAs[bool](result)
+}
+
+// Inputs gets the inputs returned from the interaction. Empty when `Canceled` is `true`.
+func (s *inputsInteractionResult) Inputs() InteractionInputCollection {
+	if s.err != nil { return &interactionInputCollection{resourceBuilderBase: newErroredResourceBuilder(s.err, s.client)} }
+	ctx := context.Background()
+	reqArgs := map[string]any{
+		"context": s.handle.ToJSON(),
+	}
+	result, err := s.client.invokeCapability(ctx, "Aspire.Hosting.Ats/InputsInteractionResult.inputs", reqArgs)
+	if err != nil {
+		return &interactionInputCollection{resourceBuilderBase: newErroredResourceBuilder(err, s.client)}
+	}
+	href, ok := result.(handleReference)
+	if !ok {
+		err := fmt.Errorf("aspire: Aspire.Hosting.Ats/InputsInteractionResult.inputs returned unexpected type %T", result)
+		return &interactionInputCollection{resourceBuilderBase: newErroredResourceBuilder(err, s.client)}
+	}
+	return &interactionInputCollection{resourceBuilderBase: newResourceBuilderBase(href.getHandle(), s.client)}
+}
+
 // InteractionInputBuilder is the public interface for handle type InteractionInputBuilder.
 type InteractionInputBuilder interface {
 	handleReference
@@ -16401,7 +16439,7 @@ type InteractionService interface {
 	IsAvailable() (bool, error)
 	PromptConfirmation(title string, message string, options ...*PromptConfirmationOptions) (*BoolInteractionResult, error)
 	PromptInput(title string, message string, input InteractionInputBuilder, options ...*PromptInputOptions) (*InputInteractionResult, error)
-	PromptInputs(title string, message string, inputs []InteractionInputBuilder, options ...*PromptInputsOptions) (*InputsInteractionResult, error)
+	PromptInputs(title string, message string, inputs []InteractionInputBuilder, options ...*PromptInputsOptions) InputsInteractionResult
 	PromptMessageBox(title string, message string, options ...*PromptMessageBoxOptions) (*BoolInteractionResult, error)
 	PromptNotification(title string, message string, options ...*PromptNotificationOptions) (*BoolInteractionResult, error)
 	Err() error
@@ -16630,8 +16668,8 @@ func (s *interactionService) PromptInput(title string, message string, input Int
 }
 
 // PromptInputs prompts the user for multiple inputs.
-func (s *interactionService) PromptInputs(title string, message string, inputs []InteractionInputBuilder, options ...*PromptInputsOptions) (*InputsInteractionResult, error) {
-	if s.err != nil { var zero *InputsInteractionResult; return zero, s.err }
+func (s *interactionService) PromptInputs(title string, message string, inputs []InteractionInputBuilder, options ...*PromptInputsOptions) InputsInteractionResult {
+	if s.err != nil { return &inputsInteractionResult{resourceBuilderBase: newErroredResourceBuilder(s.err, s.client)} }
 	ctx := context.Background()
 	reqArgs := map[string]any{
 		"interactionService": s.handle.ToJSON(),
@@ -16654,10 +16692,14 @@ func (s *interactionService) PromptInputs(title string, message string, inputs [
 	}
 	result, err := s.client.invokeCapability(ctx, "Aspire.Hosting/promptInputs", reqArgs)
 	if err != nil {
-		var zero *InputsInteractionResult
-		return zero, err
+		return &inputsInteractionResult{resourceBuilderBase: newErroredResourceBuilder(err, s.client)}
 	}
-	return decodeAs[*InputsInteractionResult](result)
+	href, ok := result.(handleReference)
+	if !ok {
+		err := fmt.Errorf("aspire: Aspire.Hosting/promptInputs returned unexpected type %T", result)
+		return &inputsInteractionResult{resourceBuilderBase: newErroredResourceBuilder(err, s.client)}
+	}
+	return &inputsInteractionResult{resourceBuilderBase: newResourceBuilderBase(href.getHandle(), s.client)}
 }
 
 // PromptMessageBox prompts the user with a message box dialog.
@@ -27564,6 +27606,9 @@ func registerWrappers(c *client) {
 	})
 	c.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.InputsDialogValidationContext", func(h *handle, c *client) any {
 		return newInputsDialogValidationContextFromHandle(h, c)
+	})
+	c.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InputsInteractionResult", func(h *handle, c *client) any {
+		return newInputsInteractionResultFromHandle(h, c)
 	})
 	c.registerHandleWrapper("Aspire.Hosting/Aspire.Hosting.Ats.InteractionInputBuilder", func(h *handle, c *client) any {
 		return newInteractionInputBuilderFromHandle(h, c)

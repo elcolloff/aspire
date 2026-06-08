@@ -623,7 +623,11 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
 
-		return &aspire.ExecuteCommandResult{Success: !result.Canceled, Canceled: aspire.BoolPtr(result.Canceled)}
+		canceled, err := result.Canceled()
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
+		}
+		return &aspire.ExecuteCommandResult{Success: !canceled, Canceled: aspire.BoolPtr(canceled)}
 	})
 
 	// Exhaustive coverage of the remaining IInteractionService surface so every newly added member is
@@ -749,15 +753,15 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
 
-		selectedColor := ""
-		for _, input := range multi.Inputs {
-			if input.Name == "color" {
-				selectedColor = input.Value
-			}
-		}
+		selectedColor, _ := multi.Inputs().Value("color")
 		soloValue := ""
 		if single.Input != nil {
 			soloValue = single.Input.Value
+		}
+
+		multiCanceled, err := multi.Canceled()
+		if err != nil {
+			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
 
 		success := !confirmation.Canceled &&
@@ -765,11 +769,11 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			!messageBox.Canceled &&
 			!notification.Canceled &&
 			!single.Canceled &&
-			!multi.Canceled
+			!multiCanceled
 
 		return &aspire.ExecuteCommandResult{
 			Success:  success,
-			Canceled: aspire.BoolPtr(multi.Canceled),
+			Canceled: aspire.BoolPtr(multiCanceled),
 			Message:  aspire.StringPtr(fmt.Sprintf("color=%s solo=%s", selectedColor, soloValue)),
 		}
 	})
