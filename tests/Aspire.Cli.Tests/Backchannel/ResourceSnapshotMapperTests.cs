@@ -170,7 +170,7 @@ public class ResourceSnapshotMapperTests
 
         var result = ResourceSnapshotMapper.MapToResourceJson(snapshot, [snapshot], includeDisabledCommands: true);
 
-        Assert.Equal(["api-only", "ui-only", "ui-disabled"], result.Commands!.Keys);
+        Assert.Equal(["api-only", "ui-disabled", "ui-only"], result.Commands!.Keys);
         Assert.Equal(KnownCommandVisibility.UI, result.Commands["ui-only"].Visibility);
         Assert.Equal(KnownCommandVisibility.UI, result.Commands["ui-disabled"].Visibility);
     }
@@ -197,8 +197,8 @@ public class ResourceSnapshotMapperTests
         var result = ResourceSnapshotMapper.MapToResourceJson(snapshot, [snapshot], includeDisabledCommands: true);
 
         // SortOrder reflects the registration order the dashboard uses.
-        // Keys are in registration order (no alphabetical sort).
-        Assert.Equal(["set-parameter", "custom-action", "delete-parameter"], result.Commands!.Keys);
+        // Keys are sorted alphabetically for a stable JSON shape.
+        Assert.Equal(["custom-action", "delete-parameter", "set-parameter"], result.Commands!.Keys);
         Assert.Equal(0, result.Commands["set-parameter"].SortOrder);
         Assert.Equal(1, result.Commands["custom-action"].SortOrder);
         Assert.Equal(2, result.Commands["delete-parameter"].SortOrder);
@@ -225,8 +225,8 @@ public class ResourceSnapshotMapperTests
         var result = ResourceSnapshotMapper.MapToResourceJson(snapshot, [snapshot]);
 
         // SortOrder reflects the registration order even on the default stream.
-        // Keys are in registration order (no alphabetical sort).
-        Assert.Equal(["set-parameter", "custom-action", "delete-parameter"], result.Commands!.Keys);
+        // Keys are sorted alphabetically for a stable JSON shape.
+        Assert.Equal(["custom-action", "delete-parameter", "set-parameter"], result.Commands!.Keys);
         Assert.Equal(0, result.Commands["set-parameter"].SortOrder);
         Assert.Equal(1, result.Commands["custom-action"].SortOrder);
         Assert.Equal(2, result.Commands["delete-parameter"].SortOrder);

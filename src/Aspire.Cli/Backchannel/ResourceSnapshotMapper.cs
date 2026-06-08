@@ -115,6 +115,7 @@ internal static class ResourceSnapshotMapper
         var commands = snapshot.Commands
             .Select((command, index) => (command, index))
             .Where(c => IsCommandVisibleForConsumer(c.command.Visibility, includeDisabledCommands) && IsCommandVisibleToConsumer(c.command.State, includeDisabledCommands))
+            .OrderBy(c => c.command.Name)
             .ToDistinctDictionary(
                 c => c.command.Name,
                 c => new ResourceCommandJson
