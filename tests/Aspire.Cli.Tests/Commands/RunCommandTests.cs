@@ -19,7 +19,6 @@ using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.Telemetry;
-using Aspire.Shared.UserSecrets;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -2702,111 +2701,81 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public async Task RunCommand_WithIsolatedOption_SetsRandomizePortsAndIsolatesUserSecrets()
+    public async Task RunCommand_WithIsolatedOption_SetsRandomizePortsAndRequestsUserSecretsIsolation()
     {
         var tcs = new TaskCompletionSource<Dictionary<string, string>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var originalUserSecretsId = Guid.NewGuid().ToString();
 
-        // Set up user secrets file to simulate existing secrets
-        var originalSecretsPath = UserSecretsPathHelper.GetSecretsPathFromSecretsId(originalUserSecretsId);
-        var originalSecretsDir = Path.GetDirectoryName(originalSecretsPath)!;
-        Directory.CreateDirectory(originalSecretsDir);
-        File.WriteAllText(originalSecretsPath, """{"TestSecret": "TestValue"}""");
-
-        try
+        var backchannelFactory = (IServiceProvider sp) =>
         {
-            var backchannelFactory = (IServiceProvider sp) =>
+            var backchannel = new TestAppHostBackchannel();
+            backchannel.GetAppHostLogEntriesAsyncCallback = ReturnLogEntriesUntilCancelledAsync;
+            return backchannel;
+        };
+
+        var runnerFactory = (IServiceProvider sp) =>
+        {
+            var runner = new TestDotNetCliRunner();
+            runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+            runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+
+            // After issue #17197 the AppHost MSBuild inspection is fetched once and cached,
+            // so the IsAspireHost shape and UserSecretsId both come back in the same response.
+            runner.GetProjectItemsAndPropertiesAsyncCallback = (projectFile, items, properties, options, ct) =>
             {
-                var backchannel = new TestAppHostBackchannel();
-                backchannel.GetAppHostLogEntriesAsyncCallback = ReturnLogEntriesUntilCancelledAsync;
-                return backchannel;
+                var json = $$$"""
+                    {
+                      "Properties": {
+                        "IsAspireHost": "true",
+                        "AspireHostingSDKVersion": "{{{VersionHelper.GetDefaultTemplateVersion()}}}",
+                        "UserSecretsId": "{{{originalUserSecretsId}}}"
+                      },
+                      "Items": {}
+                    }
+                    """;
+                return (0, JsonDocument.Parse(json));
             };
 
-            var runnerFactory = (IServiceProvider sp) =>
+            runner.RunAsyncCallback = async (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
             {
-                var runner = new TestDotNetCliRunner();
-                runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
-                runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, VersionHelper.GetDefaultTemplateVersion());
+                tcs.SetResult(env?.ToDictionary() ?? []);
 
-                // After issue #17197 the AppHost MSBuild inspection is fetched once and cached,
-                // so the IsAspireHost shape and UserSecretsId both come back in the same response.
-                runner.GetProjectItemsAndPropertiesAsyncCallback = (projectFile, items, properties, options, ct) =>
-                {
-                    var json = $$$"""
-                        {
-                          "Properties": {
-                            "IsAspireHost": "true",
-                            "AspireHostingSDKVersion": "{{{VersionHelper.GetDefaultTemplateVersion()}}}",
-                            "UserSecretsId": "{{{originalUserSecretsId}}}"
-                          },
-                          "Items": {}
-                        }
-                        """;
-                    return (0, JsonDocument.Parse(json));
-                };
-
-                runner.RunAsyncCallback = async (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
-                {
-                    // Capture environment variables
-                    tcs.SetResult(env?.ToDictionary() ?? []);
-
-                    var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
-                    backchannelCompletionSource!.SetResult(backchannel);
-                    return 0;
-                };
-
-                return runner;
+                var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                backchannelCompletionSource!.SetResult(backchannel);
+                return 0;
             };
 
-            var projectLocatorFactory = (IServiceProvider sp) => new TestProjectLocator();
+            return runner;
+        };
 
-            using var workspace = TemporaryWorkspace.Create(outputHelper);
-            var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
-            {
-                options.ProjectLocatorFactory = projectLocatorFactory;
-                options.AppHostBackchannelFactory = backchannelFactory;
-                options.DotNetCliRunnerFactory = runnerFactory;
-            });
+        var projectLocatorFactory = (IServiceProvider sp) => new TestProjectLocator();
 
-            using var provider = services.BuildServiceProvider();
-            var command = provider.GetRequiredService<RootCommand>();
-            var result = command.Parse("run --isolated");
-
-            using var cts = new CancellationTokenSource();
-            var pendingRun = result.InvokeAsync(cancellationToken: cts.Token);
-
-            // Give the command time to start and set up
-            var capturedEnv = await tcs.Task.DefaultTimeout();
-
-            // Simulate CTRL-C
-            cts.Cancel();
-
-            var exitCode = await pendingRun.DefaultTimeout();
-            Assert.Equal(CliExitCodes.Success, exitCode);
-
-            // Verify DcpPublisher__RandomizePorts is set to true for isolated mode
-            Assert.True(capturedEnv.ContainsKey("DcpPublisher__RandomizePorts"), "DcpPublisher__RandomizePorts should be set in isolated mode");
-            Assert.Equal("true", capturedEnv["DcpPublisher__RandomizePorts"]);
-
-            // Verify DOTNET_USER_SECRETS_ID is set to a different value (isolated secrets)
-            Assert.True(capturedEnv.ContainsKey("DOTNET_USER_SECRETS_ID"), "DOTNET_USER_SECRETS_ID should be set in isolated mode with user secrets");
-            Assert.NotEqual(originalUserSecretsId, capturedEnv["DOTNET_USER_SECRETS_ID"]);
-
-            // Verify the isolated secrets ID is a valid GUID
-            Assert.True(Guid.TryParse(capturedEnv["DOTNET_USER_SECRETS_ID"], out _), "Isolated user secrets ID should be a valid GUID");
-        }
-        finally
+        using var workspace = TemporaryWorkspace.Create(outputHelper);
+        var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
         {
-            // Clean up the original secrets file we created
-            if (File.Exists(originalSecretsPath))
-            {
-                File.Delete(originalSecretsPath);
-            }
-            if (Directory.Exists(originalSecretsDir) && !Directory.EnumerateFileSystemEntries(originalSecretsDir).Any())
-            {
-                Directory.Delete(originalSecretsDir);
-            }
-        }
+            options.ProjectLocatorFactory = projectLocatorFactory;
+            options.AppHostBackchannelFactory = backchannelFactory;
+            options.DotNetCliRunnerFactory = runnerFactory;
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var command = provider.GetRequiredService<RootCommand>();
+        var result = command.Parse("run --isolated");
+
+        using var cts = new CancellationTokenSource();
+        var pendingRun = result.InvokeAsync(cancellationToken: cts.Token);
+
+        var capturedEnv = await tcs.Task.DefaultTimeout();
+        cts.Cancel();
+
+        var exitCode = await pendingRun.DefaultTimeout();
+        Assert.Equal(CliExitCodes.Success, exitCode);
+
+        Assert.True(capturedEnv.ContainsKey("DcpPublisher__RandomizePorts"), "DcpPublisher__RandomizePorts should be set in isolated mode");
+        Assert.Equal("true", capturedEnv["DcpPublisher__RandomizePorts"]);
+        Assert.True(capturedEnv.ContainsKey(KnownConfigNames.IsolateUserSecrets), $"{KnownConfigNames.IsolateUserSecrets} should be set in isolated mode");
+        Assert.Equal("true", capturedEnv[KnownConfigNames.IsolateUserSecrets]);
+        Assert.False(capturedEnv.ContainsKey("DOTNET_USER_SECRETS_ID"), "The AppHost owns user-secrets isolation.");
     }
 
     [Fact]

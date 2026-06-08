@@ -204,7 +204,7 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         var configuredUserSecretsId = _innerBuilder.Configuration[KnownConfigNames.AspireUserSecretsId];
         var assemblyUserSecretsId = AppHostAssembly?.GetCustomAttribute<UserSecretsIdAttribute>()?.UserSecretsId;
         var userSecretsId = ResolveUserSecretsId(AppHostAssembly, _innerBuilder.Configuration);
-        var isolateUserSecrets = _innerBuilder.Configuration.GetValue(KnownConfigNames.TestingIsolateUserSecrets, false);
+        var isolateUserSecrets = _innerBuilder.Configuration.GetValue(KnownConfigNames.IsolateUserSecrets, false);
         if (isolateUserSecrets)
         {
             RemoveUserSecretsSource(_innerBuilder.Configuration, assemblyUserSecretsId);
@@ -349,14 +349,13 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
             return _directoryService;
         });
 
-        // Create and register the user secrets manager. Testing builders redirect this to a temp-backed
-        // store so parallel AppHost instances don't share generated parameter writes.
+        // Create and register the user secrets manager. Isolated mode redirects generated parameter
+        // writes to a per-run user-secrets ID so parallel AppHost instances don't share state.
         var userSecretsFactory = new UserSecretsManagerFactory(_directoryService);
 
         if (isolateUserSecrets && !string.IsNullOrEmpty(userSecretsId))
         {
-            var tempUserSecretsDirectory = _directoryService.TempDirectory.CreateTempSubdirectory("aspire-testing-usersecrets");
-            _userSecretsManager = userSecretsFactory.CreateIsolated(tempUserSecretsDirectory);
+            _userSecretsManager = userSecretsFactory.CreateIsolatedFromId(userSecretsId);
 
             if (_innerBuilder.Environment.IsDevelopment())
             {
@@ -830,7 +829,7 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
             application = new DistributedApplication(_innerBuilder.Build());
 
             _executionContextOptions.ServiceProvider = application.Services.GetRequiredService<IServiceProvider>();
-            // UserSecretsManager can own temp-backed stores allocated while configuring the builder. Resolve it
+            // UserSecretsManager can own isolated stores allocated while configuring the builder. Resolve it
             // after the host is built so DI tracks and disposes those stores with the host.
             application.Services.GetRequiredService<IUserSecretsManager>();
 

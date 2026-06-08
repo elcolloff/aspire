@@ -133,7 +133,7 @@ public class TestingBuilderTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task CreateAsyncUsesEmptyIsolatedUserSecretsStore()
+    public async Task CreateAsyncUsesCopiedIsolatedUserSecretsStore()
     {
         var sourceUserSecretsId = Guid.NewGuid().ToString();
         var sourceManager = CreateUserSecretsManager(sourceUserSecretsId);
@@ -155,7 +155,7 @@ public class TestingBuilderTests(ITestOutputHelper output)
             Assert.NotEqual(sourceManager.FilePath, isolatedUserSecretsFilePath);
             Assert.Equal("secrets.json", Path.GetFileName(isolatedUserSecretsFilePath));
             Assert.True(Directory.Exists(Path.GetDirectoryName(isolatedUserSecretsFilePath)));
-            Assert.Null(builder.Configuration[probeKey]);
+            Assert.Equal(probeValue, builder.Configuration[probeKey]);
             Assert.True(builder.UserSecretsManager.TrySetSecret("IsolationProbe", "isolated"));
             Assert.True(File.Exists(isolatedUserSecretsFilePath));
         }
@@ -168,7 +168,7 @@ public class TestingBuilderTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void CreateUsesEmptyIsolatedUserSecretsStore()
+    public void CreateUsesCopiedIsolatedUserSecretsStore()
     {
         var sourceUserSecretsId = Guid.NewGuid().ToString();
         var sourceManager = CreateUserSecretsManager(sourceUserSecretsId);
@@ -190,7 +190,7 @@ public class TestingBuilderTests(ITestOutputHelper output)
             Assert.NotEqual(sourceManager.FilePath, isolatedUserSecretsFilePath);
             Assert.Equal("secrets.json", Path.GetFileName(isolatedUserSecretsFilePath));
             Assert.True(Directory.Exists(Path.GetDirectoryName(isolatedUserSecretsFilePath)));
-            Assert.Null(builder.Configuration[probeKey]);
+            Assert.Equal(probeValue, builder.Configuration[probeKey]);
             Assert.True(builder.UserSecretsManager.TrySetSecret("IsolationProbe", "isolated"));
             Assert.True(File.Exists(isolatedUserSecretsFilePath));
         }

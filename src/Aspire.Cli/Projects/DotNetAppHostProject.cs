@@ -10,13 +10,11 @@ using Aspire.Cli.Diagnostics;
 using Aspire.Cli.DotNet;
 using Aspire.Cli.Exceptions;
 using Aspire.Cli.Interaction;
-using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Aspire.Hosting.Utils;
 using Aspire.Shared;
-using Aspire.Shared.UserSecrets;
 using Microsoft.Extensions.Logging;
 
 namespace Aspire.Cli.Projects;
@@ -253,15 +251,14 @@ internal sealed class DotNetAppHostProject : IAppHostProject
 
         var env = new Dictionary<string, string>(context.EnvironmentVariables);
 
-        // Handle isolated mode - randomize ports and isolate user secrets
-        string? isolatedUserSecretsId = null;
+        // Handle isolated mode - randomize ports and request user-secrets isolation from the AppHost.
         if (context.Isolated)
         {
             using var isolatedModeActivity = _profilingTelemetry.StartAppHostConfigureIsolatedMode();
             try
             {
-                isolatedUserSecretsId = await ConfigureIsolatedModeAsync(effectiveAppHostFile, env, cancellationToken);
-                _logger.LogInformation("Aspire run isolated. Isolated UserSecretsId: {IsolatedUserSecretsId}", isolatedUserSecretsId);
+                ConfigureIsolatedMode(env);
+                _logger.LogInformation("Aspire run isolated.");
             }
             catch (Exception ex)
             {
@@ -337,52 +334,41 @@ internal sealed class DotNetAppHostProject : IAppHostProject
             : null;
 
         // Start the apphost - the runner will signal the backchannel when ready
-        try
+        // The AppHost may already have been built above, but watch mode intentionally still
+        // runs with builds enabled. Passing --no-build through to dotnet watch breaks hot reload
+        // because watch owns the incremental build loop and its environment setup.
+        //
+        // This means watch mode can do a second no-op build after the CLI pre-build succeeds.
+        // That tradeoff is intentional: the pre-build makes initial compiler errors terminate
+        // aspire run instead of leaving dotnet watch idle waiting for edits before a backchannel
+        // ever becomes available.
+        //
+        // noRestore is only relevant when noBuild is false because --no-build implies --no-restore.
+        var noBuild = !watch || context.NoBuild;
+        using var runDotnetActivity = _profilingTelemetry.StartAppHostRunDotnetLifetime(watch, noBuild, context.NoRestore);
+        if (directRun is not null)
         {
-            // The AppHost may already have been built above, but watch mode intentionally still
-            // runs with builds enabled. Passing --no-build through to dotnet watch breaks hot reload
-            // because watch owns the incremental build loop and its environment setup.
-            //
-            // This means watch mode can do a second no-op build after the CLI pre-build succeeds.
-            // That tradeoff is intentional: the pre-build makes initial compiler errors terminate
-            // aspire run instead of leaving dotnet watch idle waiting for edits before a backchannel
-            // ever becomes available.
-            //
-            // noRestore is only relevant when noBuild is false because --no-build implies --no-restore.
-            var noBuild = !watch || context.NoBuild;
-            using var runDotnetActivity = _profilingTelemetry.StartAppHostRunDotnetLifetime(watch, noBuild, context.NoRestore);
-            if (directRun is not null)
-            {
-                return await _runner.RunAppHostCommandAsync(
-                    effectiveAppHostFile,
-                    directRun.Command,
-                    directRun.WorkingDirectory,
-                    directRun.Arguments,
-                    directRun.Environment,
-                    backchannelCompletionSource,
-                    runOptions,
-                    cancellationToken);
-            }
-
-            return await _runner.RunAsync(
+            return await _runner.RunAppHostCommandAsync(
                 effectiveAppHostFile,
-                watch,
-                noBuild,
-                context.NoRestore,
-                context.UnmatchedTokens,
-                env,
+                directRun.Command,
+                directRun.WorkingDirectory,
+                directRun.Arguments,
+                directRun.Environment,
                 backchannelCompletionSource,
                 runOptions,
                 cancellationToken);
         }
-        finally
-        {
-            // Clean up isolated user secrets when the run completes
-            if (!string.IsNullOrEmpty(isolatedUserSecretsId))
-            {
-                IsolatedUserSecretsHelper.CleanupIsolatedUserSecrets(isolatedUserSecretsId);
-            }
-        }
+
+        return await _runner.RunAsync(
+            effectiveAppHostFile,
+            watch,
+            noBuild,
+            context.NoRestore,
+            context.UnmatchedTokens,
+            env,
+            backchannelCompletionSource,
+            runOptions,
+            cancellationToken);
     }
 
     private async Task EnsureDevCertificatesTrustedAsync(AppHostProjectContext context, Dictionary<string, string> env, CancellationToken cancellationToken)
@@ -1218,9 +1204,9 @@ internal sealed class DotNetAppHostProject : IAppHostProject
     {
         try
         {
-            // Read UserSecretsId from the shared AppHost build info cache so isolated mode
-            // does not pay for a second `dotnet msbuild -getProperty` invocation when the
-            // run path already fetched the AppHost metadata for validation/compat.
+            // Read UserSecretsId from the shared AppHost build info cache so callers do not pay
+            // for another `dotnet msbuild -getProperty` invocation when the run path already
+            // fetched the AppHost metadata for validation/compat.
             var info = await _appHostInfoResolver.GetAppHostInfoAsync(projectFile, cancellationToken);
             return info.UserSecretsId;
         }
@@ -1265,35 +1251,14 @@ internal sealed class DotNetAppHostProject : IAppHostProject
     }
 
     /// <summary>
-    /// Configures isolated mode by enabling port randomization and isolating user secrets.
+    /// Configures isolated mode by enabling port randomization and requesting user-secrets isolation.
     /// </summary>
-    /// <param name="appHostFile">The app host project file.</param>
     /// <param name="env">The environment variables dictionary to modify.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The isolated user secrets ID if created, or null if no isolation was needed.</returns>
-    private async Task<string?> ConfigureIsolatedModeAsync(
-        FileInfo appHostFile,
-        Dictionary<string, string> env,
-        CancellationToken cancellationToken)
+    private static void ConfigureIsolatedMode(Dictionary<string, string> env)
     {
         // Enable port randomization for isolated mode
         env["DcpPublisher__RandomizePorts"] = "true";
-
-        // Get the UserSecretsId from the project and create isolated copy
-        var userSecretsId = await QueryUserSecretsIdAsync(appHostFile, cancellationToken);
-        if (!string.IsNullOrEmpty(userSecretsId))
-        {
-            _interactionService.DisplayMessage(KnownEmojis.Key, RunCommandStrings.CopyingUserSecrets);
-            var isolatedUserSecretsId = IsolatedUserSecretsHelper.CreateIsolatedUserSecrets(userSecretsId);
-            if (!string.IsNullOrEmpty(isolatedUserSecretsId))
-            {
-                // Override the user secrets ID for this run
-                env["DOTNET_USER_SECRETS_ID"] = isolatedUserSecretsId;
-                return isolatedUserSecretsId;
-            }
-        }
-
-        return null;
+        env[KnownConfigNames.IsolateUserSecrets] = "true";
     }
 
     private sealed record DirectAppHostRunSpec(

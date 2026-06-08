@@ -201,7 +201,7 @@ public class DistributedApplicationFactory(Type entryPoint, string[] args) : IDi
         SetDefault("DcpPublisher:ContainerRuntimeInitializationTimeout", "00:00:30");
         SetDefault("DcpPublisher:RandomizePorts", "true");
         SetDefault("DcpPublisher:WaitForResourceCleanup", "true");
-        SetDefault(KnownConfigNames.TestingIsolateUserSecrets, "true");
+        SetDefault(KnownConfigNames.IsolateUserSecrets, "true");
 
         // Make sure we have a dashboard URL and OTLP endpoint URL.
         SetDefault(KnownConfigNames.AspNetCoreUrls, "http://localhost:8080");

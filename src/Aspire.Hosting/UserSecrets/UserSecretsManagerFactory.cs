@@ -55,14 +55,20 @@ internal sealed class UserSecretsManagerFactory
     }
 
     /// <summary>
-    /// Creates a user secrets manager backed by the specified temporary directory.
+    /// Creates a user secrets manager backed by an isolated user secrets ID.
     /// </summary>
-    public IUserSecretsManager CreateIsolated(TempDirectory directory)
+    public IUserSecretsManager CreateIsolatedFromId(string userSecretsId)
     {
-        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userSecretsId);
 
-        var filePath = Path.Combine(directory.Path, UserSecretsPathHelper.SecretsFileName);
-        return new UserSecretsManager(filePath, _fileSystemService, directory);
+        var isolatedUserSecretsId = IsolatedUserSecretsHelper.CreateIsolatedUserSecrets(userSecretsId);
+        if (isolatedUserSecretsId is null)
+        {
+            return NoopUserSecretsManager.Instance;
+        }
+
+        var filePath = UserSecretsPathHelper.GetSecretsPathFromSecretsId(isolatedUserSecretsId);
+        return new UserSecretsManager(filePath, _fileSystemService, isolatedUserSecretsId);
     }
 
     /// <summary>
@@ -94,14 +100,14 @@ internal sealed class UserSecretsManagerFactory
 
         private readonly SemaphoreSlim _semaphore = new(1, 1);
         private readonly IFileSystemService _fileSystemService;
-        private readonly TempDirectory? _ownedDirectory;
+        private readonly string? _isolatedUserSecretsId;
         private bool _disposed;
 
-        public UserSecretsManager(string filePath, IFileSystemService fileSystemService, TempDirectory? ownedDirectory = null)
+        public UserSecretsManager(string filePath, IFileSystemService fileSystemService, string? isolatedUserSecretsId = null)
         {
             FilePath = filePath;
             _fileSystemService = fileSystemService;
-            _ownedDirectory = ownedDirectory;
+            _isolatedUserSecretsId = isolatedUserSecretsId;
         }
 
         public bool IsAvailable => true;
@@ -199,7 +205,7 @@ internal sealed class UserSecretsManagerFactory
 
             _disposed = true;
             _semaphore.Dispose();
-            _ownedDirectory?.Dispose();
+            IsolatedUserSecretsHelper.CleanupIsolatedUserSecrets(_isolatedUserSecretsId);
         }
 
         public ValueTask DisposeAsync()
