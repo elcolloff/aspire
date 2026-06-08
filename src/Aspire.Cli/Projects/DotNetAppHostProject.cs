@@ -10,12 +10,15 @@ using Aspire.Cli.Diagnostics;
 using Aspire.Cli.DotNet;
 using Aspire.Cli.Exceptions;
 using Aspire.Cli.Interaction;
+using Aspire.Cli.Resources;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Aspire.Hosting.Utils;
 using Aspire.Shared;
+using Aspire.Shared.UserSecrets;
 using Microsoft.Extensions.Logging;
+using Semver;
 
 namespace Aspire.Cli.Projects;
 
@@ -251,22 +254,6 @@ internal sealed class DotNetAppHostProject : IAppHostProject
 
         var env = new Dictionary<string, string>(context.EnvironmentVariables);
 
-        // Handle isolated mode - randomize ports and request user-secrets isolation from the AppHost.
-        if (context.Isolated)
-        {
-            using var isolatedModeActivity = _profilingTelemetry.StartAppHostConfigureIsolatedMode();
-            try
-            {
-                ConfigureIsolatedMode(env);
-                _logger.LogInformation("Aspire run isolated.");
-            }
-            catch (Exception ex)
-            {
-                isolatedModeActivity.SetError(ex.Message);
-                throw;
-            }
-        }
-
         // Enable debug logging in the app host so that debug-level output is
         // captured in the CLI log file for diagnostics. Defaults to Debug but
         // can be overridden via --log-level.
@@ -293,6 +280,8 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         {
             return exitCode;
         }
+
+        using var legacyIsolatedUserSecretsLease = await ConfigureIsolatedModeIfNeededAsync(context, effectiveAppHostFile, isSingleFileAppHost, env, cancellationToken);
 
         var canQueryCliBundleProperty = !isSingleFileAppHost || !context.NoBuild;
         BundleLayoutLease? cliBundleLease = null;
@@ -1251,14 +1240,87 @@ internal sealed class DotNetAppHostProject : IAppHostProject
     }
 
     /// <summary>
-    /// Configures isolated mode by enabling port randomization and requesting user-secrets isolation.
+    /// Configures isolated mode by enabling port randomization and isolating user secrets.
     /// </summary>
+    /// <param name="context">The AppHost run context.</param>
+    /// <param name="appHostFile">The app host project file.</param>
+    /// <param name="isSingleFileAppHost">Whether the AppHost is file-based.</param>
     /// <param name="env">The environment variables dictionary to modify.</param>
-    private static void ConfigureIsolatedMode(Dictionary<string, string> env)
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A cleanup lease when the CLI used the legacy user-secrets isolation path; otherwise <see langword="null"/>.</returns>
+    private async Task<IDisposable?> ConfigureIsolatedModeIfNeededAsync(
+        AppHostProjectContext context,
+        FileInfo appHostFile,
+        bool isSingleFileAppHost,
+        Dictionary<string, string> env,
+        CancellationToken cancellationToken)
+    {
+        if (!context.Isolated)
+        {
+            return null;
+        }
+
+        using var isolatedModeActivity = _profilingTelemetry.StartAppHostConfigureIsolatedMode();
+        try
+        {
+            var isolatedUserSecretsId = await ConfigureIsolatedModeAsync(appHostFile, isSingleFileAppHost, env, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Aspire run isolated.");
+
+            return string.IsNullOrEmpty(isolatedUserSecretsId)
+                ? null
+                : new LegacyIsolatedUserSecretsLease(isolatedUserSecretsId);
+        }
+        catch (Exception ex)
+        {
+            isolatedModeActivity.SetError(ex.Message);
+            context.BuildCompletionSource?.TrySetResult(false);
+            throw;
+        }
+    }
+
+    private async Task<string?> ConfigureIsolatedModeAsync(
+        FileInfo appHostFile,
+        bool isSingleFileAppHost,
+        Dictionary<string, string> env,
+        CancellationToken cancellationToken)
     {
         // Enable port randomization for isolated mode
         env["DcpPublisher__RandomizePorts"] = "true";
-        env[KnownConfigNames.IsolateUserSecrets] = "true";
+
+        if (isSingleFileAppHost || await AppHostSupportsNativeUserSecretsIsolationAsync(appHostFile, cancellationToken).ConfigureAwait(false))
+        {
+            env[KnownConfigNames.IsolateUserSecrets] = "true";
+            return null;
+        }
+
+        var userSecretsId = await QueryUserSecretsIdAsync(appHostFile, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(userSecretsId))
+        {
+            return null;
+        }
+
+        _interactionService.DisplayMessage(KnownEmojis.Key, RunCommandStrings.CopyingUserSecrets);
+        var isolatedUserSecretsId = IsolatedUserSecretsHelper.CreateIsolatedUserSecrets(userSecretsId);
+        if (!string.IsNullOrEmpty(isolatedUserSecretsId))
+        {
+            // Older AppHosts do not understand ASPIRE_ISOLATE_USER_SECRETS, so the CLI preserves
+            // the original --isolated behavior by overriding the user-secrets ID for that run.
+            env["DOTNET_USER_SECRETS_ID"] = isolatedUserSecretsId;
+        }
+
+        return isolatedUserSecretsId;
+    }
+
+    private async Task<bool> AppHostSupportsNativeUserSecretsIsolationAsync(FileInfo appHostFile, CancellationToken cancellationToken)
+    {
+        var info = await _appHostInfoResolver.GetAppHostInfoAsync(appHostFile, cancellationToken).ConfigureAwait(false);
+        if (!SemVersion.TryParse(info.AspireHostingVersion, SemVersionStyles.Any, out var appHostVersion) ||
+            !SemVersion.TryParse(VersionHelper.GetDefaultSdkVersion(), SemVersionStyles.Any, out var currentVersion))
+        {
+            return true;
+        }
+
+        return SemVersion.ComparePrecedence(appHostVersion, currentVersion) >= 0;
     }
 
     private sealed record DirectAppHostRunSpec(
@@ -1266,4 +1328,12 @@ internal sealed class DotNetAppHostProject : IAppHostProject
         DirectoryInfo WorkingDirectory,
         string[] Arguments,
         Dictionary<string, string> Environment);
+
+    private sealed class LegacyIsolatedUserSecretsLease(string isolatedUserSecretsId) : IDisposable
+    {
+        public void Dispose()
+        {
+            IsolatedUserSecretsHelper.CleanupIsolatedUserSecrets(isolatedUserSecretsId);
+        }
+    }
 }

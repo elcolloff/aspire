@@ -19,6 +19,7 @@ using Aspire.Cli.Utils;
 using Aspire.Hosting;
 using Aspire.Cli.Telemetry;
 using Aspire.Cli.Tests.Telemetry;
+using Aspire.Shared.UserSecrets;
 using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -2776,6 +2777,125 @@ public class RunCommandTests(ITestOutputHelper outputHelper)
         Assert.True(capturedEnv.ContainsKey(KnownConfigNames.IsolateUserSecrets), $"{KnownConfigNames.IsolateUserSecrets} should be set in isolated mode");
         Assert.Equal("true", capturedEnv[KnownConfigNames.IsolateUserSecrets]);
         Assert.False(capturedEnv.ContainsKey("DOTNET_USER_SECRETS_ID"), "The AppHost owns user-secrets isolation.");
+    }
+
+    [Fact]
+    public async Task RunCommand_WithIsolatedOption_UsesLegacyUserSecretsIsolationForOldAppHost()
+    {
+        var tcs = new TaskCompletionSource<Dictionary<string, string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalUserSecretsId = Guid.NewGuid().ToString();
+        var originalSecretsPath = UserSecretsPathHelper.GetSecretsPathFromSecretsId(originalUserSecretsId);
+        var originalSecretsDir = Path.GetDirectoryName(originalSecretsPath)!;
+        string? isolatedSecretsPath = null;
+        Directory.CreateDirectory(originalSecretsDir);
+        File.WriteAllText(originalSecretsPath, """{"TestSecret": "TestValue"}""");
+
+        try
+        {
+            var backchannelFactory = (IServiceProvider sp) =>
+            {
+                var backchannel = new TestAppHostBackchannel();
+                backchannel.GetAppHostLogEntriesAsyncCallback = ReturnLogEntriesUntilCancelledAsync;
+                return backchannel;
+            };
+
+            var runnerFactory = (IServiceProvider sp) =>
+            {
+                var runner = new TestDotNetCliRunner();
+                runner.BuildAsyncCallback = (projectFile, noRestore, options, ct) => 0;
+                runner.GetAppHostInformationAsyncCallback = (projectFile, options, ct) => (0, true, "13.4.0");
+
+                runner.GetProjectItemsAndPropertiesAsyncCallback = (projectFile, items, properties, options, ct) =>
+                {
+                    var json = $$$"""
+                        {
+                          "Properties": {
+                            "IsAspireHost": "true",
+                            "AspireHostingSDKVersion": "13.4.0",
+                            "UserSecretsId": "{{{originalUserSecretsId}}}"
+                          },
+                          "Items": {}
+                        }
+                        """;
+                    return (0, JsonDocument.Parse(json));
+                };
+
+                runner.RunAsyncCallback = async (projectFile, watch, noBuild, noRestore, args, env, backchannelCompletionSource, options, ct) =>
+                {
+                    tcs.SetResult(env?.ToDictionary() ?? []);
+
+                    var backchannel = sp.GetRequiredService<IAppHostCliBackchannel>();
+                    backchannelCompletionSource!.SetResult(backchannel);
+
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                    }
+
+                    return 0;
+                };
+
+                return runner;
+            };
+
+            var projectLocatorFactory = (IServiceProvider sp) => new TestProjectLocator();
+
+            using var workspace = TemporaryWorkspace.Create(outputHelper);
+            var services = CliTestHelper.CreateServiceCollection(workspace, outputHelper, options =>
+            {
+                options.ProjectLocatorFactory = projectLocatorFactory;
+                options.AppHostBackchannelFactory = backchannelFactory;
+                options.DotNetCliRunnerFactory = runnerFactory;
+            });
+
+            using var provider = services.BuildServiceProvider();
+            var command = provider.GetRequiredService<RootCommand>();
+            var result = command.Parse("run --isolated");
+
+            using var cts = new CancellationTokenSource();
+            var pendingRun = result.InvokeAsync(cancellationToken: cts.Token);
+
+            var capturedEnv = await tcs.Task.DefaultTimeout();
+            Assert.True(capturedEnv.ContainsKey("DcpPublisher__RandomizePorts"), "DcpPublisher__RandomizePorts should be set in isolated mode");
+            Assert.Equal("true", capturedEnv["DcpPublisher__RandomizePorts"]);
+            Assert.False(capturedEnv.ContainsKey(KnownConfigNames.IsolateUserSecrets), "Old AppHosts do not understand the native isolation flag.");
+            Assert.True(capturedEnv.TryGetValue("DOTNET_USER_SECRETS_ID", out var isolatedUserSecretsId), "Old AppHosts need the CLI to override DOTNET_USER_SECRETS_ID.");
+            Assert.NotEqual(originalUserSecretsId, isolatedUserSecretsId);
+
+            isolatedSecretsPath = UserSecretsPathHelper.GetSecretsPathFromSecretsId(isolatedUserSecretsId);
+            Assert.True(File.Exists(isolatedSecretsPath));
+            Assert.Contains("TestSecret", File.ReadAllText(isolatedSecretsPath));
+
+            cts.Cancel();
+
+            var exitCode = await pendingRun.DefaultTimeout();
+            Assert.Equal(CliExitCodes.Success, exitCode);
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(isolatedSecretsPath))
+            {
+                var isolatedSecretsDir = Path.GetDirectoryName(isolatedSecretsPath)!;
+                if (File.Exists(isolatedSecretsPath))
+                {
+                    File.Delete(isolatedSecretsPath);
+                }
+
+                if (Directory.Exists(isolatedSecretsDir) && Directory.GetFiles(isolatedSecretsDir).Length == 0)
+                {
+                    Directory.Delete(isolatedSecretsDir);
+                }
+            }
+
+            File.Delete(originalSecretsPath);
+            if (Directory.Exists(originalSecretsDir) && Directory.GetFiles(originalSecretsDir).Length == 0)
+            {
+                Directory.Delete(originalSecretsDir);
+            }
+        }
     }
 
     [Fact]
