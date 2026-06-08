@@ -4,7 +4,6 @@
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 #pragma warning disable ASPIREINTERACTION001 // Type is for evaluation purposes only.
 
@@ -99,8 +98,12 @@ internal static class InteractionPages
 
     private static void RegisterHelloWorldPage(IInteractionService interactionService)
     {
-        var logoBytes = LoadEmbeddedBinaryResource("AspireLogo.svg");
-        interactionService.RegisterAsset(LogoAssetRoute, "image/svg+xml", logoBytes);
+        interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "Book",
+            Text = "Hello world",
+            Url = "/pages/hello-world"
+        });
 
         interactionService.RegisterPage("hello-world", new ContentPageOptions
         {
@@ -119,13 +122,8 @@ internal static class InteractionPages
             }
         });
 
-        interactionService.RegisterMenuButton(new MenuButtonOptions
-        {
-            IconName = "Book",
-            Text = "Hello world",
-            Tooltip = "Hello world",
-            Url = "/pages/hello-world"
-        });
+        var logoBytes = LoadEmbeddedBinaryResource("AspireLogo.svg");
+        interactionService.RegisterAsset(LogoAssetRoute, "image/svg+xml", logoBytes);
     }
 
     private static string LoadEmbeddedTextResource(string fileName)

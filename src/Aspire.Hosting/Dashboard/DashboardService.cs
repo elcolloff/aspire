@@ -263,10 +263,10 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                         {
                             change.MenuButton = new InteractionMenuButton
                             {
-                                IconName = menuButtonInfo.Options.IconName,
-                                Text = menuButtonInfo.Options.Text,
-                                Tooltip = menuButtonInfo.Options.Tooltip,
-                                Url = menuButtonInfo.Options.Url
+                                IconName = menuButtonInfo.Options.IconName ?? "",
+                                Text = menuButtonInfo.Options.Text ?? "",
+                                Tooltip = menuButtonInfo.Options.Tooltip ?? "",
+                                Url = menuButtonInfo.Options.Url ?? ""
                             };
                         }
 

@@ -1015,9 +1015,9 @@ public sealed class MenuButtonOptions
     public required string Text { get; set; }
 
     /// <summary>
-    /// Gets or sets the tooltip text displayed when hovering over the menu button.
+    /// Gets or sets the tooltip text displayed when hovering over the menu button. Optional.
     /// </summary>
-    public required string Tooltip { get; set; }
+    public string? Tooltip { get; set; }
 
     /// <summary>
     /// Gets or sets the URL to navigate to when the menu button is clicked.

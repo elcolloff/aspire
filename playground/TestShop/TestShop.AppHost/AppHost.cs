@@ -1,5 +1,4 @@
 using Aspire.Hosting.Yarp.Transforms;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 #pragma warning disable ASPIREPERSISTENCE001 // Resource lifetime APIs are experimental.
@@ -112,40 +111,7 @@ var frontend = builder.AddProject<Projects.MyFrontend>("frontend")
 
 // Register dashboard pages that embed apps in IFrames.
 var frontendEndpoint = frontend.GetEndpoint("https");
-builder.OnBeforeStart((@event, ct) =>
-{
-    var interactionService = @event.Services.GetRequiredService<IInteractionService>();
-
-    interactionService.RegisterPage("frontend-app", new IFramePageOptions
-    {
-        Title = "Online Store",
-        IFrameEndpoint = frontendEndpoint
-    });
-
-    interactionService.RegisterMenuButton(new MenuButtonOptions
-    {
-        IconName = "Globe",
-        Text = "Online Store",
-        Tooltip = "View the online store",
-        Url = "/pages/frontend-app"
-    });
-
-    interactionService.RegisterPage("pgadmin", new IFramePageOptions
-    {
-        Title = "PG Admin",
-        IFrameEndpoint = pgAdminEndpoint
-    });
-
-    interactionService.RegisterMenuButton(new MenuButtonOptions
-    {
-        IconName = "Database",
-        Text = "PG Admin",
-        Tooltip = "View PG Admin",
-        Url = "/pages/pgadmin"
-    });
-
-    return Task.CompletedTask;
-});
+new IFrameInteractionPages(frontendEndpoint, pgAdminEndpoint).Register(builder);
 
 new RoguelikeInteraction().Register(builder);
 
