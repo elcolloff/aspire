@@ -246,7 +246,7 @@ void main() throws Exception {
         container.withHttpHealthCheck();
         container.withHttpHealthCheck();
         var commandOptions = new CommandOptions();
-        commandOptions.setUpdateState((Function<UpdateCommandStateContext, ResourceCommandState>) (ctx) -> {
+        commandOptions.setUpdateState((ctx) -> {
             var snapshot = ctx.resourceSnapshot();
             return snapshot.getHealthStatus() == HealthStatus.HEALTHY ? ResourceCommandState.ENABLED : ResourceCommandState.DISABLED;
         });
