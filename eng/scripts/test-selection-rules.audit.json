@@ -176,7 +176,11 @@
         "src/Shared/**",
         "src/Vendoring/**",
         "tests/Aspire.*.Tests/**",
-        "tests/Shared/**"
+        "tests/Shared/**",
+        "tests/Aspire.TestUtilities/**",
+        "tests/Aspire.Components.Common.TestUtilities/**",
+        "tests/testproject/**",
+        "tests/TestingAppHost1/**"
       ],
       "excludePaths": [
         "src/Aspire.ProjectTemplates/**",

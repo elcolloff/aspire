@@ -64,6 +64,28 @@ public class AuditFixtureTests
             actual.MappedTestProjects.OrderBy(p => p, StringComparer.Ordinal).ToArray());
     }
 
+    // Shared test helpers / app-host fixtures are referenced by many test projects via
+    // ProjectReference (e.g. tests/Aspire.Hosting.Tests, tests/Aspire.Hosting.Testing.Tests),
+    // so dotnet-affected can fan a change out to the real dependents. They are wired into the
+    // integrations category so the change is "accounted for" and routed through dotnet-affected
+    // instead of matching no rule and forcing a conservative RunAll (fallback_unmatched). If the
+    // triggerPaths regress, this turns red by reverting to fallback_unmatched.
+    [Theory]
+    [InlineData("tests/Aspire.TestUtilities/AspireTestExtensions.cs")]
+    [InlineData("tests/Aspire.Components.Common.TestUtilities/ConformanceTests.cs")]
+    [InlineData("tests/testproject/TestProject.AppHost/Program.cs")]
+    [InlineData("tests/TestingAppHost1/TestingAppHost1.AppHost/Program.cs")]
+    public void AuditRules_SharedTestHelperChange_RoutedToIntegrations(string changedFile)
+    {
+        var rulesPath = Path.Combine(FindRepoRoot(), "eng", "scripts", "test-selection-rules.audit.json");
+        var config = TestSelectorConfig.LoadFromJson(File.ReadAllText(rulesPath));
+
+        var actual = EvaluateAgainstRules(config, [changedFile]);
+
+        Assert.Equal("selective", actual.Outcome);
+        Assert.Contains("integrations", actual.Categories);
+    }
+
     /// <summary>
     /// Replicates eval_rules.py / TestEvaluator step ordering using the public
     /// component APIs. Returns the same shape the Python fixture generator
