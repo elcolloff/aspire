@@ -257,7 +257,15 @@ public sealed class ProjectMappingResolver
             pattern = pattern.Replace("\\{name}", "(?<name>[^/]+)");
             pattern = pattern.Replace("\\{name\\}", "(?<name>[^/]+)"); // In case } is also escaped
 
-            // Handle ** (match any path including separators)
+            // Handle a leading "**/" as an optional path prefix so a normalized bare-filename
+            // pattern (e.g. "**/Directory.Build.props") matches the file at the repository root
+            // as well as at any nested depth. Translating "**" to ".*" alone would leave the
+            // trailing "/" literal, requiring a directory separator and silently missing the
+            // root-level file. This mirrors the "match at any depth" contract documented in
+            // PatternNormalization.
+            pattern = pattern.Replace("\\*\\*/", "(?:.*/)?");
+
+            // Handle remaining ** (match any path including separators)
             pattern = pattern.Replace("\\*\\*", ".*");
 
             // Handle * (match any characters except path separator)

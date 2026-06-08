@@ -1,9 +1,7 @@
 {
   "$schema": "./test-selection-rules.schema.json",
 
-  "ignorePaths": [
-    "**"
-  ],
+  "ignorePaths": [],
 
   "triggerAllPaths": [],
 

@@ -602,7 +602,7 @@ jobs:
 
       - name: Upload test scope diagnostics artifact
         if: ${{ github.event_name == 'pull_request' && always() }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: test-scope-diagnostics
           path: ${{ github.workspace }}/artifacts/test-selection
@@ -806,9 +806,11 @@ jobs:
     name: Polyglot SDK Validation
     # Pull requests validate the current TypeScript AppHost LTS runtime. Main branch
     # builds add the older supported LTS runtime without adding that cost to every PR.
-    # The conditional-selection gate further narrows PRs to those that touched polyglot
-    # surface area; non-PR events fall through because setup_for_tests sets every run_*
-    # output to 'true' for them.
+    # The conditional-selection gate skips polyglot only when the active selector narrowed
+    # the PR to template-only scope (run_all stays false); any non-template change sets
+    # run_all=true and runs polyglot. (run_polyglot is reserved for when the active ruleset
+    # gains a dedicated polyglot category.) Non-PR events fall through because
+    # setup_for_tests sets every run_* output to 'true' for them.
     if: |
       (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') &&
       (needs.setup_for_tests.outputs.run_all == 'true' ||
@@ -1170,7 +1172,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: All-TestResults
           path: ${{ github.workspace }}/testresults/**/*.trx
@@ -1189,6 +1191,10 @@ jobs:
 
       - name: Compare audit predictions to failures
         if: ${{ always() && github.event_name == 'pull_request' }}
+        # Audit comparison is observational only; it must never fail an otherwise-green PR. The
+        # script runs with $ErrorActionPreference='Stop', so a malformed or locked TRX would
+        # throw and fail this step without this guard.
+        continue-on-error: true
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path "${{ github.workspace }}/audit/results" -Force | Out-Null
@@ -1202,6 +1208,8 @@ jobs:
 
       - name: Append audit miss summary
         if: ${{ always() && github.event_name == 'pull_request' }}
+        # Observational summary only; never fail a green PR if the report is missing or malformed.
+        continue-on-error: true
         shell: pwsh
         run: |
           $reportPath = "${{ github.workspace }}/audit/results/audit-miss-report.json"
@@ -1257,7 +1265,7 @@ jobs:
 
       - name: Upload audit miss report
         if: ${{ always() && github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: test-scope-audit-report
           path: ${{ github.workspace }}/audit/results/audit-miss-report.json

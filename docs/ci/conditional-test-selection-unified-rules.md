@@ -297,7 +297,6 @@ It covers the requested cases:
       "eng/scripts/test-selection-rules.schema.json",
       "eng/scripts/test-selection-rules.audit.json",
       "eng/scripts/test-selection-rules.unified.json",
-      "eng/scripts/test-selection-rules.hybrid.json",
       ".github/actions/**",
       ".github/instructions/**",
       ".github/skills/**",

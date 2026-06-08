@@ -287,4 +287,30 @@ public class ProjectMappingResolverTests
         Assert.Contains("tests/Aspire.Redis.Tests/", results);
         Assert.Contains("tests/Aspire.Dashboard.Tests/", results);
     }
+
+    [Theory]
+    [InlineData("Directory.Build.props")]
+    [InlineData("src/Directory.Build.props")]
+    [InlineData("src/Aspire.Hosting/Directory.Build.props")]
+    public void ResolveTestProjects_BareFilenameSource_MatchesAtRootAndAnyDepth(string changedFile)
+    {
+        // A bare-filename source (no directory separator) is normalized to match at any depth,
+        // including the repository root. A regression in the glob-to-regex translation would make
+        // the root-level file (no leading directory) silently miss its mapping.
+        var mappings = new List<SourceToTestMapping>
+        {
+            new()
+            {
+                Source = ["Directory.Build.props"],
+                Test = "tests/Infrastructure.Tests/Infrastructure.Tests.csproj"
+            }
+        };
+
+        var resolver = new ProjectMappingResolver(mappings);
+
+        var results = resolver.ResolveTestProjects(changedFile);
+
+        Assert.Single(results);
+        Assert.Equal("tests/Infrastructure.Tests/Infrastructure.Tests.csproj", results[0]);
+    }
 }

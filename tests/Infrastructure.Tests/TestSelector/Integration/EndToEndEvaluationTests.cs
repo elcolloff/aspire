@@ -781,7 +781,7 @@ public class EndToEndEvaluationTests
 
     /// <summary>
     /// Verifies that every file type previously covered by github-ci-trigger-patterns.txt
-    /// is correctly handled by the test-selection-rules.json ignorePaths.
+    /// is correctly handled by the test-selection-rules.audit.json ignorePaths.
     /// This ensures we can safely rely on the test selection system as the single
     /// source of truth for CI skip decisions.
     /// </summary>
@@ -967,7 +967,7 @@ public class EndToEndEvaluationTests
     }
 
     [Fact]
-    public void Evaluate_RealConfig_ComponentChanges_AreAuditOnly()
+    public void Evaluate_RealConfig_ComponentChanges_ActiveDoesNotIgnore_AuditMapsToIntegrations()
     {
         var activeConfigPath = Path.Combine(FindRepoRoot(), "eng", "scripts", "test-selection-rules.json");
         var activeConfig = TestSelectorConfig.LoadFromJson(File.ReadAllText(activeConfigPath));
@@ -983,9 +983,12 @@ public class EndToEndEvaluationTests
             "src/Components/Aspire.Pomelo.EntityFrameworkCore.MySql/Aspire.Pomelo.EntityFrameworkCore.MySql.csproj"
         };
 
+        // The active pilot config carries no ignore rules, so a component change is NOT ignored:
+        // it stays active and, being unmapped, forces a full run rather than a silent narrow.
         var (_, activeFiles) = activeIgnoreFilter.SplitFiles(changedFiles);
-        Assert.Empty(activeFiles);
+        Assert.Single(activeFiles);
 
+        // The audit config maps the same change to the integrations category for future promotion.
         var (_, auditFiles) = auditIgnoreFilter.SplitFiles(changedFiles);
         Assert.Single(auditFiles);
 
@@ -1004,7 +1007,6 @@ public class EndToEndEvaluationTests
         var result = await TestEvaluator.EvaluateAsync(
             config,
             [
-                ".github/workflows/tests.yml",
                 "tests/Aspire.Templates.Tests/TemplateSmokeTests.cs",
                 "tests/Shared/TemplatesTesting/EnvironmentVariables.cs"
             ],
@@ -1020,6 +1022,35 @@ public class EndToEndEvaluationTests
         Assert.Equal(["tests/Aspire.Templates.Tests/Aspire.Templates.Tests.csproj"], result.AffectedTestProjects);
         Assert.Empty(result.DotnetAffectedProjects);
         Assert.True(result.Categories["integrations"]);
+    }
+
+    [Fact]
+    public async Task Evaluate_RealActiveConfig_MixedTemplateAndSourceChange_RunsAll()
+    {
+        // Regression guard for the active pilot: a PR that touches a template file *and* a
+        // non-template source file must run the full suite. The non-template file is unmatched
+        // and forces RunAll, so its tests are never silently dropped in favor of templates-only
+        // scope. Re-introducing a catch-all ignore (or otherwise ignoring the source file) would
+        // flip RunAllTests back to false and regress coverage.
+        var repoRoot = FindRepoRoot();
+        var configPath = Path.Combine(repoRoot, "eng", "scripts", "test-selection-rules.json");
+        var config = TestSelectorConfig.LoadFromJson(File.ReadAllText(configPath));
+
+        var result = await TestEvaluator.EvaluateAsync(
+            config,
+            [
+                "tests/Aspire.Templates.Tests/TemplateSmokeTests.cs",
+                "src/Aspire.Hosting.Redis/RedisBuilder.cs"
+            ],
+            solution: "Aspire.slnx",
+            fromRef: null,
+            toRef: null,
+            workingDir: repoRoot,
+            ciEnvironment: "GitHub",
+            verbose: false);
+
+        Assert.True(result.RunAllTests);
+        Assert.Contains("Unmatched files", result.Reason);
     }
 
     [Fact]
