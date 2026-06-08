@@ -10,6 +10,7 @@ import (
     "context"
     "fmt"
     "os"
+    "strings"
     "time"
 )
 
@@ -17,6 +18,7 @@ import (
 var _ = context.Background
 var _ = fmt.Errorf
 var _ = os.Getenv
+var _ = strings.EqualFold
 var _ = time.Second
 
 // ============================================================================
@@ -16247,6 +16249,10 @@ func (s *interactionInputBuilder) WithValue(value string) InteractionInputBuilde
 type InteractionInputCollection interface {
 	handleReference
 	ToArray() ([]*InteractionInput, error)
+	Get(name string) (*InteractionInput, error)
+	Required(name string) (*InteractionInput, error)
+	Value(name string) (string, error)
+	RequiredValue(name string) (string, error)
 	Err() error
 }
 
@@ -16273,6 +16279,40 @@ func (s *interactionInputCollection) ToArray() ([]*InteractionInput, error) {
 		return zero, err
 	}
 	return decodeAs[[]*InteractionInput](result)
+}
+
+// Get returns the input with the specified name, or nil if no input matches.
+func (s *interactionInputCollection) Get(name string) (*InteractionInput, error) {
+	if s.err != nil { return nil, s.err }
+	inputs, err := s.ToArray()
+	if err != nil { return nil, err }
+	for _, input := range inputs {
+		if strings.EqualFold(input.Name, name) { return input, nil }
+	}
+	return nil, nil
+}
+
+// Required returns the input with the specified name, or an error if no input matches.
+func (s *interactionInputCollection) Required(name string) (*InteractionInput, error) {
+	input, err := s.Get(name)
+	if err != nil { return nil, err }
+	if input == nil { return nil, fmt.Errorf("no input with name '%s' was found", name) }
+	return input, nil
+}
+
+// Value returns the value of the input with the specified name, or an empty string if no input matches or it has no value.
+func (s *interactionInputCollection) Value(name string) (string, error) {
+	input, err := s.Get(name)
+	if err != nil { return "", err }
+	if input == nil { return "", nil }
+	return input.Value, nil
+}
+
+// RequiredValue returns the value of the input with the specified name, or an error if no input matches.
+func (s *interactionInputCollection) RequiredValue(name string) (string, error) {
+	input, err := s.Required(name)
+	if err != nil { return "", err }
+	return input.Value, nil
 }
 
 // InteractionInputLoadContext is the public interface for handle type InteractionInputLoadContext.

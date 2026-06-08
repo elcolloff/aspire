@@ -42,6 +42,8 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
     private readonly Dictionary<string, string> _capabilityOptionsClassMap = new(StringComparer.Ordinal);
     private readonly HashSet<string> _resourceBuilderHandleClasses = new(StringComparer.Ordinal);
 
+    private const string InteractionInputCollectionTypeId = "Aspire.Hosting/Aspire.Hosting.InteractionInputCollection";
+
     /// <inheritdoc />
     public string Language => "Java";
 
@@ -1062,6 +1064,11 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
                 }
             }
 
+            if (string.Equals(handleType.TypeId, InteractionInputCollectionTypeId, StringComparison.Ordinal))
+            {
+                GenerateInteractionInputCollectionAccessors();
+            }
+
             if (string.Equals(handleType.ClassName, "DistributedApplication", StringComparison.Ordinal))
             {
                 GenerateDistributedApplicationBuilderHelpers();
@@ -1070,6 +1077,44 @@ internal sealed class AtsJavaCodeGenerator : ICodeGenerator
             WriteLine("}");
             WriteLine();
         }
+    }
+
+    private void GenerateInteractionInputCollectionAccessors()
+    {
+        // These accessors are hand-authored on top of the generated toArray capability for parity with .NET and TypeScript.
+        WriteLine("    /** Gets the input with the specified name, or null if no input matches. */");
+        WriteLine("    public InteractionInput get(String name) {");
+        WriteLine("        for (var input : toArray()) {");
+        WriteLine("            if (input.getName() != null && input.getName().equalsIgnoreCase(name)) {");
+        WriteLine("                return input;");
+        WriteLine("            }");
+        WriteLine("        }");
+        WriteLine("        return null;");
+        WriteLine("    }");
+        WriteLine();
+
+        WriteLine("    /** Gets the input with the specified name, or throws if no input matches. */");
+        WriteLine("    public InteractionInput required(String name) {");
+        WriteLine("        var input = get(name);");
+        WriteLine("        if (input == null) {");
+        WriteLine("            throw new IllegalArgumentException(\"no input with name '\" + name + \"' was found\");");
+        WriteLine("        }");
+        WriteLine("        return input;");
+        WriteLine("    }");
+        WriteLine();
+
+        WriteLine("    /** Gets the value of the input with the specified name, or an empty string if no input matches or it has no value. */");
+        WriteLine("    public String value(String name) {");
+        WriteLine("        var input = get(name);");
+        WriteLine("        return input == null || input.getValue() == null ? \"\" : input.getValue();");
+        WriteLine("    }");
+        WriteLine();
+
+        WriteLine("    /** Gets the value of the input with the specified name, or throws if no input matches. */");
+        WriteLine("    public String requiredValue(String name) {");
+        WriteLine("        return required(name).getValue();");
+        WriteLine("    }");
+        WriteLine();
     }
 
     private void GenerateDistributedApplicationBuilderHelpers()

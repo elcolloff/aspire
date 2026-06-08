@@ -262,9 +262,8 @@ void main() throws Exception {
         messageArgument.setRequired(true);
         echoCommandOptions.setArguments(new InteractionInput[] { messageArgument });
         container.withCommand("echo", "Echo", (ctx) -> {
-            var commandArguments = ctx.arguments().toArray();
             var result = new ExecuteCommandResult();
-            result.setSuccess("hello".equals(commandArguments[0].getValue()));
+            result.setSuccess("hello".equals(ctx.arguments().value("message")));
             return result;
         }, echoCommandOptions);
         container.withCommand("restart", "Restart", (ctx) -> {
@@ -395,10 +394,8 @@ void main() throws Exception {
             var singleDialogOptions = new InteractionInputsDialogOptions();
             singleDialogOptions.setPrimaryButtonText("Save");
             singleDialogOptions.setValidationCallback((validationContext) -> {
-                for (var input : validationContext.inputs().toArray()) {
-                    if ("solo".equals(input.getName()) && (input.getValue() == null || input.getValue().isEmpty())) {
-                        validationContext.addValidationError("solo", "A value is required.");
-                    }
+                if (validationContext.inputs().value("solo").isEmpty()) {
+                    validationContext.addValidationError("solo", "A value is required.");
                 }
             });
             var single = interactionService.promptInput("Single input", "Enter a value.",
@@ -409,10 +406,8 @@ void main() throws Exception {
             multiDialogOptions.setPrimaryButtonText("Submit");
             multiDialogOptions.setEnableMessageMarkdown(true);
             multiDialogOptions.setValidationCallback((validationContext) -> {
-                for (var input : validationContext.inputs().toArray()) {
-                    if ("name".equals(input.getName()) && "bad".equals(input.getValue())) {
-                        validationContext.addValidationError("name", "Name cannot be 'bad'.");
-                    }
+                if ("bad".equals(validationContext.inputs().value("name"))) {
+                    validationContext.addValidationError("name", "Name cannot be 'bad'.");
                 }
             });
             var multi = interactionService.promptInputs("Multiple inputs", "Fill out the form.",

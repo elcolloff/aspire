@@ -5294,6 +5294,33 @@ class InteractionInputCollection:
         )
         return result
 
+    def get(self, name: str) -> InteractionInput | None:
+        """Get the input with the specified name, or None if no input matches."""
+        lookup_name = name.lower()
+        for interaction_input in self.to_array():
+            input_name = interaction_input.get("Name")
+            if input_name is not None and input_name.lower() == lookup_name:
+                return interaction_input
+        return None
+
+    def required(self, name: str) -> InteractionInput:
+        """Get the input with the specified name, or raise ValueError if no input matches."""
+        interaction_input = self.get(name)
+        if interaction_input is None:
+            raise ValueError(f"no input with name '{name}' was found")
+        return interaction_input
+
+    def value(self, name: str) -> str:
+        """Get the input value with the specified name, or an empty string if no input matches."""
+        interaction_input = self.get(name)
+        if interaction_input is None:
+            return ""
+        return interaction_input.get("Value") or ""
+
+    def required_value(self, name: str) -> str:
+        """Get the input value with the specified name, or raise ValueError if no input matches."""
+        return self.required(name).get("Value") or ""
+
 
 class InteractionInputLoadContext:
     """Type class for InteractionInputLoadContext."""

@@ -457,6 +457,7 @@ internal sealed class AtsGoCodeGenerator : ICodeGenerator
                 "context"
                 "fmt"
                 "os"
+                "strings"
                 "time"
             )
 
@@ -464,6 +465,7 @@ internal sealed class AtsGoCodeGenerator : ICodeGenerator
             var _ = context.Background
             var _ = fmt.Errorf
             var _ = os.Getenv
+            var _ = strings.EqualFold
             var _ = time.Second
             """);
         WriteLine();
@@ -824,6 +826,11 @@ internal sealed class AtsGoCodeGenerator : ICodeGenerator
             {
                 EmitCapabilityMethod(typeId, interfaceName, implName, capability, listDictGetters);
             }
+
+            if (string.Equals(typeId, InteractionInputCollectionTypeId, StringComparison.Ordinal))
+            {
+                EmitInteractionInputCollectionAccessors(implName);
+            }
         }
     }
 
@@ -900,6 +907,16 @@ internal sealed class AtsGoCodeGenerator : ICodeGenerator
             WriteLine($"\tBuild() ({appInterface}, error)");
         }
 
+        // By-name accessors are hand-authored convenience helpers layered over the generated
+        // ToArray capability so polyglot callers get the same ergonomics as the .NET indexer.
+        if (string.Equals(typeId, InteractionInputCollectionTypeId, StringComparison.Ordinal))
+        {
+            WriteLine("\tGet(name string) (*InteractionInput, error)");
+            WriteLine("\tRequired(name string) (*InteractionInput, error)");
+            WriteLine("\tValue(name string) (string, error)");
+            WriteLine("\tRequiredValue(name string) (string, error)");
+        }
+
         // Lifecycle escape hatches.
         WriteLine("\tErr() error");
 
@@ -929,6 +946,53 @@ internal sealed class AtsGoCodeGenerator : ICodeGenerator
         WriteLine($"// new{interfaceName}FromHandle wraps an existing handle as {interfaceName}.");
         WriteLine($"func new{interfaceName}FromHandle(h *handle, c *client) {interfaceName} {{");
         WriteLine($"\treturn &{implName}{{resourceBuilderBase: newResourceBuilderBase(h, c)}}");
+        WriteLine("}");
+        WriteLine();
+    }
+
+    // Type ID of InteractionInputCollection. The by-name accessors below are hand-authored on top of the
+    // generated ToArray capability so Go matches the .NET indexer and the TypeScript get/value helpers.
+    private const string InteractionInputCollectionTypeId = "Aspire.Hosting/Aspire.Hosting.InteractionInputCollection";
+
+    private void EmitInteractionInputCollectionAccessors(string implName)
+    {
+        // These delegate to ToArray (a single RPC) and then match locally. Names are compared
+        // case-insensitively via strings.EqualFold to mirror StringComparers.InteractionInputName in .NET.
+        WriteLine("// Get returns the input with the specified name, or nil if no input matches.");
+        WriteLine($"func (s *{implName}) Get(name string) (*InteractionInput, error) {{");
+        WriteLine("\tif s.err != nil { return nil, s.err }");
+        WriteLine("\tinputs, err := s.ToArray()");
+        WriteLine("\tif err != nil { return nil, err }");
+        WriteLine("\tfor _, input := range inputs {");
+        WriteLine("\t\tif strings.EqualFold(input.Name, name) { return input, nil }");
+        WriteLine("\t}");
+        WriteLine("\treturn nil, nil");
+        WriteLine("}");
+        WriteLine();
+
+        WriteLine("// Required returns the input with the specified name, or an error if no input matches.");
+        WriteLine($"func (s *{implName}) Required(name string) (*InteractionInput, error) {{");
+        WriteLine("\tinput, err := s.Get(name)");
+        WriteLine("\tif err != nil { return nil, err }");
+        WriteLine("\tif input == nil { return nil, fmt.Errorf(\"no input with name '%s' was found\", name) }");
+        WriteLine("\treturn input, nil");
+        WriteLine("}");
+        WriteLine();
+
+        WriteLine("// Value returns the value of the input with the specified name, or an empty string if no input matches or it has no value.");
+        WriteLine($"func (s *{implName}) Value(name string) (string, error) {{");
+        WriteLine("\tinput, err := s.Get(name)");
+        WriteLine("\tif err != nil { return \"\", err }");
+        WriteLine("\tif input == nil { return \"\", nil }");
+        WriteLine("\treturn input.Value, nil");
+        WriteLine("}");
+        WriteLine();
+
+        WriteLine("// RequiredValue returns the value of the input with the specified name, or an error if no input matches.");
+        WriteLine($"func (s *{implName}) RequiredValue(name string) (string, error) {{");
+        WriteLine("\tinput, err := s.Required(name)");
+        WriteLine("\tif err != nil { return \"\", err }");
+        WriteLine("\treturn input.Value, nil");
         WriteLine("}");
         WriteLine();
     }

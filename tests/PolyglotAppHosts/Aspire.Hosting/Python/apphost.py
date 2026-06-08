@@ -429,8 +429,7 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
         return "Enabled" if snapshot.get("HealthStatus") == "Healthy" else "Disabled"
 
     def echo_command(ctx):
-        command_arguments = list(ctx.arguments.to_array())
-        return {"success": command_arguments[0]["Value"] == "hello"}
+        return {"success": ctx.arguments.value("message") == "hello"}
 
     container.with_command(
         "noop",
@@ -558,9 +557,7 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
         )
 
         def validate_solo(validation_context):
-            inputs = list(validation_context.inputs().to_array())
-            solo = next((i for i in inputs if i.get("Name") == "solo"), None)
-            if not (solo or {}).get("Value"):
+            if not validation_context.inputs().value("solo"):
                 validation_context.add_validation_error("solo", "A value is required.")
 
         single = interaction_service.prompt_input(
@@ -571,9 +568,7 @@ ENTRYPOINT ["dotnet", "App.dll"]"""
         )
 
         def validate_form(validation_context):
-            inputs = list(validation_context.inputs().to_array())
-            name = next((i for i in inputs if i.get("Name") == "name"), None)
-            if (name or {}).get("Value") == "bad":
+            if validation_context.inputs().value("name") == "bad":
                 validation_context.add_validation_error("name", "Name cannot be 'bad'.")
 
         multi = interaction_service.prompt_inputs(

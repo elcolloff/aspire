@@ -561,11 +561,11 @@ ENTRYPOINT ["dotnet", "App.dll"]
 		},
 	})
 	_ = container.WithCommand("echo", "Echo", func(ctx aspire.ExecuteCommandContext) *aspire.ExecuteCommandResult {
-		commandArguments, err := ctx.Arguments().ToArray()
+		message, err := ctx.Arguments().Value("message")
 		if err != nil {
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
-		return &aspire.ExecuteCommandResult{Success: commandArguments[0].Value == "hello"}
+		return &aspire.ExecuteCommandResult{Success: message == "hello"}
 	}, &aspire.WithCommandOptions{
 		CommandOptions: &aspire.CommandOptions{
 			Arguments: []*aspire.InteractionInput{
@@ -720,11 +720,9 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			Options: &aspire.InteractionInputsDialogOptions{
 				PrimaryButtonText: aspire.StringPtr("Save"),
 				ValidationCallback: func(validationContext aspire.InputsDialogValidationContext) {
-					inputs, _ := validationContext.Inputs().ToArray()
-					for _, input := range inputs {
-						if input.Name == "solo" && input.Value == "" {
-							_ = validationContext.AddValidationError("solo", "A value is required.")
-						}
+					solo, _ := validationContext.Inputs().Value("solo")
+					if solo == "" {
+						_ = validationContext.AddValidationError("solo", "A value is required.")
 					}
 				},
 			},
@@ -740,11 +738,9 @@ ENTRYPOINT ["dotnet", "App.dll"]
 					PrimaryButtonText:     aspire.StringPtr("Submit"),
 					EnableMessageMarkdown: aspire.BoolPtr(true),
 					ValidationCallback: func(validationContext aspire.InputsDialogValidationContext) {
-						inputs, _ := validationContext.Inputs().ToArray()
-						for _, input := range inputs {
-							if input.Name == "name" && input.Value == "bad" {
-								_ = validationContext.AddValidationError("name", "Name cannot be 'bad'.")
-							}
+						name, _ := validationContext.Inputs().Value("name")
+						if name == "bad" {
+							_ = validationContext.AddValidationError("name", "Name cannot be 'bad'.")
 						}
 					},
 				},
