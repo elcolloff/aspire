@@ -618,10 +618,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			_ = loadContext.SetChoiceOptions(zones)
 		})
 
-		result, err := interactionService.PromptInputs("Pick a zone", "Choose a region, then pick a zone from the dynamically loaded options.", []aspire.InteractionInputBuilder{regionInput, zoneInput})
-		if err != nil {
-			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
-		}
+		result := interactionService.PromptInputs("Pick a zone", "Choose a region, then pick a zone from the dynamically loaded options.", []aspire.InteractionInputBuilder{regionInput, zoneInput})
 
 		canceled, err := result.Canceled()
 		if err != nil {
@@ -735,7 +732,7 @@ ENTRYPOINT ["dotnet", "App.dll"]
 			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
 		}
 
-		multi, err := interactionService.PromptInputs("Multiple inputs", "Fill out the form.",
+		multi := interactionService.PromptInputs("Multiple inputs", "Fill out the form.",
 			[]aspire.InteractionInputBuilder{textInput, secretInput, booleanInput, numberInput, choiceInput, presetInput, sizeInput, dependentInput},
 			&aspire.PromptInputsOptions{
 				Options: &aspire.InteractionInputsDialogOptions{
@@ -749,9 +746,6 @@ ENTRYPOINT ["dotnet", "App.dll"]
 					},
 				},
 			})
-		if err != nil {
-			return &aspire.ExecuteCommandResult{Success: false, ErrorMessage: aspire.StringPtr(aspire.FormatError(err))}
-		}
 
 		selectedColor, _ := multi.Inputs().Value("color")
 		soloValue := ""
