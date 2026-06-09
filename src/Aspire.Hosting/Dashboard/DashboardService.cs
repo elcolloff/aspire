@@ -265,7 +265,6 @@ internal sealed partial class DashboardService(DashboardServiceData serviceData,
                             {
                                 IconName = menuButtonInfo.Options.IconName ?? "",
                                 Text = menuButtonInfo.Options.Text ?? "",
-                                Tooltip = menuButtonInfo.Options.Tooltip ?? "",
                                 Url = menuButtonInfo.Options.Url ?? ""
                             };
                         }

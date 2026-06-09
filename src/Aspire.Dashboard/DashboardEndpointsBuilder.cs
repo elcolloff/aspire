@@ -23,23 +23,24 @@ public static class DashboardEndpointsBuilder
 
     public static void MapDashboardApi(this IEndpointRouteBuilder endpoints, DashboardOptions dashboardOptions)
     {
-        endpoints.MapGet("/assets/{*route}", async (string route, HttpContext httpContext, IDashboardClient dashboardClient, CancellationToken cancellationToken) =>
-        {
-            if (!dashboardClient.IsEnabled)
+        endpoints.MapGet("/assets/{*route}",
+            async (string route, HttpContext httpContext, IDashboardClient dashboardClient, CancellationToken cancellationToken) =>
             {
-                return Results.NotFound();
-            }
+                if (!dashboardClient.IsEnabled)
+                {
+                    return Results.NotFound();
+                }
 
-            var found = await dashboardClient.CopyInteractionAssetToAsync(
-                route,
-                httpContext.Response.Body,
-                contentType => httpContext.Response.ContentType = contentType,
-                cancellationToken).ConfigureAwait(false);
+                var found = await dashboardClient.CopyInteractionAssetToAsync(
+                    route,
+                    httpContext.Response.Body,
+                    contentType => httpContext.Response.ContentType = contentType,
+                    cancellationToken).ConfigureAwait(false);
 
-            return found ? Results.Empty : Results.NotFound();
-        })
-        .RequireAuthorization(FrontendAuthorizationDefaults.PolicyName)
-        .SkipStatusCodePages();
+                return found ? Results.Empty : Results.NotFound();
+            })
+            .RequireAuthorization(FrontendAuthorizationDefaults.PolicyName)
+            .SkipStatusCodePages();
 
         IEndpointConventionBuilder builder;
         if (dashboardOptions.Frontend.AuthMode == FrontendAuthMode.BrowserToken)

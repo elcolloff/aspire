@@ -14,7 +14,7 @@ namespace Aspire.Dashboard.Model.Markdown;
 /// The first '=' separates key from value, allowing argument values (query strings)
 /// to contain '=' without encoding.
 /// </summary>
-public class ButtonExtension : IMarkdownExtension
+public sealed class ButtonExtension : IMarkdownExtension
 {
     private readonly IconResolver _iconResolver;
 

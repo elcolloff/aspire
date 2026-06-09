@@ -33,7 +33,7 @@ public sealed class DashboardCommandExecutor(
         }
     }
 
-    public async Task ExecuteAsync(ResourceViewModel resource, CommandViewModel command, Func<ResourceViewModel, string> getResourceName, IReadOnlyDictionary<string, Google.Protobuf.WellKnownTypes.Value>? arguments = null)
+    public async Task ExecuteAsync(ResourceViewModel resource, CommandViewModel command, Func<ResourceViewModel, string> getResourceName)
     {
         var executingCommandKey = (resource.Name, command.Name);
         lock (_lock)
@@ -52,7 +52,7 @@ public sealed class DashboardCommandExecutor(
 
         try
         {
-            await ExecuteAsyncCore(resource, command, getResourceName, arguments).ConfigureAwait(false);
+            await ExecuteAsyncCore(resource, command, getResourceName).ConfigureAwait(false);
 
             if (operationId is not null)
             {
@@ -85,7 +85,7 @@ public sealed class DashboardCommandExecutor(
         }
     }
 
-    public async Task ExecuteAsyncCore(ResourceViewModel resource, CommandViewModel command, Func<ResourceViewModel, string> getResourceName, IReadOnlyDictionary<string, Google.Protobuf.WellKnownTypes.Value>? arguments = null)
+    public async Task ExecuteAsyncCore(ResourceViewModel resource, CommandViewModel command, Func<ResourceViewModel, string> getResourceName)
     {
         if (!string.IsNullOrWhiteSpace(command.ConfirmationMessage))
         {
@@ -152,7 +152,7 @@ public sealed class DashboardCommandExecutor(
                 resource.Name,
                 resource.ResourceType,
                 command,
-                new ExecuteResourceCommandOptions { Arguments = arguments },
+                new ExecuteResourceCommandOptions(),
                 CancellationToken.None).ConfigureAwait(false);
         }
         finally

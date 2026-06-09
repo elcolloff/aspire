@@ -14,7 +14,7 @@ namespace Aspire.Dashboard.Model.Markdown;
 /// inside parentheses. The first '=' in each pair separates key from value, so argument values
 /// (query strings with '=' and '&amp;') work without encoding.
 /// </summary>
-public class ButtonInlineParser : InlineParser
+public sealed class ButtonInlineParser : InlineParser
 {
     public ButtonInlineParser()
     {

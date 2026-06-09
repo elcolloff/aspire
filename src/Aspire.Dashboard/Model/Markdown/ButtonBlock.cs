@@ -7,7 +7,7 @@ namespace Aspire.Dashboard.Model.Markdown;
 /// Configuration for rendering a button from markdown.
 /// Parsed from link-style syntax: [Text](type=button action=value arguments=value icon=value)
 /// </summary>
-public class ButtonConfig
+public sealed class ButtonConfig
 {
     public string Text { get; set; } = string.Empty;
     public string? Icon { get; set; }

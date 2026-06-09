@@ -13,13 +13,12 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
 
         var button = Assert.Single(state.MenuButtons);
         Assert.Equal(1, button.InteractionId);
         Assert.Equal("Home", button.IconName);
         Assert.Equal("Go Home", button.Text);
-        Assert.Equal("Navigate home", button.Tooltip);
         Assert.Equal("/pages/home", button.Url);
     }
 
@@ -28,8 +27,8 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
 
         Assert.Single(state.MenuButtons);
     }
@@ -41,7 +40,7 @@ public class CustomInteractionStateTests
         var eventRaised = false;
         state.OnMenuButtonsChanged += () => eventRaised = true;
 
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
 
         Assert.True(eventRaised);
     }
@@ -50,7 +49,7 @@ public class CustomInteractionStateTests
     public void RemoveMenuButton_RemovesFromCollection()
     {
         var state = new CustomInteractionState();
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
 
         state.RemoveMenuButton(1);
 
@@ -61,7 +60,7 @@ public class CustomInteractionStateTests
     public void RemoveMenuButton_RaisesOnMenuButtonsChanged()
     {
         var state = new CustomInteractionState();
-        state.AddMenuButton(1, "Home", "Go Home", "Navigate home", "/pages/home");
+        state.AddMenuButton(1, "Home", "Go Home", "/pages/home");
 
         var eventRaised = false;
         state.OnMenuButtonsChanged += () => eventRaised = true;

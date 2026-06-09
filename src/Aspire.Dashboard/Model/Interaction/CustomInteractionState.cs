@@ -103,7 +103,7 @@ public sealed class CustomInteractionState
         OnIframesChanged?.Invoke();
     }
 
-    public void AddMenuButton(int interactionId, string iconName, string text, string tooltip, string url)
+    public void AddMenuButton(int interactionId, string iconName, string text, string url)
     {
         lock (_lock)
         {
@@ -112,7 +112,7 @@ public sealed class CustomInteractionState
             {
                 return;
             }
-            _menuButtons = _menuButtons.Add(new MenuButtonState(interactionId, iconName, text, tooltip, url));
+            _menuButtons = _menuButtons.Add(new MenuButtonState(interactionId, iconName, text, url));
         }
         OnMenuButtonsChanged?.Invoke();
     }
@@ -132,7 +132,7 @@ public sealed class CustomInteractionState
     }
 }
 
-public sealed record MenuButtonState(int InteractionId, string IconName, string Text, string Tooltip, string Url);
+public sealed record MenuButtonState(int InteractionId, string IconName, string Text, string Url);
 
 public sealed record PageContentUpdate(int InteractionId, string Route, string SessionId, string Content, string Title, IReadOnlyList<string> StyleIncludes, IReadOnlyList<string> ScriptIncludes, bool EnableHtml, string? IframeUrl, bool IframePersistent);
 

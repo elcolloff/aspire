@@ -513,7 +513,7 @@ public class InteractionsProvider : ComponentBase, IAsyncDisposable
                         break;
                     case WatchInteractionsResponseUpdate.KindOneofCase.MenuButton:
                         var menuButton = item.MenuButton;
-                        CustomInteractionState.AddMenuButton(item.InteractionId, menuButton.IconName, menuButton.Text, menuButton.Tooltip, menuButton.Url);
+                        CustomInteractionState.AddMenuButton(item.InteractionId, menuButton.IconName, menuButton.Text, menuButton.Url);
                         break;
                     case WatchInteractionsResponseUpdate.KindOneofCase.Page:
                         var page = item.Page;

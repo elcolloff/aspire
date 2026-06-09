@@ -10,7 +10,7 @@ namespace Aspire.Dashboard.Model.Markdown;
 /// <summary>
 /// Renderer for button inline elements that outputs FluentUI button HTML.
 /// </summary>
-public class ButtonInlineRenderer : HtmlObjectRenderer<ButtonInline>
+public sealed class ButtonInlineRenderer : HtmlObjectRenderer<ButtonInline>
 {
     private readonly IconResolver _iconResolver;
 

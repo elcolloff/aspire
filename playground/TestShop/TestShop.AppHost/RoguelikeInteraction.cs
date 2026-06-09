@@ -105,7 +105,6 @@ internal sealed class RoguelikeInteraction
         {
             IconName = "Shield",
             Text = "Roguelike",
-            Tooltip = "Explore a tiny dungeon",
             Url = "/pages/roguelike"
         });
     }

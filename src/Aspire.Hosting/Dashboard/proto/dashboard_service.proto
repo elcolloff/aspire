@@ -466,8 +466,6 @@ message InteractionMenuButton {
     string icon_name = 1;
     // The display text for the button.
     string text = 2;
-    // The tooltip text.
-    string tooltip = 3;
     // The URL to navigate to when clicked.
     string url = 4;
 }

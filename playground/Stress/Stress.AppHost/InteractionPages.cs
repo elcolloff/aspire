@@ -18,6 +18,20 @@ internal static class InteractionPages
         RegisterHelloWorldPage(interactionService);
         RegisterMarkdownPage(interactionService);
         RegisterCounterPage(interactionService);
+
+        interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "ThisIconDoesNotExist",
+            Text = "Invalid Icon",
+            Url = "/pages/hello-world"
+        });
+
+        interactionService.RegisterMenuButton(new MenuButtonOptions
+        {
+            IconName = "Document",
+            Text = "This is an extremely long menu button text that should stress test the nav menu layout and overflow behavior",
+            Url = "/pages/hello-world"
+        });
     }
 
     private static void RegisterCounterPage(IInteractionService interactionService)
@@ -69,7 +83,6 @@ internal static class InteractionPages
         {
             IconName = "NumberSymbol",
             Text = "Counter",
-            Tooltip = "View the live counter page",
             Url = "/pages/counter"
         });
     }
@@ -91,7 +104,6 @@ internal static class InteractionPages
         {
             IconName = "Document",
             Text = "Markdown",
-            Tooltip = "View the markdown showcase page",
             Url = "/pages/markdown"
         });
     }

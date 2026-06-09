@@ -73,7 +73,6 @@ internal sealed class TodoInteraction
         {
             IconName = "ClipboardTaskList",
             Text = "Todo",
-            Tooltip = "View the todo list page",
             Url = "/pages/todo"
         });
     }

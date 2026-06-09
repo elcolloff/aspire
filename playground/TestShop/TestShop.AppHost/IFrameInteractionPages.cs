@@ -32,7 +32,6 @@ internal sealed class IFrameInteractionPages
             {
                 IconName = "Globe",
                 Text = "Online Store",
-                Tooltip = "View the online store",
                 Url = "/pages/frontend-app"
             });
 
@@ -48,7 +47,6 @@ internal sealed class IFrameInteractionPages
                 {
                     IconName = "Database",
                     Text = "PG Admin",
-                    Tooltip = "View PG Admin",
                     Url = "/pages/pgadmin"
                 });
             }

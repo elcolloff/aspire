@@ -14,6 +14,9 @@ namespace Aspire.Dashboard.Components.Layout;
 
 public partial class DesktopNavMenu : ComponentBase, IDisposable
 {
+    private static readonly Icon s_fallbackIconRest = new Icons.Regular.Size24.QuestionCircle();
+    private static readonly Icon s_fallbackIconActive = new Icons.Filled.Size24.QuestionCircle();
+
     internal static Icon ResourcesIcon(bool active = false) =>
         active ? new Icons.Filled.Size24.AppFolder()
                   : new Icons.Regular.Size24.AppFolder();

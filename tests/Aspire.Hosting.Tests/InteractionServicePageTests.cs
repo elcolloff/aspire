@@ -363,7 +363,6 @@ public class InteractionServicePageTests
         {
             IconName = "Home",
             Text = "Go Home",
-            Tooltip = "Navigate to home",
             Url = "/pages/home"
         });
 
@@ -373,7 +372,6 @@ public class InteractionServicePageTests
         var menuInfo = Assert.IsType<Interaction.MenuButtonInteractionInfo>(interaction.InteractionInfo);
         Assert.Equal("Home", menuInfo.Options.IconName);
         Assert.Equal("Go Home", menuInfo.Options.Text);
-        Assert.Equal("Navigate to home", menuInfo.Options.Tooltip);
         Assert.Equal("/pages/home", menuInfo.Options.Url);
 
         registration.Dispose();
@@ -388,7 +386,6 @@ public class InteractionServicePageTests
         {
             IconName = "Home",
             Text = "Go Home",
-            Tooltip = "Navigate to home",
             Url = "/pages/home"
         });
         Assert.Single(interactionService.GetCurrentInteractions());
