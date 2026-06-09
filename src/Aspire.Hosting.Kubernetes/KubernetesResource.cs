@@ -75,7 +75,30 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
     /// <summary>
     /// Additional resources that are part of this Kubernetes service.
     /// </summary>
+    [AspireExportIgnore(Reason = "Kubernetes manifest resource types are C#-only customization objects and are not part of the polyglot SDK surface.")]
     public List<BaseKubernetesResource> AdditionalResources { get; } = [];
+
+    /// <summary>
+    /// Adds an arbitrary Kubernetes manifest to this service's generated Helm chart for polyglot callers.
+    /// </summary>
+    /// <param name="apiVersion">The Kubernetes API version for the manifest.</param>
+    /// <param name="kind">The Kubernetes resource kind for the manifest.</param>
+    /// <param name="name">The Kubernetes metadata name for the manifest.</param>
+    /// <param name="configure">A callback that configures the manifest fields.</param>
+    /// <returns>The added Kubernetes manifest resource.</returns>
+    [AspireExport(RunSyncOnBackgroundThread = true)]
+    internal KubernetesManifestResource AddManifest(string apiVersion, string kind, string name, Action<KubernetesManifestResource>? configure = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(apiVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var manifest = new KubernetesManifestResource(apiVersion, kind, name);
+        configure?.Invoke(manifest);
+        AdditionalResources.Add(manifest);
+
+        return manifest;
+    }
 
     /// <summary>
     /// Gets the resource that is the target of this Kubernetes service.
@@ -136,7 +159,7 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
     {
         Labels = new()
         {
-            ["app.kubernetes.io/name"] = Parent.HelmChartName,
+            ["app.kubernetes.io/name"] = ".Chart.Name".ToHelmExpression(),
             ["app.kubernetes.io/component"] = resource.Name,
             ["app.kubernetes.io/instance"] = ".Release.Name".ToHelmExpression(),
         };
@@ -365,6 +388,18 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
             foreach (var environmentVariable in context.EnvironmentVariables)
             {
                 var key = environmentVariable.Key;
+
+                // Check if the value contains deferred providers (e.g., Bicep outputs)
+                // that can only be resolved after infrastructure provisioning.
+                // If so, create a deferred HelmValue with the env var key name.
+                if (IsUnresolvedAtPublishTime(environmentVariable.Value) &&
+                    environmentVariable.Value is IValueProvider deferredVp)
+                {
+                    var deferredHelmValue = CreateDeferredHelmValue(key, deferredVp);
+                    ProcessEnvironmentHelmExpression(deferredHelmValue, key);
+                    continue;
+                }
+
                 var value = await ProcessValueAsync(environmentContext, executionContext, environmentVariable.Value).ConfigureAwait(false);
 
                 switch (value)
@@ -437,8 +472,30 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
                 return s;
             }
 
+            // Handle scalar/primitive types (bool, numerics, DateTimeOffset, TimeSpan, Uri, etc.)
+            // These can appear when third-party integrations set environment variables to non-string values.
+            if (value is bool boolValue)
+            {
+                return boolValue ? "true" : "false";
+            }
+
+            if (value is IFormattable formattable)
+            {
+                return formattable.ToString(null, CultureInfo.InvariantCulture);
+            }
+
             if (value is EndpointReference ep)
             {
+                // The referenced endpoint may belong to a resource deployed to a different compute
+                // environment (for example a Foundry hosted agent). In that case delegate to the owning
+                // compute environment instead of looking it up in this environment's local endpoint map.
+                if (ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(
+                    ep, [kubernetesEnvironmentResource, kubernetesEnvironmentResource.OwningComputeEnvironment], out var crossExpr))
+                {
+                    value = crossExpr;
+                    continue;
+                }
+
                 var referencedResource = ep.Resource == this
                     ? this
                     : await context.CreateKubernetesResourceAsync(ep.Resource, executionContext, default).ConfigureAwait(false);
@@ -469,6 +526,13 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
 
             if (value is EndpointReferenceExpression epExpr)
             {
+                if (ComputeEnvironmentEndpointResolver.TryGetCrossEnvironmentEndpointExpression(
+                    epExpr, [kubernetesEnvironmentResource, kubernetesEnvironmentResource.OwningComputeEnvironment], out var crossExpr))
+                {
+                    value = crossExpr;
+                    continue;
+                }
+
                 var referencedResource = epExpr.Endpoint.Resource == this
                     ? this
                     : await context.CreateKubernetesResourceAsync(epExpr.Endpoint.Resource, executionContext, default).ConfigureAwait(false);
@@ -660,6 +724,8 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
     {
         var formattedName = parameter.ValueExpression.Replace(HelmExtensions.StartDelimiter, string.Empty)
             .Replace(HelmExtensions.EndDelimiter, string.Empty)
+            .Replace("{", string.Empty)
+            .Replace("}", string.Empty)
             .Replace(".", "_")
             .ToHelmValuesSectionName();
 
@@ -667,7 +733,52 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
             formattedName.ToHelmSecretExpression(resource.Name) :
             formattedName.ToHelmConfigExpression(resource.Name);
 
-        return new(helmExpression, parameter.ValueExpression);
+        var helmValue = new HelmValue(helmExpression, parameter.ValueExpression)
+        {
+            // If the expression provider also implements IValueProvider, attach it
+            // for deploy-time resolution. This handles Bicep output references,
+            // connection strings, and any other deferred value source.
+            ValueProviderSource = parameter as IValueProvider
+        };
+
+        return helmValue;
+    }
+
+    /// <summary>
+    /// Checks if a value contains sub-expressions that cannot be resolved
+    /// at publish time and need deploy-time resolution via IValueProvider.
+    /// Recursively checks ReferenceExpression value providers.
+    /// </summary>
+    private static bool IsUnresolvedAtPublishTime(object value)
+    {
+        return value switch
+        {
+            string => false,
+            EndpointReference => false,
+            EndpointReferenceExpression => false,
+            ParameterResource => false,
+            ConnectionStringReference cs => IsUnresolvedAtPublishTime(cs.Resource.ConnectionStringExpression),
+            IResourceWithConnectionString csrs => IsUnresolvedAtPublishTime(csrs.ConnectionStringExpression),
+            ReferenceExpression expr => expr.ValueProviders.Any(IsUnresolvedAtPublishTime),
+            // Any other IManifestExpressionProvider that also implements IValueProvider
+            // is a deferred source (e.g., BicepOutputReference)
+            IManifestExpressionProvider when value is IValueProvider => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Creates a HelmValue that defers resolution to deploy time via IValueProvider.
+    /// </summary>
+    /// <param name="key">The environment variable or config key name to use as the Helm values path.</param>
+    /// <param name="valueProvider">The value provider for deploy-time resolution.</param>
+    private HelmValue CreateDeferredHelmValue(string key, IValueProvider valueProvider)
+    {
+        var helmExpression = key.ToHelmConfigExpression(TargetResource.Name);
+        return new HelmValue(helmExpression, string.Empty)
+        {
+            ValueProviderSource = valueProvider
+        };
     }
 
     private static string GetKubernetesProtocolName(ProtocolType type)
@@ -742,6 +853,14 @@ public partial class KubernetesResource(string name, IResource resource, Kuberne
         /// to include the container registry prefix.
         /// </summary>
         public IResource? ImageResource { get; init; }
+
+        /// <summary>
+        /// Gets the value provider for deferred resolution at deploy time.
+        /// When set, the value is resolved via <see cref="IValueProvider"/>
+        /// during the prepare step, replacing the placeholder in values.yaml.
+        /// This handles any value provider (e.g., Bicep output references, connection strings).
+        /// </summary>
+        public IValueProvider? ValueProviderSource { get; init; }
 
         /// <summary>
         /// Gets the key to use when writing this value to the Helm values.yaml file.

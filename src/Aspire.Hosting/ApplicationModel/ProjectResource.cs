@@ -47,7 +47,7 @@ public class ProjectResource : Resource, IResourceWithEnvironment, IResourceWith
                 Action = BuildProjectImage,
                 Tags = [WellKnownPipelineTags.BuildCompute],
                 RequiredBySteps = [WellKnownPipelineSteps.Build],
-                DependsOnSteps = [WellKnownPipelineSteps.BuildPrereq],
+                DependsOnSteps = [WellKnownPipelineSteps.BuildPrereq, WellKnownPipelineSteps.CheckContainerRuntime],
                 Resource = this
             };
             steps.Add(buildStep);
@@ -186,7 +186,8 @@ public class ProjectResource : Resource, IResourceWithEnvironment, IResourceWith
             var context = await this.ProcessContainerBuildOptionsCallbackAsync(
                 ctx.Services,
                 logger,
-                cancellationToken: ctx.CancellationToken).ConfigureAwait(false);
+                ctx.ExecutionContext,
+                ctx.CancellationToken).ConfigureAwait(false);
 
             var buildOptions = new ContainerImageBuildOptions
             {

@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Deployment.EndToEnd.Tests.Helpers;
 using Hex1b.Automation;
@@ -19,6 +18,7 @@ public sealed class PythonFastApiDeploymentTests(ITestOutputHelper output)
     private static readonly TimeSpan s_testTimeout = TimeSpan.FromMinutes(40);
 
     [Fact]
+    [ActiveIssue("https://github.com/microsoft/aspire/issues/16229")]
     public async Task DeployPythonFastApiTemplateToAzureContainerApps()
     {
         using var cts = new CancellationTokenSource(s_testTimeout);
@@ -76,19 +76,10 @@ public sealed class PythonFastApiDeploymentTests(ITestOutputHelper output)
             output.WriteLine("Step 1: Preparing environment...");
             await auto.PrepareEnvironmentAsync(workspace, counter);
 
-            // Step 2: Set up CLI environment (in CI)
+            // Step 2: Set up CLI environment
             // Python apphosts need the full bundle because
             // the prebuilt AppHost server is required for aspire new with Python templates.
-            if (DeploymentE2ETestHelpers.IsRunningInCI)
-            {
-                var prNumber = DeploymentE2ETestHelpers.GetPrNumber();
-                if (prNumber > 0)
-                {
-                    output.WriteLine($"Step 2: Installing Aspire bundle from PR #{prNumber}...");
-                    await auto.InstallAspireBundleFromPullRequestAsync(prNumber, counter);
-                }
-                await auto.SourceAspireBundleEnvironmentAsync(counter);
-            }
+            await auto.InstallCurrentBuildAspireBundleAsync(counter, output);
 
             // Step 3: Create Python FastAPI project using aspire new with interactive prompts
             output.WriteLine("Step 3: Creating Python FastAPI project...");
@@ -117,13 +108,13 @@ public sealed class PythonFastApiDeploymentTests(ITestOutputHelper output)
                 await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromSeconds(180));
             }
 
-            // Step 6: Modify apphost.ts to add Azure Container App Environment
-            // Note: Python template uses TypeScript AppHost (apphost.ts in project root)
+            // Step 6: Modify apphost.mts to add Azure Container App Environment
+            // Note: Python template uses TypeScript AppHost (apphost.mts in project root)
             {
                 var projectDir = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
-                var appHostFilePath = Path.Combine(projectDir, "apphost.ts");
+                var appHostFilePath = Path.Combine(projectDir, "apphost.mts");
 
-                output.WriteLine($"Looking for apphost.ts at: {appHostFilePath}");
+                output.WriteLine($"Looking for apphost.mts at: {appHostFilePath}");
 
                 var content = File.ReadAllText(appHostFilePath);
 
@@ -139,7 +130,7 @@ await builder.build().run();
 
                 File.WriteAllText(appHostFilePath, content);
 
-                output.WriteLine($"Modified apphost.ts at: {appHostFilePath}");
+                output.WriteLine($"Modified apphost.mts at: {appHostFilePath}");
             }
 
             // Step 7: Set environment for deployment
@@ -155,7 +146,7 @@ await builder.build().run();
             await auto.TypeAsync("aspire deploy --clear-cache");
             await auto.EnterAsync();
             // Wait for pipeline to complete successfully
-            await auto.WaitUntilTextAsync(ConsoleActivityLoggerStrings.PipelineSucceeded, timeout: TimeSpan.FromMinutes(30));
+            await auto.WaitForPipelineSuccessAsync(timeout: TimeSpan.FromMinutes(30));
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(2));
 
             // Step 10: Extract deployment URLs and verify endpoints with retry

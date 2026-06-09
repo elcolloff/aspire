@@ -152,6 +152,55 @@ public class DocsIndexServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_PreFilterHaystack_CoversEveryScorableField()
+    {
+        // Regression guard for the AllSearchableTextLower reject-filter invariant
+        // declared in IndexedDocument's ctor: the per-doc haystack used by SearchAsync
+        // to early-reject zero-score candidates must be a superset of every field
+        // ScoreDocument can produce a positive score against. If a future change adds
+        // (or removes) a scorable field without keeping the haystack in sync, docs
+        // that match ONLY on that field will be silently filtered out before scoring
+        // and never reach the result list — with no other test failing.
+        //
+        // We build a doc that places a unique sentinel token in each scorable field
+        // and assert SearchAsync returns the doc for every sentinel. If any sentinel
+        // returns empty, the corresponding field has been omitted from the haystack.
+        var content = """
+            # Sentineltitleword Integration
+            > A summary that mentions sentinelsummaryword uniquely.
+
+            ## Sentinelheadingword Overview
+
+            Content body containing sentinelcontentword for verification.
+            Inline code contains `sentinelcodespan`, and SentinelIdentifier is a PascalCase symbol.
+            """;
+
+        var fetcher = CreateMockFetcher(content);
+        var service = CreateService(fetcher);
+
+        // Sentinel name -> field it appears in (for clearer failure messages).
+        var sentinels = new (string Token, string Field)[]
+        {
+            ("sentineltitleword", "title (and derived slug)"),
+            ("sentinelsummaryword", "summary"),
+            ("sentinelheadingword", "section heading"),
+            ("sentinelcontentword", "section content"),
+            ("sentinelcodespan", "code span"),
+            ("sentinelidentifier", "PascalCase identifier"),
+        };
+
+        foreach (var (token, field) in sentinels)
+        {
+            var results = await service.SearchAsync(token);
+            Assert.True(
+                results.Count > 0,
+                $"SearchAsync('{token}') returned no results — the IndexedDocument haystack used by " +
+                $"the early-reject filter is probably missing the {field} field. Update the " +
+                "IndexedDocument constructor to include that field in AllSearchableTextLower.");
+        }
+    }
+
+    [Fact]
     public async Task SearchAsync_FindsCodeIdentifiers()
     {
         var content = """
@@ -479,26 +528,36 @@ public class DocsIndexServiceTests
     }
 
     [Fact]
-    public async Task EnsureIndexedAsync_UsesCachedIndexAcrossInstancesWithoutFetching()
+    public async Task EnsureIndexedAsync_RevalidatesCachedIndexAcrossInstances()
     {
         var cache = new MemoryDocsCache();
-        var firstService = CreateService(
-            CreateMockFetcher(
-            """
+        const string content = """
             # Redis Integration
             > Connect to Redis.
 
             Redis content.
-            """),
+            """;
+
+        var firstService = CreateService(
+            CreateMockFetcher(content),
             cache);
 
         await firstService.EnsureIndexedAsync();
 
-        var secondService = CreateService(new ThrowingDocsFetcher(new InvalidOperationException("Should not fetch.")), cache);
+        var fetchCount = 0;
+        var secondService = CreateService(
+            new CountingDocsFetcher(() =>
+            {
+                fetchCount++;
+                return content;
+            }),
+            cache);
+
         var docs = await secondService.ListDocumentsAsync();
 
         var doc = Assert.Single(docs);
         Assert.Equal("Redis Integration", doc.Title);
+        Assert.Equal(1, fetchCount);
     }
 
     [Fact]
@@ -522,7 +581,64 @@ public class DocsIndexServiceTests
 
         var doc = Assert.Single(docs);
         Assert.Equal("Redis Integration", doc.Title);
+    }
 
+    [Fact]
+    public async Task EnsureIndexedAsync_RefreshesCachedIndexWhenSourceContentChanges()
+    {
+        var cache = new MemoryDocsCache();
+        var firstService = CreateService(
+            CreateMockFetcher(
+                """
+                # Redis Integration
+                > Connect to Redis.
+
+                Redis content.
+                """),
+            cache);
+
+        await firstService.EnsureIndexedAsync();
+
+        var secondService = CreateService(
+            CreateMockFetcher(
+                """
+                # PostgreSQL Integration
+                > Connect to PostgreSQL.
+
+                PostgreSQL content.
+                """),
+            cache);
+
+        var docs = await secondService.ListDocumentsAsync();
+
+        var doc = Assert.Single(docs);
+        Assert.Equal("PostgreSQL Integration", doc.Title);
+
+        var thirdService = CreateService(CreateMockFetcher(null), cache);
+        var cachedDocs = await thirdService.ListDocumentsAsync();
+
+        Assert.Equal("PostgreSQL Integration", Assert.Single(cachedDocs).Title);
+    }
+
+    [Fact]
+    public async Task GetDocumentAsync_NormalizesMinifiedInlineTables()
+    {
+        var content = """
+            # Deploy to Azure
+            > Learn how Azure deployment works in Aspire.
+
+            After authentication succeeds, `aspire deploy` still needs a small set of shared Azure settings. | Setting | Environment variable | Purpose | | ---------------------- | ----------------------- | ---------------------------------------------- | | `Azure:SubscriptionId` | `Azure__SubscriptionId` | Target Azure subscription | | `Azure:Location` | `Azure__Location` | Default Azure region for provisioned resources | ### Local settings [Section titled "Local settings"](#local-settings) Continue here.
+            """;
+
+        var service = CreateService(CreateMockFetcher(content));
+
+        var document = await service.GetDocumentAsync("deploy-to-azure");
+        Assert.NotNull(document);
+
+        var normalized = document.Content.Replace("\r\n", "\n", StringComparison.Ordinal);
+        Assert.Contains("\n| Setting | Environment variable | Purpose |\n", normalized);
+        Assert.Contains("\n| `Azure:SubscriptionId` | `Azure__SubscriptionId` | Target Azure subscription |\n", normalized);
+        Assert.Contains("\n### Local settings\n", normalized);
     }
 
     [Fact]
@@ -1120,6 +1236,283 @@ public class DocsIndexServiceTests
         {
             throw exception;
         }
+    }
+
+    [Fact]
+    public void NormalizeContent_WithEmptyString_ReturnsEmpty()
+    {
+        var result = DocsIndexService.NormalizeContent("");
+        Assert.Equal("", result);
+    }
+
+    [Fact]
+    public void NormalizeContent_WithWhitespaceOnly_ReturnsWhitespace()
+    {
+        var result = DocsIndexService.NormalizeContent("   ");
+        Assert.Equal("   ", result);
+    }
+
+    [Fact]
+    public void NormalizeContent_NormalizesLineEndings()
+    {
+        var result = DocsIndexService.NormalizeContent("line1\r\nline2\rline3\nline4");
+        Assert.Equal("""
+            line1
+            line2
+            line3
+            line4
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_SplitsInlineHeadings()
+    {
+        var result = DocsIndexService.NormalizeContent("Some text ## Heading\nMore text");
+        Assert.Equal("""
+            Some text
+
+            ## Heading
+
+            More text
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_RemovesSectionTitledBookmarks()
+    {
+        var result = DocsIndexService.NormalizeContent("Before [Section titled Overview](#overview) After");
+        Assert.Equal("""
+            Before
+
+            After
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_SplitsInlineOrderedLists()
+    {
+        var result = DocsIndexService.NormalizeContent("Some text 1. First item");
+        Assert.Equal("""
+            Some text
+            1. First item
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_SplitsInlineUnorderedLists()
+    {
+        var result = DocsIndexService.NormalizeContent("Some text * List item");
+        Assert.Equal("""
+            Some text
+            * List item
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_CollapsesExcessBlankLines()
+    {
+        var result = DocsIndexService.NormalizeContent("""
+            Paragraph 1
+
+
+
+
+            Paragraph 2
+            """);
+        Assert.Equal("""
+            Paragraph 1
+
+            Paragraph 2
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_StripsTrailingWhitespaceBeforeNewlines()
+    {
+        var result = DocsIndexService.NormalizeContent("line1   \nline2\t\nline3");
+        Assert.Equal("""
+            line1
+            line2
+            line3
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_StripsLeadingWhitespace()
+    {
+        var result = DocsIndexService.NormalizeContent("""
+              indented line
+                more indented
+            """);
+        Assert.Equal("""
+            indented line
+            more indented
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_PreservesCodeBlockContent()
+    {
+        var input = """
+            Before
+            ```csharp
+              var x = 1;
+              var y = 2;
+            ```
+            After
+            """;
+        var result = DocsIndexService.NormalizeContent(input);
+        Assert.Equal("""
+            Before
+
+            ```csharp
+              var x = 1;
+              var y = 2;
+            ```
+
+            After
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_ExpandsInlineCodeBlocks()
+    {
+        var result = DocsIndexService.NormalizeContent("""Text ```csharp Console.WriteLine("hello");``` more""");
+        Assert.Equal("""
+            Text
+            ```csharp
+            Console.WriteLine("hello");
+            ```
+            more
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_SplitsInlineTables()
+    {
+        var result = DocsIndexService.NormalizeContent("Text |Col1|Col2|Col3| |---|---|---| |A|B|C|");
+        Assert.Equal("""
+            Text
+            |Col1|Col2|Col3|
+            |---|---|---|
+            |A|B|C|
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_TrimsResult()
+    {
+        var result = DocsIndexService.NormalizeContent("\n\n  Hello world  \n\n");
+        Assert.Equal("Hello world", result);
+    }
+
+    [Fact]
+    public void NormalizeContent_HandlesComplexDocument()
+    {
+        var input = """
+            # Title
+            Some intro text ## Configuration
+            Use `aspire run`. 1. Step one 2. Step two
+
+
+
+            ```bash
+            aspire run
+            ```
+            Done.
+            """;
+        var result = DocsIndexService.NormalizeContent(input);
+
+        Assert.Equal("""
+            # Title
+
+            Some intro text
+
+            ## Configuration
+
+            Use `aspire run`.
+            1. Step one
+            2. Step two
+
+            ```bash
+            aspire run
+            ```
+
+            Done.
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_AddsBlankLineAfterTable()
+    {
+        var result = DocsIndexService.NormalizeContent("Header text |Col1|Col2| |---|---| |A|B| Footer text");
+        Assert.Equal("""
+            Header text
+            |Col1|Col2|
+            |---|---|
+            |A|B|
+
+            Footer text
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_AddsBlankLineAfterList()
+    {
+        var result = DocsIndexService.NormalizeContent("Intro text 1. First 2. Second\nFollowing paragraph");
+        Assert.Equal("""
+            Intro text
+            1. First
+            2. Second
+
+            Following paragraph
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_AddsBlankLineAfterUnorderedList()
+    {
+        var result = DocsIndexService.NormalizeContent("Intro text * Item one * Item two\nFollowing paragraph");
+        Assert.Equal("""
+            Intro text
+            * Item one
+            * Item two
+
+            Following paragraph
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_AddsBlankLineOnlyAfterRootList()
+    {
+        var result = DocsIndexService.NormalizeContent("Intro 1. First * Sub A * Sub B 2. Second\nFollowing paragraph");
+        Assert.Equal("""
+            Intro
+            1. First
+            * Sub A
+            * Sub B
+            2. Second
+
+            Following paragraph
+            """, result, ignoreLineEndingDifferences: true);
+    }
+
+    [Fact]
+    public void NormalizeContent_NoBlankLineAfterListBeforeCodeBlock()
+    {
+        var result = DocsIndexService.NormalizeContent("Intro * Bash ```bash echo hello``` * PowerShell ```powershell Write-Host hello``` Done.");
+        Assert.Equal("""
+            Intro
+            * Bash
+            ```bash
+            echo hello
+            ```
+            * PowerShell
+            ```powershell
+            Write-Host hello
+            ```
+            Done.
+            """, result, ignoreLineEndingDifferences: true);
     }
 
     private sealed class DelayingDocsFetcher(string? content, TimeSpan delay) : IDocsFetcher

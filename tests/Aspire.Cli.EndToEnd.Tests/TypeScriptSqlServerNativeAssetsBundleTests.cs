@@ -16,43 +16,30 @@ namespace Aspire.Cli.EndToEnd.Tests;
 public sealed class TypeScriptSqlServerNativeAssetsBundleTests(ITestOutputHelper output)
 {
     [Fact]
+    [CaptureWorkspaceOnFailure]
     public async Task StartAndWaitForTypeScriptSqlServerAppHostWithNativeAssets()
     {
         var repoRoot = CliE2ETestHelpers.GetRepoRoot();
-        var installMode = CliE2ETestHelpers.DetectDockerInstallMode(repoRoot);
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
         var workspace = TemporaryWorkspace.Create(output);
-        var localChannel = CliE2ETestHelpers.PrepareLocalChannel(
-            repoRoot,
-            workspace,
-            installMode,
-            ["Aspire.Hosting.CodeGeneration.TypeScript.", "Aspire.Hosting.SqlServer."]);
-        var channelArgument = localChannel is not null ? " --channel local" : string.Empty;
 
         using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(
             repoRoot,
-            installMode,
+            strategy,
             output,
             variant: CliE2ETestHelpers.DockerfileVariant.Polyglot,
             mountDockerSocket: true,
             workspace: workspace);
-
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
         await auto.PrepareDockerEnvironmentAsync(counter, workspace);
-        await auto.InstallAspireCliInDockerAsync(installMode, counter);
-        await auto.MountLocalChannelPackagesAsync(localChannel, workspace, counter);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
-        if (localChannel is not null)
-        {
-            CliE2ETestHelpers.WriteLocalChannelSettings(workspace.WorkspaceRoot.FullName, localChannel.SdkVersion);
-        }
-
-        await auto.TypeAsync($"aspire init --language typescript --non-interactive{channelArgument}");
+        await auto.TypeAsync("aspire init --language typescript --non-interactive");
         await auto.EnterAsync();
-        await auto.WaitUntilTextAsync("Created apphost.ts", timeout: TimeSpan.FromMinutes(2));
+        await auto.WaitUntilTextAsync("Created apphost.mts", timeout: TimeSpan.FromMinutes(2));
         await auto.WaitForSuccessPromptAsync(counter);
 
         await auto.TypeAsync("aspire add Aspire.Hosting.SqlServer");
@@ -65,13 +52,13 @@ public sealed class TypeScriptSqlServerNativeAssetsBundleTests(ITestOutputHelper
         await auto.WaitUntilTextAsync("SDK code restored successfully", timeout: TimeSpan.FromMinutes(3));
         await auto.WaitForSuccessPromptAsync(counter);
 
-        var appHostPath = Path.Combine(workspace.WorkspaceRoot.FullName, "apphost.ts");
+        var appHostPath = Path.Combine(workspace.WorkspaceRoot.FullName, "apphost.mts");
         File.WriteAllText(appHostPath, """
-            import { createBuilder, ContainerLifetime } from './.modules/aspire.js';
+            import { createBuilder } from './.aspire/modules/aspire.mjs';
 
             const builder = await createBuilder();
             const sql = await builder.addSqlServer('sql')
-                .withLifetime(ContainerLifetime.Persistent)
+                .withPersistentLifetime()
                 .withDataVolume();
 
             await sql.addDatabase('mydb');
@@ -85,10 +72,5 @@ public sealed class TypeScriptSqlServerNativeAssetsBundleTests(ITestOutputHelper
         await auto.WaitForSuccessPromptAsync(counter);
 
         await auto.AspireStopAsync(counter);
-
-        await auto.TypeAsync("exit");
-        await auto.EnterAsync();
-
-        await pendingRun;
     }
 }

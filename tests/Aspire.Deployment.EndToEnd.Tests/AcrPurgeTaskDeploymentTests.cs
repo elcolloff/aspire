@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Deployment.EndToEnd.Tests.Helpers;
 using Hex1b.Automation;
@@ -19,6 +18,7 @@ public sealed class AcrPurgeTaskDeploymentTests(ITestOutputHelper output)
     private static readonly TimeSpan s_testTimeout = TimeSpan.FromMinutes(30);
 
     [Fact]
+    [ActiveIssue("https://github.com/microsoft/aspire/issues/16229")]
     public async Task DeployPythonStarterWithPurgeTask()
     {
         using var cts = new CancellationTokenSource(s_testTimeout);
@@ -74,19 +74,10 @@ public sealed class AcrPurgeTaskDeploymentTests(ITestOutputHelper output)
             output.WriteLine("Step 1: Preparing environment...");
             await auto.PrepareEnvironmentAsync(workspace, counter);
 
-            // Step 2: Set up CLI environment (in CI)
+            // Step 2: Set up CLI environment
             // Python apphosts need the full bundle because
             // the prebuilt AppHost server is required for aspire new with Python templates.
-            if (DeploymentE2ETestHelpers.IsRunningInCI)
-            {
-                var prNumber = DeploymentE2ETestHelpers.GetPrNumber();
-                if (prNumber > 0)
-                {
-                    output.WriteLine($"Step 2: Installing Aspire bundle from PR #{prNumber}...");
-                    await auto.InstallAspireBundleFromPullRequestAsync(prNumber, counter);
-                }
-                await auto.SourceAspireBundleEnvironmentAsync(counter);
-            }
+            await auto.InstallCurrentBuildAspireBundleAsync(counter, output);
 
             // Step 3: Create Python FastAPI project using aspire new
             output.WriteLine("Step 3: Creating Python FastAPI project...");
@@ -112,12 +103,12 @@ public sealed class AcrPurgeTaskDeploymentTests(ITestOutputHelper output)
                 await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromSeconds(180));
             }
 
-            // Step 6: Modify apphost.ts to add ACA environment with purge task
-            // Python template uses TypeScript AppHost (apphost.ts in project root)
+            // Step 6: Modify apphost.mts to add ACA environment with purge task
+            // Python template uses TypeScript AppHost (apphost.mts in project root)
             var projectDir = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
-            var appHostFilePath = Path.Combine(projectDir, "apphost.ts");
+            var appHostFilePath = Path.Combine(projectDir, "apphost.mts");
 
-            output.WriteLine($"Looking for apphost.ts at: {appHostFilePath}");
+            output.WriteLine($"Looking for apphost.mts at: {appHostFilePath}");
 
             var content = File.ReadAllText(appHostFilePath);
 
@@ -136,7 +127,7 @@ await builder.build().run();
 
             File.WriteAllText(appHostFilePath, content);
 
-            output.WriteLine($"Modified apphost.ts at: {appHostFilePath}");
+            output.WriteLine($"Modified apphost.mts at: {appHostFilePath}");
 
             // Step 7: Set environment variables for deployment
             await auto.TypeAsync($"unset ASPIRE_PLAYGROUND && export AZURE__LOCATION=westus3 && export AZURE__RESOURCEGROUP={resourceGroupName}");
@@ -145,24 +136,9 @@ await builder.build().run();
 
             // Step 8: First deployment to Azure
             output.WriteLine("Step 8: Starting first Azure deployment...");
-            var pipelineSucceeded = false;
             await auto.TypeAsync("aspire deploy --clear-cache");
             await auto.EnterAsync();
-            await auto.WaitUntilAsync(s =>
-            {
-                if (s.ContainsText(ConsoleActivityLoggerStrings.PipelineSucceeded))
-                {
-                    pipelineSucceeded = true;
-                    return true;
-                }
-                return s.ContainsText(ConsoleActivityLoggerStrings.PipelineFailed);
-            }, timeout: TimeSpan.FromMinutes(30), description: "pipeline succeeded or failed");
-
-            if (!pipelineSucceeded)
-            {
-                throw new InvalidOperationException("First deployment pipeline failed. Check the terminal output for details.");
-            }
-
+            await auto.WaitForPipelineSuccessAsync(timeout: TimeSpan.FromMinutes(30));
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(2));
 
             // Step 9: Get the ACR name and count tags before second deploy
@@ -195,27 +171,12 @@ await builder.build().run();
             // Step 11: Second deployment to push new images
             // Clear the terminal so WaitUntilTextAsync doesn't match the pipeline succeeded text from the first deploy
             output.WriteLine("Step 11: Starting second Azure deployment...");
-            var pipeline2Succeeded = false;
             await auto.TypeAsync("export TERM=xterm && clear");
             await auto.EnterAsync();
             await auto.WaitForSuccessPromptAsync(counter);
             await auto.TypeAsync("aspire deploy");
             await auto.EnterAsync();
-            await auto.WaitUntilAsync(s =>
-            {
-                if (s.ContainsText(ConsoleActivityLoggerStrings.PipelineSucceeded))
-                {
-                    pipeline2Succeeded = true;
-                    return true;
-                }
-                return s.ContainsText(ConsoleActivityLoggerStrings.PipelineFailed);
-            }, timeout: TimeSpan.FromMinutes(30), description: "pipeline succeeded or failed");
-
-            if (!pipeline2Succeeded)
-            {
-                throw new InvalidOperationException("Second deployment pipeline failed. Check the terminal output for details.");
-            }
-
+            await auto.WaitForPipelineSuccessAsync(timeout: TimeSpan.FromMinutes(30));
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(2));
 
             // Step 12: Verify there are now multiple tags (from both deploys)

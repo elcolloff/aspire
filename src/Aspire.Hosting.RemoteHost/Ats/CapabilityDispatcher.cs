@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Aspire.Hosting.RemoteHost.Diagnostics;
 using Aspire.TypeSystem;
 using Microsoft.Extensions.Logging;
 
@@ -33,7 +34,12 @@ internal sealed class CapabilityDispatcher
     private readonly AtsMarshaller _marshaller;
     private readonly ExternalCapabilityRegistry? _externalRegistry;
     private readonly ILogger _logger;
+    private readonly RemoteHostProfilingTelemetry _profilingTelemetry;
     private AtsContext? _atsContext;
+    // Tracks whether any CapabilityDispatcher in this process has scanned yet. Recorded as a
+    // profiling tag so traces can distinguish the cold first scan (full reflection cost) from
+    // subsequent scans (cached metadata).
+    private static int s_hasScanned;
 
     /// <summary>
     /// Represents a registered capability.
@@ -50,17 +56,25 @@ internal sealed class CapabilityDispatcher
     /// <summary>
     /// Creates a new CapabilityDispatcher for DI.
     /// </summary>
+    /// <param name="handles">The handle registry for resolving handle references.</param>
+    /// <param name="assemblyLoader">The assembly loader to get assemblies from.</param>
+    /// <param name="marshaller">The marshaller for converting objects to/from JSON.</param>
+    /// <param name="externalRegistry">The shared registry for capabilities supplied by external integration hosts.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="profilingTelemetry">The remote host profiling telemetry helper.</param>
     public CapabilityDispatcher(
         HandleRegistry handles,
         AssemblyLoader assemblyLoader,
         AtsMarshaller marshaller,
         ExternalCapabilityRegistry externalRegistry,
-        ILogger<CapabilityDispatcher> logger)
+        ILogger<CapabilityDispatcher> logger,
+        RemoteHostProfilingTelemetry profilingTelemetry)
     {
         _handles = handles;
         _marshaller = marshaller;
         _externalRegistry = externalRegistry;
         _logger = logger;
+        _profilingTelemetry = profilingTelemetry;
 
         // Scan for capabilities on initialization
         ScanAssemblies(assemblyLoader.GetAssemblies());
@@ -80,6 +94,7 @@ internal sealed class CapabilityDispatcher
         _handles = handles;
         _marshaller = marshaller;
         _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<CapabilityDispatcher>.Instance;
+        _profilingTelemetry = RemoteHostProfilingTelemetry.Disabled;
 
         ScanAssemblies(assemblies);
     }
@@ -91,11 +106,20 @@ internal sealed class CapabilityDispatcher
     private void ScanAssemblies(IEnumerable<Assembly> assemblies)
     {
         var assemblyList = assemblies.ToList();
+        var firstScan = Interlocked.Exchange(ref s_hasScanned, 1) == 0;
+        using var activity = _profilingTelemetry.StartCapabilityScan(assemblyList.Count, firstScan);
 
         _logger.LogDebug("Scanning {AssemblyCount} assemblies for capabilities...", assemblyList.Count);
 
         // Scan all assemblies at once to get combined result with AtsContext
         var result = AtsCapabilityScanner.ScanAssemblies(assemblyList);
+        activity.SetAtsCounts(
+            result.Capabilities.Count,
+            result.HandleTypes.Count,
+            result.DtoTypes.Count,
+            result.EnumTypes.Count,
+            result.ExportedValues.Count,
+            result.Diagnostics.Count);
 
         // Store the AtsContext for capability registration
         _atsContext = result.ToAtsContext();
@@ -240,7 +264,8 @@ internal sealed class CapabilityDispatcher
                     valueNode,
                     unmarshalContext,
                     handles,
-                    args);
+                    args,
+                    GetUnionMemberClrTypes(prop, capability, "value"));
 
                 // Bridge builder -> resource for setter as well.
                 var setTarget = ResolveContextTarget(
@@ -321,7 +346,8 @@ internal sealed class CapabilityDispatcher
                         argNode,
                         context,
                         handles,
-                        args);
+                        args,
+                        GetUnionMemberClrTypes(param, capability));
                 }
                 else if (param.HasDefaultValue)
                 {
@@ -417,7 +443,8 @@ internal sealed class CapabilityDispatcher
                         argNode,
                         context,
                         handles,
-                        args);
+                        args,
+                        GetUnionMemberClrTypes(param, capability));
                 }
                 else if (param.HasDefaultValue)
                 {
@@ -538,6 +565,7 @@ internal sealed class CapabilityDispatcher
             throw CapabilityException.CapabilityNotFound(capabilityId);
         }
 
+        using var activity = _profilingTelemetry.StartCapabilityInvoke(capabilityId, registration.Capability);
         args ??= new JsonObject();
 
         try
@@ -546,14 +574,17 @@ internal sealed class CapabilityDispatcher
         }
         catch (PolyglotCapabilityInvocationException ex)
         {
+            activity.SetError(ex);
             throw ex.ToCapabilityException();
         }
-        catch (CapabilityException)
+        catch (CapabilityException ex)
         {
+            activity.SetError(ex);
             throw;
         }
         catch (ArgumentException ex) when (IsTypeMismatchException(ex))
         {
+            activity.SetError(ex);
             throw PolyglotCapabilityErrorFormatter.CreateInternalError(
                 capabilityId,
                 registration.Capability?.MethodName,
@@ -567,6 +598,7 @@ internal sealed class CapabilityDispatcher
         }
         catch (InvalidCastException ex)
         {
+            activity.SetError(ex);
             throw PolyglotCapabilityErrorFormatter.CreateInternalError(
                 capabilityId,
                 registration.Capability?.MethodName,
@@ -580,6 +612,7 @@ internal sealed class CapabilityDispatcher
         }
         catch (Exception ex)
         {
+            activity.SetError(ex);
             _logger.LogError(ex, "Capability {CapabilityId} failed with {ExceptionType}: {Message}", capabilityId, ex.GetType().Name, ex.Message);
             throw PolyglotCapabilityErrorFormatter.CreateInternalError(
                 capabilityId,
@@ -606,24 +639,17 @@ internal sealed class CapabilityDispatcher
         return InvokeAsync(capabilityId, args).GetAwaiter().GetResult();
     }
 
-    private static async Task<object?> InvokeMethodAsync(MethodInfo method, object? target, object?[] methodArgs, bool runSyncOnBackgroundThread)
+    private static async Task<object?> InvokeMethodAsync(MethodInfo method, object? target, object?[] methodArgs, bool runInvocationOnBackgroundThread)
     {
-        if (runSyncOnBackgroundThread && !IsAsyncReturnType(method.ReturnType))
+        if (runInvocationOnBackgroundThread)
         {
+            // Async-returning exports can execute substantial synchronous setup before returning
+            // their Task or ValueTask. Run that invocation path off the JSON-RPC synchronization context so
+            // sync-over-async callback proxies can still receive nested RPC responses.
             return await Task.Run(() => InvokeMethodCore(method, target, methodArgs)).ConfigureAwait(false);
         }
 
         return InvokeMethodCore(method, target, methodArgs);
-    }
-
-    private static bool IsAsyncReturnType(Type returnType)
-    {
-        if (typeof(Task).IsAssignableFrom(returnType) || returnType == typeof(ValueTask))
-        {
-            return true;
-        }
-
-        return returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>);
     }
 
     private static async Task<object?> UnwrapAsyncResultAsync(object? result, Type returnType)
@@ -748,8 +774,21 @@ internal sealed class CapabilityDispatcher
         JsonNode? argNode,
         AtsMarshaller.UnmarshalContext context,
         HandleRegistry handles,
-        JsonObject? args)
+        JsonObject? args,
+        IReadOnlyList<Type>? unionMemberTypes = null)
     {
+        if (unionMemberTypes is { Count: > 0 })
+        {
+            return UnmarshalUnionArgument(
+                capability,
+                parameterName,
+                argNode,
+                context,
+                handles,
+                args,
+                unionMemberTypes);
+        }
+
         var handleRef = HandleRef.FromJsonNode(argNode);
         if (handleRef is null)
         {
@@ -770,6 +809,154 @@ internal sealed class CapabilityDispatcher
             parameterType,
             handleObject!,
             capability.TargetParameterName);
+    }
+
+    private object? UnmarshalUnionArgument(
+        AtsCapabilityInfo capability,
+        string parameterName,
+        JsonNode? argNode,
+        AtsMarshaller.UnmarshalContext context,
+        HandleRegistry handles,
+        JsonObject? args,
+        IReadOnlyList<Type> unionMemberTypes)
+    {
+        var handleRef = HandleRef.FromJsonNode(argNode);
+        if (handleRef is not null)
+        {
+            if (!handles.TryGet(handleRef.HandleId, out var handleObject, out _))
+            {
+                throw CapabilityException.HandleNotFound(handleRef.HandleId, capability.CapabilityId);
+            }
+
+            foreach (var unionMemberType in unionMemberTypes)
+            {
+                try
+                {
+                    return PolyglotCapabilityErrorFormatter.ResolveHandleArgument(
+                        capability.CapabilityId,
+                        capability.MethodName,
+                        args,
+                        handles,
+                        parameterName,
+                        unionMemberType,
+                        handleObject!,
+                        capability.TargetParameterName);
+                }
+                catch (PolyglotCapabilityInvocationException ex) when (ex.ErrorCode == AtsErrorCodes.TypeMismatch)
+                {
+                    continue;
+                }
+            }
+
+            throw CapabilityException.TypeMismatch(
+                capability.CapabilityId,
+                parameterName,
+                DescribeUnionTypes(unionMemberTypes),
+                handleObject!.GetType().Name);
+        }
+
+        foreach (var unionMemberType in unionMemberTypes)
+        {
+            try
+            {
+                var unmarshalledValue = _marshaller.UnmarshalFromJson(argNode, unionMemberType, context);
+                if (unmarshalledValue is not null || argNode is null)
+                {
+                    return unmarshalledValue;
+                }
+            }
+            catch (CapabilityException ex) when (ex.Error.Code is AtsErrorCodes.InvalidArgument or AtsErrorCodes.TypeMismatch)
+            {
+                continue;
+            }
+        }
+
+        throw CapabilityException.TypeMismatch(
+            capability.CapabilityId,
+            parameterName,
+            DescribeUnionTypes(unionMemberTypes),
+            DescribeJsonNode(argNode));
+    }
+
+    private static IReadOnlyList<Type>? GetUnionMemberClrTypes(ParameterInfo parameter, AtsCapabilityInfo capability)
+    {
+        if (TryGetUnionMemberClrTypes(parameter.CustomAttributes) is { Count: > 0 } unionMemberTypes)
+        {
+            return unionMemberTypes;
+        }
+
+        return TryGetUnionMemberClrTypes(capability, parameter.Name ?? string.Empty);
+    }
+
+    private static IReadOnlyList<Type>? GetUnionMemberClrTypes(PropertyInfo property, AtsCapabilityInfo capability, string parameterName)
+    {
+        if (TryGetUnionMemberClrTypes(property.CustomAttributes) is { Count: > 0 } unionMemberTypes)
+        {
+            return unionMemberTypes;
+        }
+
+        return TryGetUnionMemberClrTypes(capability, parameterName);
+    }
+
+    private static IReadOnlyList<Type>? TryGetUnionMemberClrTypes(IEnumerable<CustomAttributeData> attributes)
+    {
+        var unionAttribute = attributes.FirstOrDefault(static attribute => attribute.AttributeType.FullName is "Aspire.Hosting.AspireUnionAttribute");
+        if (unionAttribute?.ConstructorArguments.Count is not > 0)
+        {
+            return null;
+        }
+
+        var types = unionAttribute.ConstructorArguments[0].Value as IReadOnlyCollection<CustomAttributeTypedArgument>;
+        if (types is null)
+        {
+            return null;
+        }
+
+        var unionMemberTypes = types
+            .Select(static argument => argument.Value)
+            .OfType<Type>()
+            .ToArray();
+
+        return unionMemberTypes.Length > 0 ? unionMemberTypes : null;
+    }
+
+    private static IReadOnlyList<Type>? TryGetUnionMemberClrTypes(AtsCapabilityInfo capability, string parameterName)
+    {
+        var parameter = capability.Parameters.FirstOrDefault(p => string.Equals(p.Name, parameterName, StringComparison.Ordinal));
+
+        if (parameter?.Type?.UnionTypes is not { Count: > 0 } unionTypes)
+        {
+            return null;
+        }
+
+        var clrTypes = unionTypes
+            .Select(static unionType => unionType.ClrType)
+            .OfType<Type>()
+            .ToArray();
+
+        return clrTypes.Length > 0 ? clrTypes : null;
+    }
+
+    private static string DescribeUnionTypes(IReadOnlyList<Type> unionMemberTypes)
+    {
+        return string.Join(" | ", unionMemberTypes.Select(static type => type.Name));
+    }
+
+    private static string DescribeJsonNode(JsonNode? node)
+    {
+        return node switch
+        {
+            null => "null",
+            JsonValue v when v.TryGetValue<string>(out _) => "string",
+            JsonValue v when v.TryGetValue<bool>(out _) => "bool",
+            JsonValue v when v.TryGetValue<long>(out _) => "number",
+            JsonValue v when v.TryGetValue<double>(out _) => "number",
+            JsonValue => "value",
+            JsonArray => "array",
+            JsonObject obj when obj.ContainsKey("$handle") => "handle",
+            JsonObject => "object",
+            _ => node.GetType().Name
+        };
     }
 
     private static object ResolveContextTarget(

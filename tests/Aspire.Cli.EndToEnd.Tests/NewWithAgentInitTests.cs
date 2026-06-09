@@ -33,18 +33,16 @@ public sealed class NewWithAgentInitTests(ITestOutputHelper output)
     public async Task AspireNew_WithAgentInit_InstallsPlaywrightWithoutErrors()
     {
         var repoRoot = CliE2ETestHelpers.GetRepoRoot();
-        var installMode = CliE2ETestHelpers.DetectDockerInstallMode(repoRoot);
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
         var workspace = TemporaryWorkspace.Create(output);
 
-        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, installMode, output, workspace: workspace);
-
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, workspace: workspace);
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
         await auto.PrepareDockerEnvironmentAsync(counter, workspace);
-        await auto.InstallAspireCliInDockerAsync(installMode, counter);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
         // Create .claude folder so agent init detects a Claude Code environment.
         // This needs to exist in the workspace root before aspire new creates the project
@@ -108,12 +106,6 @@ public sealed class NewWithAgentInitTests(ITestOutputHelper output)
             description: "agent init prompt after aspire new");
         await auto.WaitAsync(500);
         await auto.TypeAsync("y");
-        await auto.EnterAsync();
-
-        // Agent init: workspace path - accept default
-        await auto.WaitUntilTextAsync("workspace:", timeout: TimeSpan.FromSeconds(30));
-        await auto.WaitAsync(500);
-        await auto.EnterAsync();
 
         // Agent init: skill location - select Claude Code
         await auto.WaitUntilAsync(
@@ -125,11 +117,17 @@ public sealed class NewWithAgentInitTests(ITestOutputHelper output)
         await auto.TypeAsync(" "); // Toggle on Claude Code location
         await auto.EnterAsync();
 
-        // Agent init: skill selection - toggle on Playwright CLI
+        // Agent init: skill selection - this test validates Playwright acquisition,
+        // so deselect the default Aspire bundle skills and select only Playwright CLI.
         await auto.WaitUntilAsync(
             s => s.ContainsText("skills should be installed"),
             timeout: TimeSpan.FromSeconds(30),
             description: "skill selection prompt");
+        await auto.TypeAsync(" "); // Toggle off Aspire
+        await auto.DownAsync();
+        await auto.TypeAsync(" "); // Toggle off aspireify
+        await auto.DownAsync();
+        await auto.TypeAsync(" "); // Toggle off aspire-deployment
         await auto.DownAsync();
         await auto.TypeAsync(" "); // Toggle on Playwright CLI
         await auto.EnterAsync();
@@ -158,10 +156,5 @@ public sealed class NewWithAgentInitTests(ITestOutputHelper output)
         await auto.EnterAsync();
         await auto.WaitUntilTextAsync("SKILL.md", timeout: TimeSpan.FromSeconds(10));
         await auto.WaitForSuccessPromptAsync(counter);
-
-        await auto.TypeAsync("exit");
-        await auto.EnterAsync();
-
-        await pendingRun;
     }
 }

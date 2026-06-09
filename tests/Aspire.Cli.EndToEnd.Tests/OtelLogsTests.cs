@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Runtime.CompilerServices;
 using Aspire.Cli.EndToEnd.Tests.Helpers;
 using Aspire.Cli.Tests.Utils;
 using Hex1b.Automation;
@@ -16,22 +17,28 @@ public sealed class OtelLogsTests(ITestOutputHelper output)
 {
     [Fact]
     [CaptureWorkspaceOnFailure]
-    public async Task OtelLogsReturnsStructuredLogsFromStarterApp()
+    public Task OtelLogsReturnsStructuredLogsFromStarterApp()
+        => OtelLogsReturnsStructuredLogsFromStarterAppCore(isolated: false);
+
+    [Fact]
+    [CaptureWorkspaceOnFailure]
+    public Task OtelLogsReturnsStructuredLogsFromStarterAppIsolated()
+        => OtelLogsReturnsStructuredLogsFromStarterAppCore(isolated: true);
+
+    private async Task OtelLogsReturnsStructuredLogsFromStarterAppCore(bool isolated, [CallerMemberName] string testName = "")
     {
         var repoRoot = CliE2ETestHelpers.GetRepoRoot();
-        var installMode = CliE2ETestHelpers.DetectDockerInstallMode(repoRoot);
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
 
         using var workspace = TemporaryWorkspace.Create(output);
 
-        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, installMode, output, mountDockerSocket: true, workspace: workspace);
-
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, mountDockerSocket: true, workspace: workspace, testName: testName);
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
         await auto.PrepareDockerEnvironmentAsync(counter, workspace);
-        await auto.InstallAspireCliInDockerAsync(installMode, counter);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
         // Create a new Starter project (includes an ASP.NET Core apiservice)
         await auto.AspireNewAsync("AspireOtelLogsApp", counter);
@@ -42,7 +49,7 @@ public sealed class OtelLogsTests(ITestOutputHelper output)
         await auto.WaitForSuccessPromptAsync(counter);
 
         // Start the AppHost in the background
-        await auto.AspireStartAsync(counter);
+        await auto.AspireStartAsync(counter, isolated: isolated);
 
         // Wait for the apiservice resource to be running before querying logs
         await auto.TypeAsync("aspire wait apiservice --status up --timeout 300");
@@ -79,11 +86,5 @@ public sealed class OtelLogsTests(ITestOutputHelper output)
 
         // Stop the AppHost
         await auto.AspireStopAsync(counter);
-
-        // Exit the shell
-        await auto.TypeAsync("exit");
-        await auto.EnterAsync();
-
-        await pendingRun;
     }
 }

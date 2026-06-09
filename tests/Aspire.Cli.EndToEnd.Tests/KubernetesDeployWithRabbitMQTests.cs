@@ -19,34 +19,25 @@ public sealed class KubernetesDeployWithRabbitMQTests(ITestOutputHelper output)
     [CaptureWorkspaceOnFailure]
     public async Task DeployK8sWithRabbitMQ()
     {
+        var repoRoot = CliE2ETestHelpers.GetRepoRoot();
+        var strategy = CliInstallStrategy.Detect(output.WriteLine);
         using var workspace = TemporaryWorkspace.Create(output);
 
-        var prNumber = CliE2ETestHelpers.GetRequiredPrNumber();
-        var commitSha = CliE2ETestHelpers.GetRequiredCommitSha();
-        var isCI = CliE2ETestHelpers.IsRunningInCI;
         var clusterName = KubernetesDeployTestHelpers.GenerateUniqueClusterName();
         var k8sNamespace = $"test-{clusterName[..16]}";
 
         output.WriteLine($"Cluster name: {clusterName}");
         output.WriteLine($"Namespace: {k8sNamespace}");
 
-        using var terminal = CliE2ETestHelpers.CreateTestTerminal();
-        var pendingRun = terminal.RunAsync(TestContext.Current.CancellationToken);
-
+        using var terminal = CliE2ETestHelpers.CreateDockerTestTerminal(repoRoot, strategy, output, mountDockerSocket: true, workspace: workspace);
         var counter = new SequenceCounter();
         var auto = new Hex1bTerminalAutomator(terminal, defaultTimeout: TimeSpan.FromSeconds(500));
+        await using var terminalRun = CliE2ETestHelpers.StartRun(terminal, workspace, auto, counter, output, TestContext.Current.CancellationToken);
 
-        await auto.PrepareEnvironmentAsync(workspace, counter);
+        await auto.PrepareDockerEnvironmentAsync(counter, workspace);
+        await auto.InstallAspireCliAsync(strategy, counter);
 
-        if (isCI)
-        {
-            await auto.InstallAspireCliFromPullRequestAsync(prNumber, counter);
-            await auto.SourceAspireCliEnvironmentAsync(counter);
-            await auto.VerifyAspireCliVersionAsync(commitSha, counter);
-        }
-
-        // Assert CLI version has a prerelease suffix (runs in both CI and local)
-        await auto.AssertAspireVersionAsync(counter, output);
+        await auto.VerifyPullRequestCliVersionAsync(counter);
 
         try
         {
@@ -94,7 +85,7 @@ public sealed class KubernetesDeployWithRabbitMQTests(ITestOutputHelper output)
                 {
                     await using var channel = await connection.CreateChannelAsync();
                     var queueName = $"test-{Guid.NewGuid():N}";
-                    await channel.QueueDeclareAsync(queue: queueName, durable: false, exclusive: false, autoDelete: true);
+                    await channel.QueueDeclareAsync(queue: queueName, durable: false, exclusive: true, autoDelete: true);
                     await channel.QueueDeleteAsync(queueName);
 
                     return Results.Ok("PASSED: RabbitMQ queue declare+delete works");
@@ -130,15 +121,10 @@ public sealed class KubernetesDeployWithRabbitMQTests(ITestOutputHelper output)
                 testPath: "/test-deployment");
 
             await auto.CleanupKubernetesDeploymentAsync(counter, clusterName);
-
-            await auto.TypeAsync("exit");
-            await auto.EnterAsync();
         }
         finally
         {
             await KubernetesDeployTestHelpers.CleanupKindClusterOutOfBandAsync(clusterName, output);
         }
-
-        await pendingRun;
     }
 }

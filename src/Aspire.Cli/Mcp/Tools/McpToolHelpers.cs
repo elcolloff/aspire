@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Globalization;
+using System.Web;
 using Aspire.Cli.Backchannel;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -25,9 +27,10 @@ internal static class McpToolHelpers
             throw new McpProtocolException(McpErrorMessages.DashboardNotAvailable, McpErrorCode.InternalError);
         }
 
+        var apiBaseUrl = NormalizeDashboardUrl(dashboardInfo.ApiBaseUrl);
         var dashboardBaseUrl = StripLoginPath(dashboardInfo.DashboardUrls.FirstOrDefault());
 
-        return (dashboardInfo.ApiToken, dashboardInfo.ApiBaseUrl, dashboardBaseUrl);
+        return (dashboardInfo.ApiToken, apiBaseUrl, dashboardBaseUrl);
     }
 
     /// <summary>
@@ -56,5 +59,56 @@ internal static class McpToolHelpers
         }
 
         return url;
+    }
+
+    /// <summary>
+    /// Replaces AppHost-scoped <c>*.localhost</c> dashboard hostnames with <c>localhost</c>.
+    /// </summary>
+    /// <remarks>
+    /// DNS resolvers typically don't implement RFC 6761 for localhost subdomains, so hosts
+    /// like <c>dashboard.dev.localhost</c> fail to resolve when making HTTP requests.
+    /// Rewriting to <c>localhost</c> ensures the CLI can reach the dashboard API.
+    /// </remarks>
+    internal static string NormalizeDashboardUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && IsLocalhostTld(uri.Host))
+        {
+            var port = uri.IsDefaultPort ? string.Empty : ":" + uri.Port.ToString(CultureInfo.InvariantCulture);
+            var pathAndQuery = uri.PathAndQuery == "/" ? string.Empty : uri.PathAndQuery;
+            return $"{uri.Scheme}://localhost{port}{pathAndQuery}{uri.Fragment}";
+        }
+
+        return url;
+    }
+
+    private static bool IsLocalhostTld(string host)
+    {
+        return host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extracts the browser token (<c>t</c> query parameter) from a dashboard login URL.
+    /// Returns <c>null</c> if the URL does not contain a login token.
+    /// </summary>
+    internal static string? ExtractLoginToken(string? url)
+    {
+        if (url is null)
+        {
+            return null;
+        }
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+            uri.AbsolutePath.EndsWith("/login", StringComparison.OrdinalIgnoreCase))
+        {
+            // Parse query string to find 't' parameter
+            var queryParams = HttpUtility.ParseQueryString(uri.Query);
+            var token = queryParams["t"];
+            if (!string.IsNullOrEmpty(token))
+            {
+                return token;
+            }
+        }
+
+        return null;
     }
 }

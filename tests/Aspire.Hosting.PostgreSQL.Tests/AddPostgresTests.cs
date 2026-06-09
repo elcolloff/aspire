@@ -195,7 +195,7 @@ public class AddPostgresTests
             .WithEndpoint("tcp", e =>
             {
                 e.AllocatedEndpoint = new AllocatedEndpoint(e, "localhost", 2000);
-                e.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(KnownNetworkIdentifiers.DefaultAspireContainerNetwork, new AllocatedEndpoint(e, "postgres.dev.internal", 2000, EndpointBindingMode.SingleAddress, targetPortExpression: null, networkID: KnownNetworkIdentifiers.DefaultAspireContainerNetwork));
+                e.AllAllocatedEndpoints.AddOrUpdateAllocatedEndpoint(KnownNetworkIdentifiers.DefaultAspireContainerNetwork, new AllocatedEndpoint(e, "postgres.dev.internal", 2000, EndpointBindingMode.SingleAddress, targetPortExpression: null, networkId: KnownNetworkIdentifiers.DefaultAspireContainerNetwork));
             });
         var database = postgres.AddDatabase("db");
         var consumer = appBuilder.AddContainer("consumer", "fake");
@@ -788,9 +788,9 @@ public class AddPostgresTests
     public void WithDataVolumeUsesLegacyPathForPostgres17(bool? isReadOnly)
     {
         using var builder = TestDistributedApplicationBuilder.Create();
-        var postgres = builder.AddPostgres("myPostgres");
+        var postgres = builder.AddPostgres("myPostgres")
+            .WithImage("postgres", "17.6");
 
-        // Default image is v17.x, so should use legacy path
         if (isReadOnly.HasValue)
         {
             postgres.WithDataVolume(isReadOnly: isReadOnly.Value);
@@ -869,9 +869,9 @@ public class AddPostgresTests
     public void WithDataBindMountUsesLegacyPathForPostgres17(bool? isReadOnly)
     {
         using var builder = TestDistributedApplicationBuilder.Create();
-        var postgres = builder.AddPostgres("myPostgres");
+        var postgres = builder.AddPostgres("myPostgres")
+            .WithImage("postgres", "17.6");
 
-        // Default image is v17.x, so should use legacy path
         if (isReadOnly.HasValue)
         {
             postgres.WithDataBindMount("mydata", isReadOnly: isReadOnly.Value);

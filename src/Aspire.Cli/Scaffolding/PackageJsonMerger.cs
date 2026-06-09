@@ -41,11 +41,13 @@ internal static class PackageJsonMerger
     /// <summary>
     /// Merges scaffold-generated package.json content with existing content.
     /// Preserves all existing properties and scripts. Scaffold scripts that conflict
-    /// with existing names are added under the <c>aspire:</c> prefix. Non-conflicting
-    /// <c>aspire:X</c> scripts get a convenience alias <c>X</c> pointing to <c>npm run aspire:X</c>.
+    /// with existing names are added under the <c>aspire:</c> prefix. Existing scripts,
+    /// including <c>aspire:</c>-prefixed scripts, are preserved. Non-conflicting
+    /// <c>aspire:X</c> scripts get a convenience alias <c>X</c> pointing to
+    /// <c>{toolchain} run aspire:X</c>.
     /// </summary>
     /// <returns>The merged package.json content as a JSON string.</returns>
-    internal static string Merge(string existingContent, string scaffoldContent, ILogger logger)
+    internal static string Merge(string existingContent, string scaffoldContent, ILogger logger, string toolchainCommand = "npm")
     {
         if (string.IsNullOrWhiteSpace(existingContent))
         {
@@ -74,7 +76,7 @@ internal static class PackageJsonMerger
         // Phase 2: Merge. If merge fails, return scaffold as-is.
         try
         {
-            MergeObjects(existingJson, scaffoldJson, logger);
+            MergeObjects(existingJson, scaffoldJson, logger, toolchainCommand);
             return existingJson.ToJsonString(s_jsonOptions);
         }
         catch (Exception ex)
@@ -89,14 +91,14 @@ internal static class PackageJsonMerger
     /// Scripts get special conflict-aware handling, dependency sections use semver-aware merging,
     /// and everything else uses deep merge.
     /// </summary>
-    private static void MergeObjects(JsonObject existing, JsonObject scaffold, ILogger logger)
+    private static void MergeObjects(JsonObject existing, JsonObject scaffold, ILogger logger, string toolchainCommand)
     {
         // Handle scripts separately with conflict-aware logic
         var scaffoldScripts = scaffold[ScriptsKey]?.AsObject();
         if (scaffoldScripts is not null)
         {
             var existingScripts = EnsureObject(existing, ScriptsKey, logger);
-            MergeScripts(existingScripts, scaffoldScripts);
+            MergeScripts(existingScripts, scaffoldScripts, toolchainCommand);
         }
 
         // Handle dependency sections with semver-aware merging
@@ -139,14 +141,14 @@ internal static class PackageJsonMerger
     /// <remarks>
     /// For each scaffold script:
     /// <list type="bullet">
-    /// <item>Already <c>aspire:</c> prefixed → always added/updated</item>
+    /// <item>Already <c>aspire:</c> prefixed → added only when missing</item>
     /// <item>Not prefixed, conflicts with existing → added as <c>aspire:{name}</c></item>
     /// <item>Not prefixed, no conflict → added with the original name</item>
     /// </list>
     /// After processing, for each <c>aspire:X</c> script where no non-prefixed <c>X</c> exists,
-    /// a convenience alias is added: <c>"X": "npm run aspire:X"</c>.
+    /// a convenience alias is added: <c>"X": "{toolchain} run aspire:X"</c>.
     /// </remarks>
-    internal static void MergeScripts(JsonObject existingScripts, JsonObject scaffoldScripts)
+    internal static void MergeScripts(JsonObject existingScripts, JsonObject scaffoldScripts, string toolchainCommand = "npm")
     {
         foreach (var (name, value) in scaffoldScripts)
         {
@@ -157,8 +159,7 @@ internal static class PackageJsonMerger
 
             if (name.StartsWith(AspirePrefix, StringComparison.Ordinal))
             {
-                // Already prefixed — always set it
-                existingScripts[name] = command;
+                existingScripts[name] ??= command;
             }
             else if (existingScripts[name] is not null)
             {
@@ -173,15 +174,17 @@ internal static class PackageJsonMerger
         }
 
         // Add convenience aliases for aspire: scripts that have no non-prefixed equivalent
-        AddConvenienceAliases(existingScripts);
+        AddConvenienceAliases(existingScripts, toolchainCommand);
     }
 
     /// <summary>
     /// For each <c>aspire:X</c> script, if no script named <c>X</c> exists,
-    /// adds <c>"X": "npm run aspire:X"</c> as a convenience alias.
+    /// adds <c>"X": "{toolchain} run aspire:X"</c> as a convenience alias.
     /// </summary>
-    private static void AddConvenienceAliases(JsonObject scripts)
+    private static void AddConvenienceAliases(JsonObject scripts, string toolchainCommand)
     {
+        var normalizedToolchainCommand = string.IsNullOrWhiteSpace(toolchainCommand) ? "npm" : toolchainCommand;
+
         // Collect aspire: keys first to avoid modifying during enumeration
         var aspireScripts = new List<(string unprefixed, string prefixed)>();
         foreach (var (name, _) in scripts)
@@ -200,7 +203,7 @@ internal static class PackageJsonMerger
         {
             if (scripts[unprefixed] is null)
             {
-                scripts[unprefixed] = $"npm run {prefixed}";
+                scripts[unprefixed] = $"{normalizedToolchainCommand} run {prefixed}";
             }
         }
     }
@@ -231,6 +234,14 @@ internal static class PackageJsonMerger
             var existingVersionNode = existingDeps[packageName];
             if (existingVersionNode is null)
             {
+                // Preserve brownfield package shape: if a scaffolded devDependency already exists
+                // as a runtime dependency, upgrade it in place instead of duplicating it.
+                if (sectionName == DevDependenciesKey &&
+                    TryMergeExistingDependency(existing, DependenciesKey, packageName, desiredVersion))
+                {
+                    continue;
+                }
+
                 existingDeps[packageName] = desiredVersion;
             }
             else
@@ -243,6 +254,29 @@ internal static class PackageJsonMerger
                 }
             }
         }
+    }
+
+    private static bool TryMergeExistingDependency(JsonObject existing, string sectionName, string packageName, string desiredVersion)
+    {
+        if (existing[sectionName] is not JsonObject existingDeps)
+        {
+            return false;
+        }
+
+        var existingVersionNode = existingDeps[packageName];
+        if (existingVersionNode is null)
+        {
+            return false;
+        }
+
+        if (existingVersionNode is JsonValue existingValue
+            && existingValue.TryGetValue<string>(out var existingVersion)
+            && NpmVersionHelper.ShouldUpgrade(existingVersion, desiredVersion))
+        {
+            existingDeps[packageName] = desiredVersion;
+        }
+
+        return true;
     }
 
     /// <summary>

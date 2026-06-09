@@ -120,6 +120,29 @@ internal static partial class HelmDeploymentEngine
         var model = factoryContext.PipelineContext.Model;
         var steps = new List<PipelineStep>();
 
+        // Step 0: Check prerequisites — verify Helm CLI is available and meets the
+        // minimum supported version. Doing this once per environment, before any
+        // helm invocation in either the main chart deploy or AddHelmChart(...) flows,
+        // turns confusing low-level errors (unknown-flag, deprecated-flag, raw
+        // spawn errors) into a single actionable message.
+        //
+        // The validator drives everything through IHelmRunner: a missing binary
+        // surfaces as a spawn failure that the validator wraps with the same
+        // "install Helm" hint, so we deliberately don't do a separate
+        // PathLookupHelper probe here. That also lets tests inject a fake runner
+        // without needing real Helm on PATH.
+        var checkPrereqStep = new PipelineStep
+        {
+            Name = $"check-helm-prereqs-{environment.Name}",
+            Description = $"Verifies Helm CLI is available for {environment.Name}.",
+            Action = async ctx =>
+            {
+                var helmRunner = ctx.Services.GetRequiredService<IHelmRunner>();
+                await HelmVersionValidator.EnsureMinimumVersionAsync(helmRunner, ctx.CancellationToken).ConfigureAwait(false);
+            }
+        };
+        steps.Add(checkPrereqStep);
+
         // Step 1: Prepare - resolve values.yaml with actual image references and parameter values
         var prepareStep = new PipelineStep
         {
@@ -129,6 +152,7 @@ internal static partial class HelmDeploymentEngine
         };
         prepareStep.DependsOn(WellKnownPipelineSteps.Publish);
         prepareStep.DependsOn(WellKnownPipelineSteps.Build);
+        prepareStep.DependsOn($"check-helm-prereqs-{environment.Name}");
         steps.Add(prepareStep);
 
         // Step 2: Helm deploy - run helm upgrade --install
@@ -180,7 +204,13 @@ internal static partial class HelmDeploymentEngine
                 // Use saved state for the confirmation message (more accurate than recomputing)
                 var @namespace = savedNamespace ?? "default";
                 await ConfirmDestroyAsync(ctx, $"Uninstall Helm release '{savedReleaseName}' from namespace '{@namespace}'? This action cannot be undone.").ConfigureAwait(false);
-                await HelmUninstallAsync(ctx, savedReleaseName, @namespace).ConfigureAwait(false);
+
+                var helmRunner = ctx.Services.GetRequiredService<IHelmRunner>();
+                // Defer the prereq check until state exists so `aspire destroy` against a
+                // never-deployed environment can still report "Nothing to destroy" without
+                // requiring Helm on PATH.
+                await HelmVersionValidator.EnsureMinimumVersionAsync(helmRunner, ctx.CancellationToken).ConfigureAwait(false);
+                await HelmUninstallAsync(ctx, environment, savedReleaseName, @namespace).ConfigureAwait(false);
 
                 ctx.Summary.Add("🗑️ Helm Release", savedReleaseName);
                 ctx.Summary.Add("☸️ Namespace", @namespace);
@@ -201,6 +231,7 @@ internal static partial class HelmDeploymentEngine
             Tags = [HelmUninstallTag],
             Action = ctx => HelmUninstallAsync(ctx, environment)
         };
+        helmUninstallStep.DependsOn($"check-helm-prereqs-{environment.Name}");
         steps.Add(helmUninstallStep);
 
         return Task.FromResult<IReadOnlyList<PipelineStep>>(steps);
@@ -225,31 +256,6 @@ internal static partial class HelmDeploymentEngine
         {
             try
             {
-                // Update the chart version if configured via annotation
-                if (environment.TryGetLastAnnotation<HelmChartVersionAnnotation>(out var versionAnnotation))
-                {
-                    var version = await versionAnnotation.Version.GetValueAsync(context.CancellationToken).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(version))
-                    {
-                        environment.HelmChartVersion = version;
-
-                        // Re-write Chart.yaml with updated version
-                        var chartFilePath = Path.Combine(outputPath, "Chart.yaml");
-                        if (File.Exists(chartFilePath))
-                        {
-                            var chartContent = await File.ReadAllTextAsync(chartFilePath, context.CancellationToken).ConfigureAwait(false);
-                            // Simple replacement of the version line in Chart.yaml.
-                            // Use a MatchEvaluator to avoid interpreting '$' in version as regex backreferences.
-                            chartContent = System.Text.RegularExpressions.Regex.Replace(
-                                chartContent,
-                                @"^version:\s*.*$",
-                                _ => $"version: {version}",
-                                System.Text.RegularExpressions.RegexOptions.Multiline);
-                            await File.WriteAllTextAsync(chartFilePath, chartContent, context.CancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                }
-
                 // Resolve captured parameter/secret values and write a deploy override file.
                 // During publish, secrets and parameters without defaults are written as empty
                 // placeholders in values.yaml. During deploy, we resolve them and provide the
@@ -283,7 +289,8 @@ internal static partial class HelmDeploymentEngine
     {
         if (environment.CapturedHelmValues.Count == 0
             && environment.CapturedHelmCrossReferences.Count == 0
-            && environment.CapturedHelmImageReferences.Count == 0)
+            && environment.CapturedHelmImageReferences.Count == 0
+            && environment.CapturedHelmValueProviders.Count == 0)
         {
             return;
         }
@@ -326,6 +333,20 @@ internal static partial class HelmDeploymentEngine
             if (resolvedImage is not null)
             {
                 SetOverrideValue(overrideValues, imageRef.Section, imageRef.ResourceKey, imageRef.ValueKey, resolvedImage);
+            }
+        }
+
+        // Phase 4: Resolve generic IValueProvider references.
+        // During publish, values backed by IValueProvider (e.g., Bicep output references,
+        // connection strings) are written as empty placeholders. At deploy time, we call
+        // GetValueAsync() to resolve the actual values from external sources.
+        // This is cloud-provider agnostic — any IValueProvider implementation works.
+        foreach (var valueProviderRef in environment.CapturedHelmValueProviders)
+        {
+            var resolvedValue = await valueProviderRef.ValueProvider.GetValueAsync(cancellationToken).ConfigureAwait(false);
+            if (resolvedValue is not null)
+            {
+                SetOverrideValue(overrideValues, valueProviderRef.Section, valueProviderRef.ResourceKey, valueProviderRef.ValueKey, resolvedValue);
             }
         }
 
@@ -403,19 +424,9 @@ internal static partial class HelmDeploymentEngine
             {
                 var helmRunner = context.Services.GetRequiredService<IHelmRunner>();
 
-                // Verify helm is available
-                try
-                {
-                    var versionExitCode = await helmRunner.RunAsync("version --short", cancellationToken: context.CancellationToken).ConfigureAwait(false);
-                    if (versionExitCode != 0)
-                    {
-                        throw new InvalidOperationException("'helm' is installed but returned an error. Ensure 'helm' is properly configured and your cluster is accessible.");
-                    }
-                }
-                catch (Exception ex) when (ex is not InvalidOperationException and not OperationCanceledException)
-                {
-                    throw new InvalidOperationException("'helm' was not found. Please install 'helm' and ensure it is available on your PATH to deploy to Kubernetes.", ex);
-                }
+                // Helm presence + version validation already ran in
+                // check-helm-prereqs-{env}, which is a transitive predecessor of this
+                // step. No need to re-verify here.
 
                 var valuesFilePath = Path.Combine(outputPath, "values.yaml");
                 var arguments = new StringBuilder();
@@ -423,6 +434,11 @@ internal static partial class HelmDeploymentEngine
                 arguments.Append(CultureInfo.InvariantCulture, $" --namespace {@namespace}");
                 arguments.Append(" --create-namespace");
                 arguments.Append(" --wait");
+
+                if (environment.KubeConfigPath is not null)
+                {
+                    arguments.Append(CultureInfo.InvariantCulture, $" --kubeconfig \"{environment.KubeConfigPath}\"");
+                }
 
                 if (File.Exists(valuesFilePath))
                 {
@@ -501,7 +517,7 @@ internal static partial class HelmDeploymentEngine
 
         try
         {
-            var endpoints = await GetServiceEndpointsAsync(computeResource.Name.ToServiceName(), @namespace, context.Logger, context.CancellationToken).ConfigureAwait(false);
+            var endpoints = await GetServiceEndpointsAsync(computeResource.Name.ToServiceName(), @namespace, environment.KubeConfigPath, context.Logger, context.CancellationToken).ConfigureAwait(false);
 
             if (endpoints.Count > 0)
             {
@@ -534,6 +550,11 @@ internal static partial class HelmDeploymentEngine
             context.Summary.Add(
                 "📊 Dashboard",
                 new MarkdownString($"`kubectl port-forward -n {@namespace} svc/{dashboardServiceName} 18888:18888` then open [http://localhost:18888](http://localhost:18888)"));
+
+            var dashboardDeploymentName = environment.Dashboard.Resource.Name.ToKubernetesResourceName();
+            context.Summary.Add(
+                "🔑 Dashboard login",
+                new MarkdownString($"`kubectl logs -n {@namespace} -l app.kubernetes.io/component={dashboardDeploymentName} --tail=50` to retrieve the login token"));
         }
 
         // Helm status and resource inspection
@@ -555,10 +576,10 @@ internal static partial class HelmDeploymentEngine
     {
         var @namespace = await ResolveNamespaceAsync(context, environment).ConfigureAwait(false);
         var releaseName = await ResolveReleaseNameAsync(context, environment).ConfigureAwait(false);
-        await HelmUninstallAsync(context, releaseName, @namespace).ConfigureAwait(false);
+        await HelmUninstallAsync(context, environment, releaseName, @namespace).ConfigureAwait(false);
     }
 
-    private static async Task HelmUninstallAsync(PipelineStepContext context, string releaseName, string @namespace)
+    private static async Task HelmUninstallAsync(PipelineStepContext context, KubernetesEnvironmentResource environment, string releaseName, string @namespace)
     {
         var uninstallTask = await context.ReportingStep.CreateTaskAsync(
             new MarkdownString($"Uninstalling Helm release **{releaseName}** from namespace **{@namespace}**"),
@@ -570,6 +591,11 @@ internal static partial class HelmDeploymentEngine
             {
                 var helmRunner = context.Services.GetRequiredService<IHelmRunner>();
                 var arguments = $"uninstall {releaseName} --namespace {@namespace}";
+
+                if (environment.KubeConfigPath is not null)
+                {
+                    arguments += $" --kubeconfig \"{environment.KubeConfigPath}\"";
+                }
 
                 context.Logger.LogDebug("Running helm {Arguments}", arguments);
 
@@ -640,12 +666,18 @@ internal static partial class HelmDeploymentEngine
     private static async Task<List<string>> GetServiceEndpointsAsync(
         string serviceName,
         string @namespace,
+        string? kubeConfigPath,
         ILogger logger,
         CancellationToken cancellationToken)
     {
         var endpoints = new List<string>();
 
         var arguments = $"get service {serviceName} --namespace {@namespace} -o json";
+
+        if (kubeConfigPath is not null)
+        {
+            arguments += $" --kubeconfig \"{kubeConfigPath}\"";
+        }
         var stdoutBuilder = new StringBuilder();
 
         var spec = new ProcessSpec("kubectl")

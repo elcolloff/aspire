@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Aspire.Cli.Resources;
 using Aspire.Cli.Tests.Utils;
 using Aspire.Deployment.EndToEnd.Tests.Helpers;
 using Hex1b.Automation;
@@ -73,19 +72,10 @@ public sealed class TypeScriptExpressDeploymentTests(ITestOutputHelper output)
             output.WriteLine("Step 1: Preparing environment...");
             await auto.PrepareEnvironmentAsync(workspace, counter);
 
-            // Step 2: Set up CLI environment (in CI)
+            // Step 2: Set up CLI environment
             // TypeScript apphosts need the full bundle (not just the CLI binary) because
             // the prebuilt AppHost server is required for aspire add to regenerate SDK code.
-            if (DeploymentE2ETestHelpers.IsRunningInCI)
-            {
-                var prNumber = DeploymentE2ETestHelpers.GetPrNumber();
-                if (prNumber > 0)
-                {
-                    output.WriteLine($"Step 2: Installing Aspire bundle from PR #{prNumber}...");
-                    await auto.InstallAspireBundleFromPullRequestAsync(prNumber, counter);
-                }
-                await auto.SourceAspireBundleEnvironmentAsync(counter);
-            }
+            await auto.InstallCurrentBuildAspireBundleAsync(counter, output);
 
             // Step 3: Create TypeScript Express/React project using aspire new
             output.WriteLine("Step 3: Creating TypeScript Express/React project...");
@@ -113,12 +103,12 @@ public sealed class TypeScriptExpressDeploymentTests(ITestOutputHelper output)
                 await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromSeconds(180));
             }
 
-            // Step 6: Modify apphost.ts to add Azure Container App Environment for deployment
+            // Step 6: Modify apphost.mts to add Azure Container App Environment for deployment
             {
                 var projectDir = Path.Combine(workspace.WorkspaceRoot.FullName, projectName);
-                var appHostFilePath = Path.Combine(projectDir, "apphost.ts");
+                var appHostFilePath = Path.Combine(projectDir, "apphost.mts");
 
-                output.WriteLine($"Looking for apphost.ts at: {appHostFilePath}");
+                output.WriteLine($"Looking for apphost.mts at: {appHostFilePath}");
 
                 var content = File.ReadAllText(appHostFilePath);
 
@@ -135,7 +125,7 @@ await builder.build().run();
 
                 File.WriteAllText(appHostFilePath, content);
 
-                output.WriteLine($"Modified apphost.ts at: {appHostFilePath}");
+                output.WriteLine($"Modified apphost.mts at: {appHostFilePath}");
             }
 
             // Step 7: Set environment for deployment
@@ -147,7 +137,7 @@ await builder.build().run();
             output.WriteLine("Step 8: Starting Azure Container Apps deployment...");
             await auto.TypeAsync("aspire deploy --clear-cache");
             await auto.EnterAsync();
-            await auto.WaitUntilTextAsync(ConsoleActivityLoggerStrings.PipelineSucceeded, timeout: TimeSpan.FromMinutes(30));
+            await auto.WaitForPipelineSuccessAsync(timeout: TimeSpan.FromMinutes(30));
             await auto.WaitForSuccessPromptAsync(counter, TimeSpan.FromMinutes(2));
 
             // Step 9: Extract deployment URLs and verify endpoints with retry

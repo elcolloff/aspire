@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma warning disable ASPIREAZURE001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
@@ -46,7 +46,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         ConfigureTestServices(builder, interactionService: testInteractionService, bicepProvisioner: new NoOpBicepProvisioner(), setDefaultProvisioningOptions: false);
 
         // Add an Azure environment resource which will trigger the deployment prompting
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -158,6 +158,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
             };
         });
         ConfigureTestServices(builder, armClientProvider: armClientProvider, activityReporter: mockActivityReporter);
+        builder.Pipeline.DisableBuildOnlyContainerValidation();
 
         var containerAppEnv = builder.AddAzureContainerAppEnvironment("env");
 
@@ -690,7 +691,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
 
         // Add a parameter that will be unresolved
         var param = builder.AddParameter("unresolved-test-param");
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -732,7 +733,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         // Add a parameter with a resolved value
         var param = builder.AddParameter("test-param", () => "resolved-value");
         var secondParam = builder.AddParameter("test-param-2");
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -761,7 +762,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
                 EnableDescriptionMarkdown = false,
                 Placeholder = "8080"
             });
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -928,7 +929,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
 
         // Add a parameter with GenerateParameterDefault (like Redis password)
         var redis = builder.AddRedis("cache");
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -953,7 +954,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         var container = builder.AddContainer("test-container", "test-image")
             .WithEnvironment("DEPENDENT_VALUE", dependentParam);
 
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -998,7 +999,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         var container = builder.AddContainer("test-container", "test-image")
             .WithArgs("--port", portParam, "--verbose");
 
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         // Act
         using var app = builder.Build();
@@ -1268,6 +1269,36 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         // Use Verify to snapshot the diagnostic output showing the dependency graph
         // The key assertion is that provision-api-website depends on provision-cache
         // because the Redis resource writes the secret that the API consumes
+        await Verify(logs);
+    }
+
+    [Fact]
+    public async Task DeployAsync_WithFoundryAndAzureContainerApps_CreatesCorrectDependencies()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, step: "diagnostics");
+        var mockActivityReporter = new TestPipelineActivityReporter(testOutputHelper);
+        ConfigureTestServices(builder, activityReporter: mockActivityReporter);
+
+        var foundryProject = builder.AddFoundry("foundry")
+            .AddProject("foundry-project");
+        var acaEnv = builder.AddAzureContainerAppEnvironment("aca-env");
+
+        builder.AddProject<Project>("agent", launchProfileName: null)
+            .AsHostedAgent(foundryProject);
+
+        builder.AddProject<Project>("api", launchProfileName: null)
+            .WithExternalHttpEndpoints()
+            .WithComputeEnvironment(acaEnv);
+
+        using var app = builder.Build();
+        await app.StartAsync();
+        await app.WaitForShutdownAsync();
+
+        var logs = mockActivityReporter.LoggedMessages
+            .Where(s => s.StepTitle == "diagnostics")
+            .Select(s => s.Message)
+            .ToList();
+
         await Verify(logs);
     }
 
@@ -1552,7 +1583,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
 
         ConfigureTestServicesWithFileDeploymentStateManager(builder, bicepProvisioner: new NoOpBicepProvisioner());
 
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         using var app = builder.Build();
 
@@ -1607,14 +1638,14 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
             $"AppHostSha={appHostSha}");
 
         ConfigureTestServicesWithFileDeploymentStateManager(builder, bicepProvisioner: new NoOpBicepProvisioner());
+        builder.AddAzureProvisioning();
+
         using var app = builder.Build();
 
         // Verify that the cached state was loaded into configuration
         Assert.Equal("cached-sub-12345678-1234-1234-1234-123456789012", builder.Configuration["Azure:SubscriptionId"]);
         Assert.Equal("westus2", builder.Configuration["Azure:Location"]);
         Assert.Equal("cached-rg-test", builder.Configuration["Azure:ResourceGroup"]);
-
-        builder.AddAzureEnvironment();
 
         await app.StartAsync();
         await app.WaitForShutdownAsync();
@@ -1641,7 +1672,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
 
         ConfigureTestServicesWithFileDeploymentStateManager(builder, bicepProvisioner: new NoOpBicepProvisioner());
 
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         using var app = builder.Build();
 
@@ -1673,7 +1704,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
 
         ConfigureTestServicesWithFileDeploymentStateManager(builder, bicepProvisioner: new NoOpBicepProvisioner(), environmentName: "Staging");
 
-        builder.AddAzureEnvironment();
+        builder.AddAzureProvisioning();
 
         using var app = builder.Build();
 
@@ -1735,7 +1766,7 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
             var connectionStringParam = builder.AddConnectionString("mydb");
             var customKeyParam = builder.AddParameterFromConfiguration("custom-setting", "MyApp:Setting");
 
-            builder.AddAzureEnvironment();
+            builder.AddAzureProvisioning();
 
             using var app = builder.Build();
 
@@ -1960,5 +1991,70 @@ public class AzureDeployerTests(ITestOutputHelper testOutputHelper)
         // The pipeline should have failed with a message about --yes
         var completedSteps = mockActivityReporter.CompletedSteps;
         Assert.Contains(completedSteps, s => s.CompletionText.Contains("--yes", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task DeployAsync_FailingTokenCredential_ShowsLoginMessage()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, step: WellKnownPipelineSteps.Deploy);
+        var mockActivityReporter = new TestPipelineActivityReporter(testOutputHelper);
+
+        ConfigureTestServices(builder, activityReporter: mockActivityReporter);
+
+        // Override AFTER ConfigureTestServices so our failing provider wins
+        builder.Services.AddSingleton<ITokenCredentialProvider>(new FailingTokenCredentialProvider());
+
+        builder.AddAzureEnvironment();
+        builder.AddAzureContainerAppEnvironment("aca");
+        builder.AddContainer("api", "myimage");
+
+        using var app = builder.Build();
+        await app.RunAsync();
+
+        var completedSteps = mockActivityReporter.CompletedSteps;
+        var loginStep = completedSteps.FirstOrDefault(s => s.StepTitle == "validate-azure-login");
+
+        Assert.Equal(CompletionState.CompletedWithError, loginStep.CompletionState);
+        Assert.Contains("az login", loginStep.CompletionText);
+    }
+
+    [Fact]
+    public async Task DeployAsync_ValidTokenCredential_ShowsSuccessMessage()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create(DistributedApplicationOperation.Publish, step: WellKnownPipelineSteps.Deploy);
+        var mockActivityReporter = new TestPipelineActivityReporter(testOutputHelper);
+
+        ConfigureTestServices(builder, activityReporter: mockActivityReporter, bicepProvisioner: new NoOpBicepProvisioner());
+
+        builder.AddAzureEnvironment();
+        builder.AddAzureContainerAppEnvironment("aca");
+        builder.AddContainer("api", "myimage");
+
+        using var app = builder.Build();
+        await app.RunAsync();
+
+        var completedSteps = mockActivityReporter.CompletedSteps;
+        var loginStep = completedSteps.FirstOrDefault(s => s.StepTitle == "validate-azure-login");
+
+        Assert.Equal(CompletionState.Completed, loginStep.CompletionState);
+        Assert.Contains("validated successfully", loginStep.CompletionText);
+    }
+
+    private sealed class FailingTokenCredentialProvider : ITokenCredentialProvider
+    {
+        public global::Azure.Core.TokenCredential TokenCredential => new FailingTokenCredential();
+    }
+
+    private sealed class FailingTokenCredential : global::Azure.Core.TokenCredential
+    {
+        public override global::Azure.Core.AccessToken GetToken(global::Azure.Core.TokenRequestContext requestContext, CancellationToken cancellationToken = default)
+        {
+            throw new global::Azure.Identity.CredentialUnavailableException("No credential available. Run 'az login' to authenticate.");
+        }
+
+        public override ValueTask<global::Azure.Core.AccessToken> GetTokenAsync(global::Azure.Core.TokenRequestContext requestContext, CancellationToken cancellationToken = default)
+        {
+            throw new global::Azure.Identity.CredentialUnavailableException("No credential available. Run 'az login' to authenticate.");
+        }
     }
 }
