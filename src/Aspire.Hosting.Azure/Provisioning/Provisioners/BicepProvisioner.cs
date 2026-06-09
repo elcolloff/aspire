@@ -28,12 +28,15 @@ internal sealed class BicepProvisioner(
     IDeploymentStateManager deploymentStateManager,
     DistributedApplicationExecutionContext executionContext,
     IFileSystemService fileSystemService,
-    ILogger<BicepProvisioner> logger) : IBicepProvisioner
+    ILogger<BicepProvisioner> logger,
+    TimeProvider? timeProvider = null) : IBicepProvisioner
 {
     internal const string DeploymentStateProvisioningStateKey = "ProvisioningState";
     internal const string DeploymentStateProvisioningStateRunning = "Running";
     internal const string DeploymentStateProvisioningStateCanceled = "Canceled";
     internal const string DeploymentStateProvisioningStateSucceeded = "Succeeded";
+
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <inheritdoc />
     public async Task<bool> ConfigureResourceAsync(AzureBicepResource resource, CancellationToken cancellationToken)
@@ -51,8 +54,8 @@ internal sealed class BicepProvisioner(
             return false;
         }
 
-        var currentCheckSum = await BicepUtilities.GetCurrentChecksumAsync(resource, stateSection, cancellationToken).ConfigureAwait(false);
-        var configCheckSum = stateSection.Data["CheckSum"]?.GetValue<string>();
+        var currentCheckSum = await BicepUtilities.GetCurrentChecksumAsync(resource, stateSection, logger, cancellationToken).ConfigureAwait(false);
+        var configCheckSum = stateSection.Data[BicepUtilities.DeploymentStateChecksumKey]?.GetValue<string>();
 
         if (string.IsNullOrEmpty(configCheckSum))
         {
@@ -68,7 +71,7 @@ internal sealed class BicepProvisioner(
 
         logger.LogDebug("Configuring resource {ResourceName} from existing deployment state.", resource.Name);
 
-        if (stateSection.Data["Outputs"]?.GetValue<string>() is { Length: > 0 } outputJson)
+        if (stateSection.Data[BicepUtilities.DeploymentStateOutputsKey]?.GetValue<string>() is { Length: > 0 } outputJson)
         {
             JsonNode? outputObj = null;
             try
@@ -103,7 +106,7 @@ internal sealed class BicepProvisioner(
 
         string? deploymentId = null;
         ResourceIdentifier? deploymentResourceId = null;
-        if (stateSection.Data["Id"]?.GetValue<string>() is { Length: > 0 } configuredDeploymentId &&
+        if (stateSection.Data[BicepUtilities.DeploymentStateIdKey]?.GetValue<string>() is { Length: > 0 } configuredDeploymentId &&
             ResourceIdentifier.TryParse(configuredDeploymentId, out var id) &&
             id is not null)
         {
@@ -201,7 +204,7 @@ internal sealed class BicepProvisioner(
         var deployments = isSubscriptionScopedDeployment
             ? context.Subscription.GetArmDeployments()
             : resourceGroup.GetArmDeployments();
-        var deploymentName = executionContext.IsPublishMode ? $"{resource.Name}-{DateTimeOffset.Now.ToUnixTimeSeconds()}" : resource.Name;
+        var deploymentName = executionContext.IsPublishMode ? $"{resource.Name}-{_timeProvider.GetUtcNow().ToUnixTimeSeconds()}" : resource.Name;
         var deploymentId = GetDeploymentId(context, resourceGroup, deploymentName, isSubscriptionScopedDeployment);
         var checksum = BicepUtilities.GetChecksum(resource, parameters, scope);
         var sw = Stopwatch.StartNew();
@@ -360,7 +363,7 @@ internal sealed class BicepProvisioner(
             return state with
             {
                 State = new("Provisioned", KnownResourceStateStyles.Success),
-                CreationTimeStamp = DateTime.UtcNow,
+                CreationTimeStamp = _timeProvider.GetUtcNow().UtcDateTime,
                 Properties = properties
             };
         })
@@ -410,20 +413,20 @@ internal sealed class BicepProvisioner(
             stateSection.Data[AzureProvisioningController.LocationOverrideKey] = locationOverride;
         }
 
-        stateSection.Data["Id"] = deploymentId.ToString();
-        stateSection.Data["Parameters"] = parameters.ToJsonString();
+        stateSection.Data[BicepUtilities.DeploymentStateIdKey] = deploymentId.ToString();
+        stateSection.Data[BicepUtilities.DeploymentStateParametersKey] = parameters.ToJsonString();
 
         if (outputObj is not null)
         {
-            stateSection.Data["Outputs"] = outputObj.ToJsonString();
+            stateSection.Data[BicepUtilities.DeploymentStateOutputsKey] = outputObj.ToJsonString();
         }
 
         if (scope is not null)
         {
-            stateSection.Data["Scope"] = scope.ToJsonString();
+            stateSection.Data[BicepUtilities.DeploymentStateScopeKey] = scope.ToJsonString();
         }
 
-        stateSection.Data["CheckSum"] = checksum;
+        stateSection.Data[BicepUtilities.DeploymentStateChecksumKey] = checksum;
 
         if (!string.IsNullOrEmpty(provisioningState))
         {
@@ -524,7 +527,7 @@ internal sealed class BicepProvisioner(
             return locationOverride;
         }
 
-        if (section.Data["Parameters"]?.GetValue<string>() is { Length: > 0 } parametersJson)
+        if (section.Data[BicepUtilities.DeploymentStateParametersKey]?.GetValue<string>() is { Length: > 0 } parametersJson)
         {
             try
             {

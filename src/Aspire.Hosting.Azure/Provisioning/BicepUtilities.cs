@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Pipelines;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Aspire.Hosting.Azure.Provisioning;
 
@@ -17,6 +18,12 @@ namespace Aspire.Hosting.Azure.Provisioning;
 /// </summary>
 internal static class BicepUtilities
 {
+    internal const string DeploymentStateIdKey = "Id";
+    internal const string DeploymentStateParametersKey = "Parameters";
+    internal const string DeploymentStateOutputsKey = "Outputs";
+    internal const string DeploymentStateScopeKey = "Scope";
+    internal const string DeploymentStateChecksumKey = "CheckSum";
+
     // Known values since they will be filled in by the provisioner
     private static readonly string[] s_knownParameterNames =
     [
@@ -108,7 +115,7 @@ internal static class BicepUtilities
     public static async ValueTask<string?> GetCurrentChecksumAsync(AzureBicepResource resource, IConfiguration section, CancellationToken cancellationToken = default)
     {
         // Fill in parameters from configuration
-        if (section["Parameters"] is not string jsonString)
+        if (section[DeploymentStateParametersKey] is not string jsonString)
         {
             return null;
         }
@@ -116,7 +123,7 @@ internal static class BicepUtilities
         try
         {
             var parameters = JsonNode.Parse(jsonString)?.AsObject();
-            var scope = section["Scope"] is string scopeString
+            var scope = section[DeploymentStateScopeKey] is string scopeString
                 ? JsonNode.Parse(scopeString)?.AsObject()
                 : null;
 
@@ -148,9 +155,9 @@ internal static class BicepUtilities
     /// <summary>
     /// Gets the current checksum for a Bicep resource from deployment state.
     /// </summary>
-    public static async ValueTask<string?> GetCurrentChecksumAsync(AzureBicepResource resource, DeploymentStateSection section, CancellationToken cancellationToken = default)
+    public static async ValueTask<string?> GetCurrentChecksumAsync(AzureBicepResource resource, DeploymentStateSection section, ILogger logger, CancellationToken cancellationToken = default)
     {
-        if (section.Data["Parameters"]?.GetValue<string>() is not { Length: > 0 } jsonString)
+        if (section.Data[DeploymentStateParametersKey]?.GetValue<string>() is not { Length: > 0 } jsonString)
         {
             return null;
         }
@@ -158,7 +165,7 @@ internal static class BicepUtilities
         try
         {
             var parameters = JsonNode.Parse(jsonString)?.AsObject();
-            var scope = section.Data["Scope"]?.GetValue<string>() is { Length: > 0 } scopeString
+            var scope = section.Data[DeploymentStateScopeKey]?.GetValue<string>() is { Length: > 0 } scopeString
                 ? JsonNode.Parse(scopeString)?.AsObject()
                 : null;
 
@@ -177,8 +184,9 @@ internal static class BicepUtilities
 
             return GetChecksum(resource, parameters, scope);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogDebug(ex, "Unable to compute current checksum for resource {ResourceName}.", resource.Name);
             return null;
         }
     }

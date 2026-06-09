@@ -20,9 +20,11 @@ internal sealed class AcrLoginService : IAcrLoginService
 {
     private const string AcrUsername = "00000000-0000-0000-0000-000000000000";
     private const string AcrScope = "https://containerregistry.azure.net/.default";
-    private const int MaxLoginAttempts = 150;
+    // Thirty attempts at a two-second cadence gives new registries about a minute
+    // for DNS, data-plane, and RBAC propagation without blocking deployment for too long.
+    private const int MaxLoginAttempts = 30;
     private static readonly TimeSpan s_loginRetryDelay = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan s_maxLoginRetryDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan s_maxLoginRetryDuration = TimeSpan.FromMinutes(1);
 
     private static readonly JsonSerializerOptions s_jsonOptions = new(JsonSerializerDefaults.Web)
     {

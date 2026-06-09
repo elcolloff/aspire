@@ -36,6 +36,10 @@ internal abstract partial class BaseProvisioningContextProvider(
 
     protected readonly IInteractionService _interactionService = interactionService;
     protected readonly AzureProvisionerOptions _options = options.Value;
+
+    // Run mode rehydrates the singleton options instance by starting from the configured
+    // values and then overlaying deployment-state values. Keep a baseline for the complete
+    // set of provisioning values that rehydration resets before applying saved state.
     protected readonly AzureProvisionerOptions _configuredOptions = new()
     {
         ResourceGroupPrefix = options.Value.ResourceGroupPrefix,

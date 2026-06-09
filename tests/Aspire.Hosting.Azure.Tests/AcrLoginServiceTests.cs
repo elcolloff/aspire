@@ -67,6 +67,28 @@ public class AcrLoginServiceTests
         Assert.False(runtime.WasLoginToRegistryCalled);
     }
 
+    [Fact]
+    public async Task LoginAsync_StopsRetryingAfterOneMinuteBudget()
+    {
+        var handler = new CallbackHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent("registry not ready")
+        }));
+        var runtime = new FakeContainerRuntime();
+        var timeProvider = new ImmediateTimeProvider();
+        var service = new AcrLoginService(
+            new TestHttpClientFactory(handler),
+            runtime,
+            NullLogger<AcrLoginService>.Instance,
+            timeProvider);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.LoginAsync("registry.azurecr.io", "tenant", new StaticTokenCredential()));
+
+        Assert.Equal(30, handler.CallCount);
+        Assert.Equal(29, timeProvider.DelayCount);
+        Assert.False(runtime.WasLoginToRegistryCalled);
+    }
+
     private sealed class CallbackHttpMessageHandler(Func<int, CancellationToken, Task<HttpResponseMessage>> callback) : HttpMessageHandler
     {
         public int CallCount { get; private set; }

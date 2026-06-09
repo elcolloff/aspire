@@ -2352,9 +2352,11 @@ public class AzureEnvironmentResourceExtensionsTests
 
         Assert.True(notifications.TryGetCurrentState(environmentResource.Name, out var environmentEvent));
         Assert.Equal(AzureProvisioningController.DriftedState, environmentEvent.Snapshot.State?.Text);
+        Assert.Equal(KnownResourceStateStyles.Error, environmentEvent.Snapshot.State?.Style);
 
         Assert.True(notifications.TryGetCurrentState(storage.Resource.Name, out var resourceEvent));
         Assert.Equal(AzureProvisioningController.MissingInAzureState, resourceEvent.Snapshot.State?.Text);
+        Assert.Equal(KnownResourceStateStyles.Error, resourceEvent.Snapshot.State?.Style);
     }
 
     [Fact]

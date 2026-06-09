@@ -37,8 +37,11 @@ internal sealed class RunModeProvisioningContextProvider(
         userPrincipalProvider,
         tokenCredentialProvider,
         deploymentStateManager,
-        distributedApplicationExecutionContext), IAzureProvisioningOptionsManager
+        distributedApplicationExecutionContext), IAzureProvisioningOptionsManager, IDisposable
 {
+    // Serialize provisioning option updates because the dashboard command path can invoke
+    // prompt/apply concurrently, and both paths rehydrate and mutate the shared options
+    // instance before saving deployment state.
     private readonly SemaphoreSlim _provisioningOptionsLock = new(1, 1);
 
     protected override string GetDefaultResourceGroupName()
@@ -191,6 +194,11 @@ internal sealed class RunModeProvisioningContextProvider(
     private bool HasProvisioningOptions() =>
         !string.IsNullOrEmpty(_options.Location) &&
         !string.IsNullOrEmpty(_options.SubscriptionId);
+
+    public void Dispose()
+    {
+        _provisioningOptionsLock.Dispose();
+    }
 
     private async Task RehydrateProvisioningOptionsAsync(CancellationToken cancellationToken)
     {
