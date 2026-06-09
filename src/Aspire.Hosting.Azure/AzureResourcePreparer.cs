@@ -86,7 +86,7 @@ internal sealed class AzureResourcePreparer(
                         IsHighlighted = command.IsHighlighted,
                         Arguments = command.Arguments ?? [],
                         ValidateArguments = command.ValidateArguments,
-                        UpdateState = context => context.ServiceProvider.GetRequiredService<AzureProvisioningController>().GetResourceCommandState(resource.Resource.Name)
+                        UpdateState = context => context.ServiceProvider.GetRequiredService<AzureProvisioningController>().GetResourceCommandState(resource.Resource.Name, command.Command, context)
                     });
             }
         }

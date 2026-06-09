@@ -599,23 +599,34 @@ internal sealed class AzureProvisioningController(
         }
     }
 
-    internal ResourceCommandState GetResourceCommandState(string resourceName)
+    internal ResourceCommandState GetResourceCommandState(string resourceName, AzureResourceCommand command, UpdateCommandStateContext context)
     {
         ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
 
         lock (_operationStateLock)
         {
             var currentOperation = _state.Status.CurrentIntent?.Operation;
-            if (currentOperation is null)
+            if (currentOperation is not null)
             {
-                return ResourceCommandState.Enabled;
-            }
+                if (command == AzureResourceCommand.GetAzureResource)
+                {
+                    return ResourceCommandState.Enabled;
+                }
 
-            return currentOperation.IsAllResources || currentOperation.ResourceNames.Contains(resourceName)
-                ? ResourceCommandState.Disabled
-                : ResourceCommandState.Enabled;
+                return currentOperation.IsAllResources || currentOperation.ResourceNames.Contains(resourceName)
+                    ? ResourceCommandState.Disabled
+                    : ResourceCommandState.Enabled;
+            }
         }
+
+        return command == AzureResourceCommand.CancelDeployment && !IsWaitingForDeployment(context.ResourceSnapshot)
+            ? ResourceCommandState.Disabled
+            : ResourceCommandState.Enabled;
     }
+
+    private static bool IsWaitingForDeployment(CustomResourceSnapshot snapshot)
+        => string.Equals(snapshot.State?.Text, "Waiting for Deployment", StringComparison.Ordinal);
 
     private async Task RunOperationAsync(DistributedApplicationModel model, AzureIntent intent, CancellationToken cancellationToken)
     {
@@ -687,6 +698,19 @@ internal sealed class AzureProvisioningController(
             cancellationToken).ConfigureAwait(false);
 
         return !hasFailures;
+    }
+
+    private async Task<bool> EnsureProvisionedOrThrowAsync(
+        DistributedApplicationModel model,
+        IReadOnlyList<(IResource Resource, IAzureResource AzureResource)> azureResources,
+        CancellationToken cancellationToken)
+    {
+        if (!await EnsureProvisionedCoreAsync(model, azureResources, cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Azure provisioning failed.");
+        }
+
+        return true;
     }
 
     private async Task ResetResourcesAsync(
@@ -1049,7 +1073,7 @@ internal sealed class AzureProvisioningController(
 
         await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken, preserveInferredLocationOverrides: false).ConfigureAwait(false);
         await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
-        return await EnsureProvisionedCoreAsync(model, GetProvisionableAzureResources(model), cancellationToken).ConfigureAwait(false);
+        return await EnsureProvisionedOrThrowAsync(model, GetProvisionableAzureResources(model), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecuteEnsureProvisionedAsync(DistributedApplicationModel model, CancellationToken cancellationToken)
@@ -1063,7 +1087,7 @@ internal sealed class AzureProvisioningController(
     {
         await ResetResourcesAsync(model, GetProvisionableAzureResources(model), preserveOverrides: true, cancellationToken).ConfigureAwait(false);
         await PublishAzureEnvironmentStateAsync(model, KnownResourceStates.NotStarted, cancellationToken).ConfigureAwait(false);
-        return await EnsureProvisionedCoreAsync(model, GetProvisionableAzureResources(model), cancellationToken).ConfigureAwait(false);
+        return await EnsureProvisionedOrThrowAsync(model, GetProvisionableAzureResources(model), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecuteDeleteAzureResourcesAsync(DistributedApplicationModel model, CancellationToken cancellationToken)
@@ -1140,14 +1164,14 @@ internal sealed class AzureProvisioningController(
             await SetResourceLocationOverrideAsync(targetBicepResource.Name, intent.Location, cancellationToken).ConfigureAwait(false);
         }
         await ResetResourcesAsync(model, targetResources, preserveOverrides: true, cancellationToken).ConfigureAwait(false);
-        return await EnsureProvisionedCoreAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
+        return await EnsureProvisionedOrThrowAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<bool> ExecuteReprovisionResourceAsync(DistributedApplicationModel model, ReprovisionResourceIntent intent, CancellationToken cancellationToken)
     {
         var targetResources = GetTargetAzureResources(model, intent.ResourceName);
         await ResetResourcesAsync(model, targetResources, preserveOverrides: true, cancellationToken).ConfigureAwait(false);
-        return await EnsureProvisionedCoreAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
+        return await EnsureProvisionedOrThrowAsync(model, targetResources, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecuteCancelResourceDeploymentAsync(DistributedApplicationModel model, CancelResourceDeploymentIntent intent, CancellationToken cancellationToken)
@@ -1306,6 +1330,10 @@ internal sealed class AzureProvisioningController(
             await action().ConfigureAwait(false);
             return CommandResults.Success(successMessage, await createResultData().ConfigureAwait(false));
         }
+        catch (OperationCanceledException)
+        {
+            return CommandResults.Canceled();
+        }
         catch (Exception ex)
         {
             return CommandResults.Failure(ex.Message);
@@ -1318,6 +1346,10 @@ internal sealed class AzureProvisioningController(
         {
             var result = await action().ConfigureAwait(false);
             return CommandResults.Success(successMessage, await createResultData(result).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+        {
+            return CommandResults.Canceled();
         }
         catch (Exception ex)
         {
@@ -1332,6 +1364,10 @@ internal sealed class AzureProvisioningController(
             return await action().ConfigureAwait(false)
                 ? CommandResults.Success(successMessage, await createResultData().ConfigureAwait(false))
                 : CommandResults.Canceled();
+        }
+        catch (OperationCanceledException)
+        {
+            return CommandResults.Canceled();
         }
         catch (Exception ex)
         {
@@ -1609,7 +1645,8 @@ internal sealed class AzureProvisioningController(
             }
 
             var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{bicepResource.Name}", cancellationToken).ConfigureAwait(false);
-            if (TryGetCachedDeploymentId(section) is not { } deploymentId)
+            if (TryGetCachedDeploymentId(section) is not { } deploymentId ||
+                !IsActiveCachedDeployment(section))
             {
                 continue;
             }
@@ -1626,7 +1663,7 @@ internal sealed class AzureProvisioningController(
         if (requireDeployment && canceledDeploymentIds.Count == 0)
         {
             var resourceName = targetResources.Count == 1 ? targetResources.Single().Resource.Name : string.Join(", ", targetResources.Select(static resource => resource.Resource.Name));
-            throw new InvalidOperationException($"No cached Azure deployment was found for resource '{resourceName}'.");
+            throw new InvalidOperationException($"No active cached Azure deployment was found for resource '{resourceName}'.");
         }
 
         return canceledDeploymentIds.Count;
@@ -1743,6 +1780,12 @@ internal sealed class AzureProvisioningController(
 
     private static string? TryGetCachedDeploymentId(DeploymentStateSection section)
         => section.Data["Id"]?.GetValue<string>() is { Length: > 0 } deploymentId ? deploymentId : null;
+
+    private static bool IsActiveCachedDeployment(DeploymentStateSection section)
+        => string.Equals(
+            section.Data[BicepProvisioner.DeploymentStateProvisioningStateKey]?.GetValue<string>(),
+            BicepProvisioner.DeploymentStateProvisioningStateRunning,
+            StringComparison.Ordinal);
 
     private static bool IsArmDeploymentResourceId(string resourceId)
     {
@@ -1950,7 +1993,8 @@ internal sealed class AzureProvisioningController(
 
     private async Task DeleteCachedResourceForLocationChangeAsync(AzureBicepResource resource, string requestedLocation, CancellationToken cancellationToken)
     {
-        var currentLocation = TryGetCurrentResourceLocation(resource);
+        var currentLocation = TryGetCurrentResourceLocation(resource) ??
+            await TryGetPersistedResourceLocationAsync(resource, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(currentLocation) ||
             string.Equals(currentLocation, requestedLocation, StringComparison.OrdinalIgnoreCase))
         {
@@ -1995,6 +2039,30 @@ internal sealed class AzureProvisioningController(
                 resource.Name,
                 currentLocation,
                 requestedLocation);
+        }
+    }
+
+    private async Task<string?> TryGetPersistedResourceLocationAsync(AzureBicepResource resource, CancellationToken cancellationToken)
+    {
+        var section = await deploymentStateManager.AcquireSectionAsync($"Azure:Deployments:{resource.Name}", cancellationToken).ConfigureAwait(false);
+        if (section.Data[LocationOverrideKey]?.GetValue<string>() is { Length: > 0 } locationOverride)
+        {
+            return locationOverride;
+        }
+
+        if (section.Data["Parameters"]?.GetValue<string>() is not { Length: > 0 } parametersJson)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonNode.Parse(parametersJson)?[AzureBicepResource.KnownParameters.Location]?["value"]?.GetValue<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Unable to parse persisted parameters while checking whether Azure resource {ResourceName} must be deleted for a location change.", resource.Name);
+            return null;
         }
     }
 

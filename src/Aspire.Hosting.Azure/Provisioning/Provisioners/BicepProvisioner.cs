@@ -508,7 +508,7 @@ internal sealed class BicepProvisioner(
 
         return new AzureContextState(
             GetStateValue(section, "SubscriptionId") ?? deploymentId?.SubscriptionId,
-            GetStateValue(section, "ResourceGroup") ?? deploymentId?.ResourceGroupName,
+            deploymentId?.ResourceGroupName ?? GetStateValue(section, "ResourceGroup"),
             GetStateValue(section, "TenantId"),
             GetStateValue(section, "Tenant"),
             GetStateValue(section, "Location"));

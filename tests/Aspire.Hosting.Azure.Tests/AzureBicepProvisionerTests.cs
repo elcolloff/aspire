@@ -357,6 +357,52 @@ public class AzureBicepProvisionerTests
     }
 
     [Fact]
+    public async Task ConfigureResourceAsync_PublishesResourceGroupFromCachedDeploymentId()
+    {
+        using var builder = TestDistributedApplicationBuilder.Create();
+        builder.Services.AddSingleton<IDeploymentStateManager>(ProvisioningTestHelpers.CreateUserSecretsManager());
+        using var services = builder.Services.BuildServiceProvider();
+
+        var resource = new AzureBicepResource("storage2", templateString: "output name string = 'storage2'");
+        var parameters = new JsonObject();
+        var checksum = BicepUtilities.GetChecksum(resource, parameters, scope: null);
+
+        var deploymentStateManager = services.GetRequiredService<IDeploymentStateManager>();
+        var azureSection = await deploymentStateManager.AcquireSectionAsync("Azure", CancellationToken.None);
+        azureSection.Data["SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        azureSection.Data["ResourceGroup"] = "environment-rg";
+        azureSection.Data["TenantId"] = "87654321-4321-4321-4321-210987654321";
+        azureSection.Data["Tenant"] = "microsoft.onmicrosoft.com";
+        azureSection.Data["Location"] = "westus2";
+        await deploymentStateManager.SaveSectionAsync(azureSection, CancellationToken.None);
+
+        var section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2", CancellationToken.None);
+        section.Data["Id"] = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/scoped-rg/providers/Microsoft.Resources/deployments/storage2";
+        section.Data["Parameters"] = parameters.ToJsonString();
+        section.Data["Outputs"] = """{"name":{"value":"storage2"}}""";
+        section.Data["CheckSum"] = checksum;
+        await deploymentStateManager.SaveSectionAsync(section, CancellationToken.None);
+
+        var provisioner = new BicepProvisioner(
+            services.GetRequiredService<ResourceNotificationService>(),
+            services.GetRequiredService<ResourceLoggerService>(),
+            new TestBicepCliExecutor(),
+            new TestSecretClientProvider(),
+            deploymentStateManager,
+            new DistributedApplicationExecutionContext(DistributedApplicationOperation.Run),
+            services.GetRequiredService<IFileSystemService>(),
+            NullLogger<BicepProvisioner>.Instance);
+
+        var reused = await provisioner.ConfigureResourceAsync(resource, CancellationToken.None);
+
+        Assert.True(reused);
+
+        var notifications = services.GetRequiredService<ResourceNotificationService>();
+        Assert.True(notifications.TryGetCurrentState(resource.Name, out var resourceEvent));
+        Assert.Equal("scoped-rg", resourceEvent.Snapshot.Properties.Single(p => p.Name == "azure.resource.group").Value?.ToString());
+    }
+
+    [Fact]
     public async Task GetOrCreateResourceAsync_PreservesLocationOverrideInDeploymentState()
     {
         using var builder = TestDistributedApplicationBuilder.Create();
