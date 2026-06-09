@@ -5,7 +5,6 @@
 > - `integrations_projects` output has been renamed to `affected_test_projects` with `.csproj` paths
 > - A matrix filtering step (`filter-test-matrix-by-scope.ps1`) was added for per-project test filtering
 > - See `docs/conditional-tests-run.md` for the current documentation.
-> - The planned next design direction is `docs/ci/conditional-test-selection-unified-rules.md`, which keeps `dotnet-affected` as additive resolver behavior but replaces categories/source-to-test mappings as the target config model.
 
 ## Overview
 

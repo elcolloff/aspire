@@ -182,6 +182,7 @@ internal static class TestEvaluator
             logger.LogDecision("Use source-to-test mappings only", "All active files were resolved by source-to-test mappings");
 
             var mappedOnlyTestProjects = FilterAndCombineTestProjects(logger, config, [], mappedProjects);
+            mappedOnlyTestProjects = AddCategoryForcedTestProjects(logger, config, pathTriggeredCategories, mappedOnlyTestProjects);
             var mappedOnlyNugetInfo = DetectNuGetDependentTests(logger, config, [], activeFiles, workingDir);
 
             UpdateCategoriesFromTestProjects(logger, config, pathTriggeredCategories, mappedOnlyTestProjects);
@@ -218,6 +219,13 @@ internal static class TestEvaluator
         {
             return matchedButZeroResult;
         }
+
+        // Step 9c: Add category-forced test projects. These express runtime-only couplings that
+        // dotnet-affected cannot follow because there is no ProjectReference (e.g. CLI end-to-end
+        // tests consume a built CLI archive). Added after the matched-but-zero guard so that guard
+        // still observes a genuinely empty integrations resolution, and after restricted filtering
+        // because forced projects are explicit opt-ins.
+        allTestProjects = AddCategoryForcedTestProjects(logger, config, pathTriggeredCategories, allTestProjects);
 
         // Step 10: Detect NuGet-dependent tests
         var nugetInfo = DetectNuGetDependentTests(
@@ -580,13 +588,16 @@ internal static class TestEvaluator
     /// walk returns nothing. Selecting no tests there would silently skip coverage for a
     /// source area we know changed, so we fall back to running everything.
     /// <para>
-    /// Scoped to the <c>integrations</c> category on purpose: the boolean-driven categories
-    /// (cli_e2e, extension, polyglot) gate their own jobs via <c>run_&lt;category&gt;</c>
-    /// regardless of the affected-projects matrix, so an empty matrix is expected and correct
-    /// for them. Requiring <paramref name="affectedProjects"/> to be empty keeps this from
-    /// firing when dotnet-affected <em>did</em> see the change but it resolved only to a
-    /// restricted opt-out project (see <see cref="RestrictedProjectFilter"/>) or a source
-    /// project with no dependent test — those are deliberate outcomes, not blind spots.
+    /// Scoped to the <c>integrations</c> category on purpose. The <c>extension</c> and
+    /// <c>polyglot</c> categories run as dedicated jobs gated by their <c>run_&lt;category&gt;</c>
+    /// flag, independent of the affected-projects matrix, so an empty matrix is expected and
+    /// correct for them. The <c>cli_e2e</c> category <em>does</em> flow through the
+    /// affected_test_projects matrix (the CLI end-to-end job filters on it), but its
+    /// <see cref="CategoryConfig.TestProjects"/> force that test project into the matrix whenever
+    /// the category fires, so it can never resolve to zero. Requiring <paramref name="affectedProjects"/>
+    /// to be empty keeps this from firing when dotnet-affected <em>did</em> see the change but it
+    /// resolved only to a restricted opt-out project (see <see cref="RestrictedProjectFilter"/>) or
+    /// a source project with no dependent test — those are deliberate outcomes, not blind spots.
     /// </para>
     /// </remarks>
     internal static TestSelectionResult? CheckMatchedButZeroProjects(
@@ -773,6 +784,70 @@ internal static class TestEvaluator
                 pathTriggeredCategories[categoryName] = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Returns <paramref name="testProjects"/> combined with the test projects that any triggered
+    /// category forces to run (see <see cref="CollectCategoryForcedTestProjects"/>). The union is
+    /// de-duplicated case-insensitively. Forced projects are added after restricted filtering, so
+    /// they intentionally bypass <see cref="RestrictedProjectFilter"/> — a category's
+    /// <see cref="CategoryConfig.TestProjects"/> entry is an explicit opt-in.
+    /// </summary>
+    internal static List<string> AddCategoryForcedTestProjects(
+        DiagnosticLogger logger,
+        TestSelectorConfig config,
+        Dictionary<string, bool> pathTriggeredCategories,
+        List<string> testProjects)
+    {
+        var forced = CollectCategoryForcedTestProjects(config, pathTriggeredCategories);
+        if (forced.Count == 0)
+        {
+            return testProjects;
+        }
+
+        var combined = testProjects
+            .Concat(forced)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var added = combined.Count - testProjects.Count;
+        if (added > 0)
+        {
+            logger.LogInfo($"Added {added} category-forced test project(s) from triggered categories");
+        }
+
+        return combined;
+    }
+
+    /// <summary>
+    /// Collects the <see cref="CategoryConfig.TestProjects"/> declared by every triggered category.
+    /// These cover tests that depend on a category's sources at runtime — for example CLI
+    /// end-to-end tests that consume a built archive rather than a <c>ProjectReference</c> — which
+    /// <c>dotnet-affected</c> cannot discover by walking the project graph. Paths are normalized to
+    /// forward slashes; de-duplication is left to the caller.
+    /// </summary>
+    internal static List<string> CollectCategoryForcedTestProjects(
+        TestSelectorConfig config,
+        Dictionary<string, bool> pathTriggeredCategories)
+    {
+        var forced = new List<string>();
+        foreach (var (categoryName, triggered) in pathTriggeredCategories)
+        {
+            if (!triggered || !config.Categories.TryGetValue(categoryName, out var category))
+            {
+                continue;
+            }
+
+            foreach (var testProject in category.TestProjects)
+            {
+                if (!string.IsNullOrWhiteSpace(testProject))
+                {
+                    forced.Add(testProject.Replace('\\', '/'));
+                }
+            }
+        }
+
+        return forced;
     }
 
     private static TestSelectionResult BuildSelectiveResult(

@@ -75,6 +75,30 @@ Use `excludePaths` to prevent certain files from triggering a category even if t
 }
 ```
 
+#### Force Test Projects to Run for a Category
+
+Use `testProjects` to run specific test projects whenever the category is triggered, regardless of the MSBuild project graph. `dotnet-affected` only discovers test projects reachable through a `ProjectReference`. Tests that depend on a category's sources at runtime — for example CLI end-to-end tests that consume a built CLI archive rather than referencing `src/Aspire.Cli` — are invisible to it and would be silently dropped under selective scope. List them here so they are added to `affected_test_projects` (and kept by the matrix filter) whenever the category fires:
+
+```json
+{
+  "categories": {
+    "cli_e2e": {
+      "description": "CLI end-to-end tests",
+      "triggerPaths": [
+        "src/Aspire.Cli/**",
+        "src/Aspire.Hosting/**",
+        "eng/clipack/**"
+      ],
+      "testProjects": [
+        "tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj"
+      ]
+    }
+  }
+}
+```
+
+These projects are added additively and bypass `restrictedTestProjects`, since listing them is an explicit opt-in.
+
 ### Source-to-Test Mappings
 
 Source-to-test mappings automatically discover which test projects to run based on source file changes:

@@ -74,7 +74,7 @@ public sealed class NuGetDependentTestDetector
             return null;
         }
 
-        // Scan test csproj files for <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+        // Scan test csproj files for <RequiresNugets>true</RequiresNugets>
         var nugetTestProjects = FindNuGetDependentTestProjects(workingDir);
 
         if (nugetTestProjects.Count == 0)
@@ -93,7 +93,7 @@ public sealed class NuGetDependentTestDetector
 
     /// <summary>
     /// Finds all test projects that require NuGet packages by scanning for
-    /// &lt;RequiredNuGetsForTesting&gt;true&lt;/RequiredNuGetsForTesting&gt; in test csproj files.
+    /// &lt;RequiresNugets&gt;true&lt;/RequiresNugets&gt; in test csproj files.
     /// Skips TestFixtures directories.
     /// </summary>
     internal static List<string> FindNuGetDependentTestProjects(string workingDir)
@@ -114,7 +114,7 @@ public sealed class NuGetDependentTestDetector
                 continue;
             }
 
-            if (HasRequiredNuGetsForTesting(csproj))
+            if (HasRequiresNugets(csproj))
             {
                 // Convert to relative .csproj path with forward slashes
                 var relativePath = Path.GetRelativePath(workingDir, csproj)
@@ -127,14 +127,14 @@ public sealed class NuGetDependentTestDetector
     }
 
     /// <summary>
-    /// Checks if a csproj file has &lt;RequiredNuGetsForTesting&gt;true&lt;/RequiredNuGetsForTesting&gt;.
+    /// Checks if a csproj file has &lt;RequiresNugets&gt;true&lt;/RequiresNugets&gt;.
     /// </summary>
-    internal static bool HasRequiredNuGetsForTesting(string csprojPath)
+    internal static bool HasRequiresNugets(string csprojPath)
     {
         try
         {
             var doc = XDocument.Load(csprojPath);
-            return doc.Descendants("RequiredNuGetsForTesting")
+            return doc.Descendants("RequiresNugets")
                 .Any(e => string.Equals(e.Value.Trim(), "true", StringComparison.OrdinalIgnoreCase));
         }
         catch

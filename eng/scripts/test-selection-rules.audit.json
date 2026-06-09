@@ -131,6 +131,9 @@
       ],
       "excludePaths": [
         "**/api/*.txt"
+      ],
+      "testProjects": [
+        "tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj"
       ]
     },
 

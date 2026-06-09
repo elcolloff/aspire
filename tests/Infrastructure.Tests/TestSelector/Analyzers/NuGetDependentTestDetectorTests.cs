@@ -43,17 +43,17 @@ public class NuGetDependentTestDetectorTests
     }
 
     [Fact]
-    public void HasRequiredNuGetsForTesting_ReturnsTrueForNuGetDependentProject()
+    public void HasRequiresNugets_ReturnsTrueForNuGetDependentProject()
     {
         var path = Path.Combine(GetFixturesDir(), "NuGetDependentTestProject.csproj");
-        Assert.True(NuGetDependentTestDetector.HasRequiredNuGetsForTesting(path));
+        Assert.True(NuGetDependentTestDetector.HasRequiresNugets(path));
     }
 
     [Fact]
-    public void HasRequiredNuGetsForTesting_ReturnsFalseForRegularProject()
+    public void HasRequiresNugets_ReturnsFalseForRegularProject()
     {
         var path = Path.Combine(GetFixturesDir(), "TestProject.csproj");
-        Assert.False(NuGetDependentTestDetector.HasRequiredNuGetsForTesting(path));
+        Assert.False(NuGetDependentTestDetector.HasRequiresNugets(path));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -130,7 +130,7 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -191,7 +191,7 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -233,7 +233,7 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -269,9 +269,9 @@ public class NuGetDependentTestDetectorTests
             Directory.CreateDirectory(testsDir3);
 
             File.WriteAllText(Path.Combine(testsDir1, "Templates.Tests.csproj"),
-                """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><RequiredNuGetsForTesting>true</RequiredNuGetsForTesting></PropertyGroup></Project>""");
+                """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><RequiresNugets>true</RequiresNugets></PropertyGroup></Project>""");
             File.WriteAllText(Path.Combine(testsDir2, "EndToEnd.Tests.csproj"),
-                """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><RequiredNuGetsForTesting>true</RequiredNuGetsForTesting></PropertyGroup></Project>""");
+                """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><RequiresNugets>true</RequiresNugets></PropertyGroup></Project>""");
             File.WriteAllText(Path.Combine(testsDir3, "Regular.Tests.csproj"),
                 """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup></Project>""");
 
@@ -341,9 +341,9 @@ public class NuGetDependentTestDetectorTests
     }
 
     [Fact]
-    public void HasRequiredNuGetsForTesting_ReturnsFalseForMissingFile()
+    public void HasRequiresNugets_ReturnsFalseForMissingFile()
     {
-        Assert.False(NuGetDependentTestDetector.HasRequiredNuGetsForTesting("/nonexistent/path.csproj"));
+        Assert.False(NuGetDependentTestDetector.HasRequiresNugets("/nonexistent/path.csproj"));
     }
 
     [Fact]
@@ -402,19 +402,19 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
 
-            // Create a TestFixtures project that also has RequiredNuGetsForTesting
+            // Create a TestFixtures project that also has RequiresNugets
             var fixtureDir = Path.Combine(tempDir, "tests", "SomeProject", "TestFixtures");
             Directory.CreateDirectory(fixtureDir);
             File.WriteAllText(Path.Combine(fixtureDir, "FixtureProject.csproj"),
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -444,7 +444,7 @@ public class NuGetDependentTestDetectorTests
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
+                    <RequiresNugets>true</RequiresNugets>
                   </PropertyGroup>
                 </Project>
                 """);
@@ -463,27 +463,15 @@ public class NuGetDependentTestDetectorTests
     }
 
     [Fact]
-    public void FindNuGetDependentTestProjects_ReadsRequiredNuGetsForTesting()
+    public void FindNuGetDependentTestProjects_ReadsRequiresNugets()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nuget-test-{Guid.NewGuid():N}");
         try
         {
-            // Project with RequiredNuGetsForTesting - should be found
-            var newTestDir = Path.Combine(tempDir, "tests", "NewStyleTests");
-            Directory.CreateDirectory(newTestDir);
-            File.WriteAllText(Path.Combine(newTestDir, "NewStyleTests.csproj"),
-                """
-                <Project Sdk="Microsoft.NET.Sdk">
-                  <PropertyGroup>
-                    <RequiredNuGetsForTesting>true</RequiredNuGetsForTesting>
-                  </PropertyGroup>
-                </Project>
-                """);
-
-            // Project with old RequiresNugets only - should NOT be found
-            var oldTestDir = Path.Combine(tempDir, "tests", "OldStyleTests");
-            Directory.CreateDirectory(oldTestDir);
-            File.WriteAllText(Path.Combine(oldTestDir, "OldStyleTests.csproj"),
+            // Project with <RequiresNugets>true</RequiresNugets> - should be found
+            var nugetTestDir = Path.Combine(tempDir, "tests", "NuGetTests");
+            Directory.CreateDirectory(nugetTestDir);
+            File.WriteAllText(Path.Combine(nugetTestDir, "NuGetTests.csproj"),
                 """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -492,11 +480,23 @@ public class NuGetDependentTestDetectorTests
                 </Project>
                 """);
 
+            // Project without RequiresNugets - should NOT be found
+            var regularTestDir = Path.Combine(tempDir, "tests", "RegularTests");
+            Directory.CreateDirectory(regularTestDir);
+            File.WriteAllText(Path.Combine(regularTestDir, "RegularTests.csproj"),
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <IsTestProject>true</IsTestProject>
+                  </PropertyGroup>
+                </Project>
+                """);
+
             var result = NuGetDependentTestDetector.FindNuGetDependentTestProjects(tempDir);
 
             Assert.Single(result);
-            Assert.Contains("tests/NewStyleTests/NewStyleTests.csproj", result);
-            Assert.DoesNotContain(result, p => p.Contains("OldStyleTests"));
+            Assert.Contains("tests/NuGetTests/NuGetTests.csproj", result);
+            Assert.DoesNotContain(result, p => p.Contains("RegularTests"));
         }
         finally
         {

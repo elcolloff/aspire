@@ -217,4 +217,15 @@ public sealed class CategoryConfig
     /// </summary>
     [JsonPropertyName("excludePaths")]
     public List<string> ExcludePaths { get; set; } = [];
+
+    /// <summary>
+    /// Test projects to run whenever this category is triggered, added additively to the
+    /// affected test projects. Use this for tests that depend on a category's sources at
+    /// runtime — for example through a built archive or resource file includes — rather than
+    /// through a <c>ProjectReference</c>. <c>dotnet-affected</c> walks the MSBuild project
+    /// graph and cannot discover those runtime-only couplings, so they must be expressed here.
+    /// Values are repo-root-relative <c>.csproj</c> paths.
+    /// </summary>
+    [JsonPropertyName("testProjects")]
+    public List<string> TestProjects { get; set; } = [];
 }

@@ -1312,4 +1312,135 @@ public class EndToEndEvaluationTests
     }
 
     #endregion
+
+    #region Category Forced Test Projects
+
+    // A category can declare testProjects that must run whenever it is triggered, even though no
+    // ProjectReference connects them to the changed sources (so dotnet-affected can't find them).
+    // The motivating case is CLI end-to-end tests, which consume a built CLI archive at runtime.
+
+    private const string ForcedTestProjectsConfigJson = """
+    {
+        "ignorePaths": [],
+        "categories": {
+            "cli_e2e": {
+                "triggerPaths": ["src/Aspire.Cli/**"],
+                "testProjects": ["tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj"]
+            },
+            "integrations": { "triggerPaths": ["src/**"] }
+        },
+        "sourceToTestMappings": []
+    }
+    """;
+
+    [Fact]
+    public void CollectCategoryForcedTestProjects_TriggeredCategory_ReturnsTestProjects()
+    {
+        var config = TestSelectorConfig.LoadFromJson(ForcedTestProjectsConfigJson);
+        var categories = new Dictionary<string, bool> { ["cli_e2e"] = true, ["integrations"] = true };
+
+        var forced = TestEvaluator.CollectCategoryForcedTestProjects(config, categories);
+
+        Assert.Equal(["tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj"], forced);
+    }
+
+    [Fact]
+    public void CollectCategoryForcedTestProjects_UntriggeredCategory_ReturnsEmpty()
+    {
+        // The category that owns the forced project is not triggered, so nothing is forced even
+        // though another (triggered) category exists without testProjects.
+        var config = TestSelectorConfig.LoadFromJson(ForcedTestProjectsConfigJson);
+        var categories = new Dictionary<string, bool> { ["cli_e2e"] = false, ["integrations"] = true };
+
+        var forced = TestEvaluator.CollectCategoryForcedTestProjects(config, categories);
+
+        Assert.Empty(forced);
+    }
+
+    [Fact]
+    public void AddCategoryForcedTestProjects_AppendsAndDeduplicates()
+    {
+        var config = TestSelectorConfig.LoadFromJson(ForcedTestProjectsConfigJson);
+        var logger = new DiagnosticLogger(false);
+        var categories = new Dictionary<string, bool> { ["cli_e2e"] = true };
+
+        // The forced project is already present (different casing) and must not be duplicated;
+        // an unrelated project must be preserved.
+        var existing = new List<string>
+        {
+            "tests/Aspire.Cli.Tests/Aspire.Cli.Tests.csproj",
+            "tests/aspire.cli.endtoend.tests/aspire.cli.endtoend.tests.csproj"
+        };
+
+        var combined = TestEvaluator.AddCategoryForcedTestProjects(logger, config, categories, existing);
+
+        Assert.Equal(2, combined.Count);
+        Assert.Contains("tests/Aspire.Cli.Tests/Aspire.Cli.Tests.csproj", combined);
+        Assert.Contains(combined, p => p.Equals("tests/aspire.cli.endtoend.tests/aspire.cli.endtoend.tests.csproj", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Evaluate_CategoryTestProjects_MappingsOnly_ForcesProjectAdditively()
+    {
+        // The changed file is both resolved by a sourceToTestMapping (so dotnet-affected is
+        // skipped) and triggers cli_e2e. The mapped test project and the category's forced test
+        // project must both end up in AffectedTestProjects.
+        var configJson = """
+        {
+            "ignorePaths": [],
+            "triggerAllPaths": [],
+            "testProjectPatterns": { "include": ["tests/**/*.Tests.csproj"], "exclude": [] },
+            "sourceToTestMappings": [
+                { "source": "src/Aspire.Cli/**", "test": "tests/Aspire.Cli.Tests/Aspire.Cli.Tests.csproj" }
+            ],
+            "categories": {
+                "cli_e2e": {
+                    "triggerPaths": ["src/Aspire.Cli/**"],
+                    "testProjects": ["tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj"]
+                }
+            }
+        }
+        """;
+
+        var config = TestSelectorConfig.LoadFromJson(configJson);
+
+        var result = await TestEvaluator.EvaluateAsync(
+            config,
+            ["src/Aspire.Cli/Program.cs"],
+            solution: "Aspire.slnx",
+            fromRef: null,
+            toRef: null,
+            workingDir: Directory.GetCurrentDirectory(),
+            ciEnvironment: "github-actions",
+            verbose: false);
+
+        Assert.False(result.RunAllTests);
+        Assert.Equal("selective_mappings_only", result.Reason);
+        Assert.Contains("tests/Aspire.Cli.Tests/Aspire.Cli.Tests.csproj", result.AffectedTestProjects);
+        Assert.Contains("tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj", result.AffectedTestProjects);
+        Assert.True(result.Categories["cli_e2e"]);
+    }
+
+    [Theory]
+    [InlineData("src/Aspire.Cli/Program.cs")]
+    [InlineData("src/Aspire.Hosting/DistributedApplication.cs")]
+    [InlineData("eng/clipack/build.proj")]
+    public void RealAuditConfig_CliE2eTrigger_ForcesCliE2eTestProject(string changedFile)
+    {
+        // Pins the audit ruleset: a change that fires cli_e2e (cli, hosting core, or the cli
+        // archive) forces Aspire.Cli.EndToEnd.Tests, which has no ProjectReference and would
+        // otherwise be silently dropped under selective scope.
+        var auditConfigPath = Path.Combine(FindRepoRoot(), "eng", "scripts", "test-selection-rules.audit.json");
+        var auditConfig = TestSelectorConfig.LoadFromJson(File.ReadAllText(auditConfigPath));
+        var categoryMapper = new CategoryMapper(auditConfig.Categories);
+
+        var (categories, _) = categoryMapper.GetCategoriesTriggeredByFiles([changedFile]);
+        Assert.True(categories["cli_e2e"]);
+
+        var forced = TestEvaluator.CollectCategoryForcedTestProjects(auditConfig, categories);
+
+        Assert.Contains("tests/Aspire.Cli.EndToEnd.Tests/Aspire.Cli.EndToEnd.Tests.csproj", forced);
+    }
+
+    #endregion
 }

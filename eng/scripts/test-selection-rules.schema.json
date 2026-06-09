@@ -111,6 +111,13 @@
             "type": "string"
           },
           "description": "Glob patterns - matching files are excluded from triggering this category"
+        },
+        "testProjects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Test project .csproj paths to run additively whenever this category is triggered. Use for tests that depend on the category's sources at runtime (e.g. a built CLI archive or resource includes) rather than via a ProjectReference that dotnet-affected can discover."
         }
       }
     }

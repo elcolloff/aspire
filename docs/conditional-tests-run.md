@@ -1,10 +1,5 @@
 # Conditional Test Runs
 
-> **Status note:** This document primarily describes the current category-based and `sourceToTestMappings`-based implementation shape.
-> The planned design direction is a **unified rules config** plus **additive `dotnet-affected` resolver behavior**.
-> For that target design, see `docs/ci/conditional-test-selection-unified-rules.md`.
-> For design and planning discussions, treat the unified-rules document as the canonical target-design reference.
-
 ## Overview
 
 Conditional test runs is a CI optimization feature that selectively runs tests based on which files have changed in a pull request. Instead of running all tests for every change, the current implementation uses glob pattern matching combined with `dotnet-affected` for transitive dependency analysis and convention-based source-to-test mappings to determine exactly which test projects are affected, reducing CI time and resource usage.
@@ -28,11 +23,11 @@ The system combines glob pattern matching with `dotnet-affected` for transitive 
 5. **Run `dotnet-affected`** to find all projects affected by the changes when source-to-test mappings do not already fully account for the active files
 6. **Check for unmatched files** — conservative fallback runs everything if any file is unaccounted for
 7. **Filter test projects** — identify test projects using glob patterns from `testProjectPatterns`
-8. **Combine test projects** from dotnet-affected + source-to-test mappings
+8. **Combine test projects** from dotnet-affected + source-to-test mappings, then add any category `testProjects` (forced test projects for runtime-only couplings that have no `ProjectReference` for dotnet-affected to follow, e.g. CLI end-to-end tests)
 9. **Match test projects to categories** — categories can be triggered by both source and test paths
 10. **Build final result** — `run_integrations` is `true` if the category is triggered by paths OR if any test projects were discovered
 
-The key insight in the current implementation is that source-to-test mappings use naming conventions (e.g., `src/Components/Aspire.Redis/**` → `tests/Aspire.Redis.Tests/`) to discover test projects, while `dotnet-affected` provides MSBuild's transitive dependency graph for comprehensive coverage. In the planned unified design, direct rule-based project selection would replace these dedicated mapping concepts, while `dotnet-affected` would remain as additive resolver behavior.
+The key insight in the current implementation is that source-to-test mappings use naming conventions (e.g., `src/Components/Aspire.Redis/**` → `tests/Aspire.Redis.Tests/`) to discover test projects, while `dotnet-affected` provides MSBuild's transitive dependency graph for comprehensive coverage.
 
 ## Architecture
 
