@@ -31,13 +31,17 @@ public static class DashboardEndpointsBuilder
                     return Results.NotFound();
                 }
 
-                var found = await dashboardClient.CopyInteractionAssetToAsync(
-                    route,
-                    httpContext.Response.Body,
-                    contentType => httpContext.Response.ContentType = contentType,
-                    cancellationToken).ConfigureAwait(false);
+                using var asset = await dashboardClient.GetInteractionAssetAsync(route, cancellationToken).ConfigureAwait(false);
 
-                return found ? Results.Empty : Results.NotFound();
+                if (asset is null)
+                {
+                    return Results.NotFound();
+                }
+
+                httpContext.Response.ContentType = asset.ContentType;
+                await asset.CopyToAsync(httpContext.Response.Body, cancellationToken).ConfigureAwait(false);
+
+                return Results.Empty;
             })
             .RequireAuthorization(FrontendAuthorizationDefaults.PolicyName)
             .SkipStatusCodePages();

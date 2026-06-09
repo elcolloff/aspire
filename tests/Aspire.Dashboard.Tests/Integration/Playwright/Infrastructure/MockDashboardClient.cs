@@ -73,7 +73,7 @@ public sealed class MockDashboardClient : IDashboardClient
         return Task.FromResult<StartPageInteractionResult?>(null);
     }
 
-    public Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
+    public Task<AssetReference?> GetInteractionAssetAsync(string route, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Text;
 using Aspire.Dashboard.Configuration;
 using Aspire.Dashboard.Utils;
 using Aspire.DashboardService.Proto.V1;
@@ -245,7 +246,7 @@ public sealed class DashboardClientTests
     }
 
     [Fact]
-    public async Task CopyInteractionAssetToAsync_Found_WritesContentAndSetsContentType()
+    public async Task GetInteractionAssetAsync_Found_WritesContentAndSetsContentType()
     {
         await using var instance = CreateResourceServiceClient();
         instance.SetDashboardServiceClient(new MockDashboardServiceClient(assetResponses:
@@ -255,34 +256,25 @@ public sealed class DashboardClientTests
             new GetInteractionAssetResponse { Content = ByteString.CopyFromUtf8("world") }
         ]));
 
-        string? contentType = null;
+        using var asset = await instance.GetInteractionAssetAsync("assets/file.txt", CancellationToken.None);
+
+        Assert.NotNull(asset);
+        Assert.Equal("text/plain", asset.ContentType);
+
         using var stream = new MemoryStream();
-
-        var found = await instance.CopyInteractionAssetToAsync(
-            "assets/file.txt",
-            stream,
-            value => contentType = value,
-            CancellationToken.None);
-
-        Assert.True(found);
-        Assert.Equal("text/plain", contentType);
-        Assert.Equal("hello world", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+        await asset.CopyToAsync(stream, CancellationToken.None);
+        Assert.Equal("hello world", Encoding.UTF8.GetString(stream.ToArray()));
     }
 
     [Fact]
-    public async Task CopyInteractionAssetToAsync_NotFound_ReturnsFalse()
+    public async Task GetInteractionAssetAsync_NotFound_ReturnsNull()
     {
         await using var instance = CreateResourceServiceClient();
         instance.SetDashboardServiceClient(new MockDashboardServiceClient(assetNotFound: true));
 
-        using var stream = new MemoryStream();
-        var found = await instance.CopyInteractionAssetToAsync(
-            "assets/missing.txt",
-            stream,
-            _ => { },
-            CancellationToken.None);
+        var asset = await instance.GetInteractionAssetAsync("assets/missing.txt", CancellationToken.None);
 
-        Assert.False(found);
+        Assert.Null(asset);
     }
 
     [Fact]

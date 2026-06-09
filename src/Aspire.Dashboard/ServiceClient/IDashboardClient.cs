@@ -68,14 +68,12 @@ public interface IDashboardClient : IAsyncDisposable
     Task SendInteractionRequestAsync(WatchInteractionsRequestUpdate request, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Streams a registered interaction asset into the destination stream.
+    /// Gets a reference to a registered interaction asset.
     /// </summary>
     /// <param name="route">The asset route.</param>
-    /// <param name="destination">The destination stream to write content into.</param>
-    /// <param name="setContentType">Callback invoked when the asset content type is known.</param>
     /// <param name="cancellationToken">A token to cancel the request.</param>
-    /// <returns><c>true</c> when the asset was found; otherwise, <c>false</c>.</returns>
-    Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken);
+    /// <returns>An <see cref="AssetReference"/> when the asset was found; otherwise, <c>null</c>.</returns>
+    Task<AssetReference?> GetInteractionAssetAsync(string route, CancellationToken cancellationToken);
 
     /// <summary>
     /// Gets a stream of console log messages for the specified resource.

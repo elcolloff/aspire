@@ -583,43 +583,58 @@ internal sealed class DashboardClient : IDashboardClient
         }
     }
 
-    public async Task<bool> CopyInteractionAssetToAsync(string route, Stream destination, Action<string> setContentType, CancellationToken cancellationToken)
+    public async Task<AssetReference?> GetInteractionAssetAsync(string route, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(route);
-        ArgumentNullException.ThrowIfNull(destination);
-        ArgumentNullException.ThrowIfNull(setContentType);
 
         EnsureInitialized();
 
-        using var combinedTokens = CancellationTokenSource.CreateLinkedTokenSource(_clientCancellationToken, cancellationToken);
+        // Short lived token that doesn't need to be disposed.
+        var combinedTokens = CancellationTokenSource.CreateLinkedTokenSource(_clientCancellationToken, cancellationToken);
 
         try
         {
-            using var call = _client!.GetInteractionAsset(
+            var call = _client!.GetInteractionAsset(
                 new GetInteractionAssetRequest { Route = route },
                 headers: _headers,
                 cancellationToken: combinedTokens.Token);
 
-            var contentTypeSet = false;
-            await foreach (var update in call.ResponseStream.ReadAllAsync(combinedTokens.Token).ConfigureAwait(false))
-            {
-                if (!contentTypeSet)
-                {
-                    setContentType(update.ContentType);
-                    contentTypeSet = true;
-                }
+            // Disposed when the call is disposed.
+            var enumerator = call.ResponseStream.ReadAllAsync(combinedTokens.Token).GetAsyncEnumerator(combinedTokens.Token);
 
-                if (update.Content.Length > 0)
-                {
-                    await destination.WriteAsync(update.Content.Memory, combinedTokens.Token).ConfigureAwait(false);
-                }
+            // Read the first update to get the content type.
+            if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+            {
+                call.Dispose();
+                return null;
             }
 
-            return contentTypeSet;
+            var contentType = enumerator.Current.ContentType;
+            var firstContent = enumerator.Current.Content;
+
+            // The enumerator, call, and CTS are kept alive until the AssetReference is disposed.
+            return new AssetReference(contentType, async (destination, ct) =>
+            {
+                // Write any content from the first message.
+                if (firstContent.Length > 0)
+                {
+                    await destination.WriteAsync(firstContent.Memory, ct).ConfigureAwait(false);
+                }
+
+                // Continue reading remaining messages.
+                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+                {
+                    if (enumerator.Current.Content.Length > 0)
+                    {
+                        await destination.WriteAsync(enumerator.Current.Content.Memory, ct).ConfigureAwait(false);
+                    }
+                }
+            },
+            disposeCallback: call.Dispose);
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
         {
-            return false;
+            return null;
         }
     }
 

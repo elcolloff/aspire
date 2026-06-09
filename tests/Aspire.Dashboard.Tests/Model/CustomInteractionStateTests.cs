@@ -96,8 +96,8 @@ public class CustomInteractionStateTests
     {
         var state = new CustomInteractionState();
 
-        state.AddMenuButton(1, "Home", "Home", "Go home", "/home");
-        state.AddMenuButton(2, "Settings", "Settings", "Open settings", "/settings");
+        state.AddMenuButton(1, "Home", "Home", "/home");
+        state.AddMenuButton(2, "Settings", "Settings", "/settings");
 
         Assert.Equal(2, state.MenuButtons.Length);
 
