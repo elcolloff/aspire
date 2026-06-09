@@ -21,6 +21,10 @@
     "@spike/aspire-kafka": {
       "source": "npm",
       "path": "./kafka-integration/host.ts"
+    },
+    "@spike/aspire-deno": {
+      "source": "npm",
+      "path": "./deno-integration/host.ts"
     }
   }
 }

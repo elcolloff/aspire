@@ -266,7 +266,19 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             return false;
         }
 
-        // Step 2: Start the AppHost server temporarily for code generation
+        // Step 2: Restore integration host dependencies before code generation. The AppHost
+        // server spawns npm integration hosts during startup so their capabilities can be
+        // merged into ATS; starting it before `npm install` leaves the generated SDK without
+        // those external methods.
+        if (!await RestoreIntegrationHostDependenciesAsync(integrations, cancellationToken))
+        {
+            _interactionService.DisplayError(
+                "Failed to restore one or more integration host packages. " +
+                "Aborting before generating SDK code.");
+            return false;
+        }
+
+        // Step 3: Start the AppHost server temporarily for code generation
         await using var serverSession = AppHostServerSession.Start(
             appHostServerProject,
             environmentVariables: null,
@@ -274,12 +286,13 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             _logger,
             _profilingTelemetry);
 
-        // Step 3: Connect to server
+        // Step 4: Connect to server
         var rpcClient = await serverSession.GetRpcClientAsync(cancellationToken);
 
-        // Step 4: Generate SDK code via RPC
-        // This must happen before dependency installation because the generated
-        // code directory (.aspire/modules) may not exist yet and dependency files reference it.
+        // Step 5: Generate SDK code via RPC
+        // This must happen before guest AppHost dependency installation because the
+        // generated code directory (.aspire/modules) may not exist yet and dependency
+        // files reference it.
         await GenerateCodeViaRpcAsync(
             directory.FullName,
             appHostFile: null,
@@ -287,7 +300,7 @@ internal sealed class GuestAppHostProject : IAppHostProject, IGuestAppHostSdkGen
             integrations,
             cancellationToken);
 
-        // Step 5: Install dependencies using GuestRuntime (best effort - don't block code generation)
+        // Step 6: Install dependencies using GuestRuntime (best effort - don't block code generation)
         await InstallDependenciesAsync(directory, rpcClient, treatMissingJavaScriptToolAsWarning: true, cancellationToken: cancellationToken);
 
         return true;

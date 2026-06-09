@@ -22,6 +22,13 @@ const kafka = await builder.addKafka("events", {
 });
 console.log(`Added Kafka (from Node.js integration): ${JSON.stringify(kafka)}`);
 
+const deno = await builder
+    .addDenoApp("deno-api", "./deno-api", "main.ts")
+    .withDenoTask("serve")
+    .withHttpEndpoint({ env: "PORT" });
+
+console.log(`Added Deno API (from TypeScript integration): ${JSON.stringify(deno)}`);
+
 const app = await builder.build();
 console.log("\n=== Build succeeded! Starting distributed application... ===");
 

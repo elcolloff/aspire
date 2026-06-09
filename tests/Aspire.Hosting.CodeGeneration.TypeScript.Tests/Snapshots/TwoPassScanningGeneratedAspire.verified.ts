@@ -14122,6 +14122,12 @@ export interface ContainerResource {
      */
     withArgs(args: string[]): ContainerResourcePromise;
     /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ContainerResourcePromise;
+    /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
      * @returns The resource builder.
@@ -14862,6 +14868,12 @@ export interface ContainerResourcePromise extends PromiseLike<ContainerResource>
      * @returns The resource builder.
      */
     withArgs(args: string[]): ContainerResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ContainerResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -16077,6 +16089,25 @@ class ContainerResourceImpl extends ResourceBuilderBase<ContainerResourceHandle>
      */
     withArgs(args: string[]): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<ContainerResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<ContainerResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new ContainerResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -18024,6 +18055,10 @@ class ContainerResourcePromiseImpl implements ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): ContainerResourcePromise {
+        return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): ContainerResourcePromise {
         return new ContainerResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -18453,6 +18488,12 @@ export interface CSharpAppResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): CSharpAppResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): CSharpAppResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -19022,6 +19063,12 @@ export interface CSharpAppResourcePromise extends PromiseLike<CSharpAppResource>
      * @returns The resource builder.
      */
     withArgs(args: string[]): CSharpAppResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): CSharpAppResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -19819,6 +19866,25 @@ class CSharpAppResourceImpl extends ResourceBuilderBase<CSharpAppResourceHandle>
      */
     withArgs(args: string[]): CSharpAppResourcePromise {
         return new CSharpAppResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<CSharpAppResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<CSharpAppResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new CSharpAppResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): CSharpAppResourcePromise {
+        return new CSharpAppResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -21706,6 +21772,10 @@ class CSharpAppResourcePromiseImpl implements CSharpAppResourcePromise {
         return new CSharpAppResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): CSharpAppResourcePromise {
+        return new CSharpAppResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): CSharpAppResourcePromise {
         return new CSharpAppResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -22173,6 +22243,12 @@ export interface DotnetToolResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): DotnetToolResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): DotnetToolResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -22764,6 +22840,12 @@ export interface DotnetToolResourcePromise extends PromiseLike<DotnetToolResourc
      * @returns The resource builder.
      */
     withArgs(args: string[]): DotnetToolResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): DotnetToolResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -23659,6 +23741,25 @@ class DotnetToolResourceImpl extends ResourceBuilderBase<DotnetToolResourceHandl
      */
     withArgs(args: string[]): DotnetToolResourcePromise {
         return new DotnetToolResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<DotnetToolResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<DotnetToolResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new DotnetToolResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): DotnetToolResourcePromise {
+        return new DotnetToolResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -25531,6 +25632,10 @@ class DotnetToolResourcePromiseImpl implements DotnetToolResourcePromise {
         return new DotnetToolResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): DotnetToolResourcePromise {
+        return new DotnetToolResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): DotnetToolResourcePromise {
         return new DotnetToolResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -25964,6 +26069,12 @@ export interface ExecutableResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): ExecutableResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ExecutableResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -26522,6 +26633,12 @@ export interface ExecutableResourcePromise extends PromiseLike<ExecutableResourc
      * @returns The resource builder.
      */
     withArgs(args: string[]): ExecutableResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ExecutableResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -27313,6 +27430,25 @@ class ExecutableResourceImpl extends ResourceBuilderBase<ExecutableResourceHandl
      */
     withArgs(args: string[]): ExecutableResourcePromise {
         return new ExecutableResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<ExecutableResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<ExecutableResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new ExecutableResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ExecutableResourcePromise {
+        return new ExecutableResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -29159,6 +29295,10 @@ class ExecutableResourcePromiseImpl implements ExecutableResourcePromise {
 
     withArgs(args: string[]): ExecutableResourcePromise {
         return new ExecutableResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
+    }
+
+    withArgsReplace(args: string[]): ExecutableResourcePromise {
+        return new ExecutableResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
     }
 
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): ExecutableResourcePromise {
@@ -33621,6 +33761,12 @@ export interface ProjectResource {
      */
     withArgs(args: string[]): ProjectResourcePromise;
     /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ProjectResourcePromise;
+    /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
      * @returns The resource builder.
@@ -34189,6 +34335,12 @@ export interface ProjectResourcePromise extends PromiseLike<ProjectResource> {
      * @returns The resource builder.
      */
     withArgs(args: string[]): ProjectResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ProjectResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -34987,6 +35139,25 @@ class ProjectResourceImpl extends ResourceBuilderBase<ProjectResourceHandle> imp
      */
     withArgs(args: string[]): ProjectResourcePromise {
         return new ProjectResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<ProjectResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<ProjectResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new ProjectResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ProjectResourcePromise {
+        return new ProjectResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -36874,6 +37045,10 @@ class ProjectResourcePromiseImpl implements ProjectResourcePromise {
         return new ProjectResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): ProjectResourcePromise {
+        return new ProjectResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): ProjectResourcePromise {
         return new ProjectResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -37477,6 +37652,12 @@ export interface TestDatabaseResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestDatabaseResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestDatabaseResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -38218,6 +38399,12 @@ export interface TestDatabaseResourcePromise extends PromiseLike<TestDatabaseRes
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestDatabaseResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestDatabaseResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -39432,6 +39619,25 @@ class TestDatabaseResourceImpl extends ResourceBuilderBase<TestDatabaseResourceH
      */
     withArgs(args: string[]): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<TestDatabaseResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<TestDatabaseResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new TestDatabaseResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -41379,6 +41585,10 @@ class TestDatabaseResourcePromiseImpl implements TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): TestDatabaseResourcePromise {
+        return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): TestDatabaseResourcePromise {
         return new TestDatabaseResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -41985,6 +42195,12 @@ export interface TestRedisResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestRedisResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestRedisResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -42790,6 +43006,12 @@ export interface TestRedisResourcePromise extends PromiseLike<TestRedisResource>
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestRedisResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestRedisResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -44081,6 +44303,25 @@ class TestRedisResourceImpl extends ResourceBuilderBase<TestRedisResourceHandle>
      */
     withArgs(args: string[]): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<TestRedisResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<TestRedisResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new TestRedisResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -46259,6 +46500,10 @@ class TestRedisResourcePromiseImpl implements TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
     }
 
+    withArgsReplace(args: string[]): TestRedisResourcePromise {
+        return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
+    }
+
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): TestRedisResourcePromise {
         return new TestRedisResourcePromiseImpl(this._promise.then(obj => obj.withArgsCallback(callback)), this._client);
     }
@@ -46914,6 +47159,12 @@ export interface TestVaultResource {
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestVaultResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestVaultResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -47657,6 +47908,12 @@ export interface TestVaultResourcePromise extends PromiseLike<TestVaultResource>
      * @returns The resource builder.
      */
     withArgs(args: string[]): TestVaultResourcePromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestVaultResourcePromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -48873,6 +49130,25 @@ class TestVaultResourceImpl extends ResourceBuilderBase<TestVaultResourceHandle>
      */
     withArgs(args: string[]): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<TestVaultResource> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<TestVaultResourceHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new TestVaultResourceImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -50833,6 +51109,10 @@ class TestVaultResourcePromiseImpl implements TestVaultResourcePromise {
 
     withArgs(args: string[]): TestVaultResourcePromise {
         return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
+    }
+
+    withArgsReplace(args: string[]): TestVaultResourcePromise {
+        return new TestVaultResourcePromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
     }
 
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): TestVaultResourcePromise {
@@ -53443,6 +53723,12 @@ export interface ResourceWithArgs {
      */
     withArgs(args: string[]): ResourceWithArgsPromise;
     /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ResourceWithArgsPromise;
+    /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
      * @returns The resource builder.
@@ -53457,6 +53743,12 @@ export interface ResourceWithArgsPromise extends PromiseLike<ResourceWithArgs> {
      * @returns The resource builder.
      */
     withArgs(args: string[]): ResourceWithArgsPromise;
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ResourceWithArgsPromise;
     /**
      * Adds a callback to be executed with a list of command-line arguments when a resource is started.
      * @param callback A callback that allows for deferred execution for computing arguments. This runs after resources have been allocated by the orchestrator and allows access to other resources to resolve computed data, e.g. connection strings, ports.
@@ -53492,6 +53784,25 @@ class ResourceWithArgsImpl extends ResourceBuilderBase<IResourceWithArgsHandle> 
      */
     withArgs(args: string[]): ResourceWithArgsPromise {
         return new ResourceWithArgsPromiseImpl(this._withArgsInternal(args), this._client);
+    }
+
+    /** @internal */
+    private async _withArgsReplaceInternal(args: string[]): Promise<ResourceWithArgs> {
+        const rpcArgs: Record<string, unknown> = { builder: this._handle, args };
+        const result = await this._client.invokeCapability<IResourceWithArgsHandle>(
+            'Aspire.Hosting/withArgsReplace',
+            rpcArgs
+        );
+        return new ResourceWithArgsImpl(result, this._client);
+    }
+
+    /**
+     * Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+     * @param args The arguments to be passed to the resource when it is started.
+     * @returns The resource builder.
+     */
+    withArgsReplace(args: string[]): ResourceWithArgsPromise {
+        return new ResourceWithArgsPromiseImpl(this._withArgsReplaceInternal(args), this._client);
     }
 
     /** @internal */
@@ -53539,6 +53850,10 @@ class ResourceWithArgsPromiseImpl implements ResourceWithArgsPromise {
 
     withArgs(args: string[]): ResourceWithArgsPromise {
         return new ResourceWithArgsPromiseImpl(this._promise.then(obj => obj.withArgs(args)), this._client);
+    }
+
+    withArgsReplace(args: string[]): ResourceWithArgsPromise {
+        return new ResourceWithArgsPromiseImpl(this._promise.then(obj => obj.withArgsReplace(args)), this._client);
     }
 
     withArgsCallback(callback: (obj: CommandLineArgsCallbackContext) => Promise<void>): ResourceWithArgsPromise {

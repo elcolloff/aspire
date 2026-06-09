@@ -691,6 +691,27 @@ public static class ResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Replaces the arguments to be passed to a resource that supports arguments when it is launched.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder for a resource implementing <see cref="IResourceWithArgs"/>.</param>
+    /// <param name="args">The arguments to be passed to the resource when it is started.</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <ats-returns>The resource builder.</ats-returns>
+    [AspireExport]
+    internal static IResourceBuilder<T> WithArgsReplace<T>(this IResourceBuilder<T> builder, params string[] args) where T : IResourceWithArgs
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(args);
+
+        return builder.WithArgs(context =>
+        {
+            context.Args.Clear();
+            context.Args.AddRange(args);
+        });
+    }
+
+    /// <summary>
     /// Adds arguments to be passed to a resource that supports arguments when it is launched.
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
