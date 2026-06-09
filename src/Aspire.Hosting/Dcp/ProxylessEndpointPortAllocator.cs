@@ -18,6 +18,11 @@ namespace Aspire.Hosting.Dcp;
 /// use, the allocator jumps back to the random walk instead of linearly scanning through a dense used
 /// cluster.
 ///
+/// The random walk cursor is independent of incremental scanning. Incremental successes mark adjacent
+/// candidates as visited and can therefore consume ports the random permutation would have reached
+/// later, but the next random jump resumes from the previous permutation position and skips already
+/// visited ports. This keeps the search exhaustive while opportunistically exploiting nearby free ports.
+///
 /// This approach was tested against naive incremental allocation, pure random allocation, and
 /// ephemeral port allocation. It was the fastest strategy tested while avoiding the worst-case
 /// failure modes of naive incremental search.
