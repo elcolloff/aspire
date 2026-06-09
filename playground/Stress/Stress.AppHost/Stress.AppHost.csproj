@@ -14,7 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Resources\MarkdownShowcase.md" />
+    <!-- Extension is .txt to avoid markdown linting errors -->
+    <EmbeddedResource Include="Resources\MarkdownShowcase.txt" />
     <EmbeddedResource Include="Resources\AspireLogo.svg" />
     <EmbeddedResource Include="Resources\TodoStyles.css" />
   </ItemGroup>

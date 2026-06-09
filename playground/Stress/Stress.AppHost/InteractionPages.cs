@@ -76,7 +76,7 @@ internal static class InteractionPages
 
     private static void RegisterMarkdownPage(IInteractionService interactionService)
     {
-        var markdownShowcase = LoadEmbeddedTextResource("MarkdownShowcase.md");
+        var markdownShowcase = LoadEmbeddedTextResource("MarkdownShowcase.txt");
 
         interactionService.RegisterPage("markdown", new ContentPageOptions
         {
