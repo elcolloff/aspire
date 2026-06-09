@@ -1,5 +1,10 @@
 # Conditional Test Runs
 
+> **Proposed redesign:** A redesign that separates the rules config into a
+> declarative relationship graph (data) and a fixed selection engine (code) is
+> under review in [`specs/test-selection-redesign.md`](./specs/test-selection-redesign.md).
+> This document describes the **current** implementation.
+
 ## Overview
 
 Conditional test runs is a CI optimization feature that selectively runs tests based on which files have changed in a pull request. Instead of running all tests for every change, the current implementation uses glob pattern matching combined with `dotnet-affected` for transitive dependency analysis and convention-based source-to-test mappings to determine exactly which test projects are affected, reducing CI time and resource usage.

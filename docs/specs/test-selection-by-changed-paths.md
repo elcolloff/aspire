@@ -1,5 +1,10 @@
 # Test Selection by Changed Paths
 
+> **Proposed redesign:** A forward-looking redesign that splits the config into a
+> declarative relationship graph (data) and a fixed selection engine (code) is
+> described in [`test-selection-redesign.md`](./test-selection-redesign.md).
+> Read that for the target design under review.
+
 > **Note:** This is the original design spec. The implementation has evolved:
 > - Categories `templates`, `endtoend`, and `playground` have been removed and replaced by `sourceToTestMappings`
 > - `integrations_projects` output has been renamed to `affected_test_projects` with `.csproj` paths
