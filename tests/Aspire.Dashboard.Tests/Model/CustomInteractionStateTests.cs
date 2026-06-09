@@ -78,7 +78,7 @@ public class CustomInteractionStateTests
         PageContentUpdate? receivedUpdate = null;
         state.OnPageContentUpdated += update => receivedUpdate = update;
 
-        state.UpdatePageContent(1, "my-page", "session-1", "# Hello", "My Page", ["site.css"], ["site.js"], enableHtml: true, iframeUrl: "https://example.com");
+        state.UpdatePageContent(1, "my-page", "session-1", "# Hello", "My Page", ["site.css"], ["site.js"], enableHtml: true, iframeUrl: "https://example.com", iframePersistent: true);
 
         Assert.NotNull(receivedUpdate);
         Assert.Equal(1, receivedUpdate.InteractionId);
