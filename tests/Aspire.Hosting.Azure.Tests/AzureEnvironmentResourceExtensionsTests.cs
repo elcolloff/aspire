@@ -77,7 +77,7 @@ public class AzureEnvironmentResourceExtensionsTests
     }
 
     [Fact]
-    public void AddAzureEnvironment_InRunMode_AddsArgumentsToChangeAzureContextCommand()
+    public void AddAzureEnvironment_InRunMode_AddsSelectableArgumentsToChangeAzureContextCommand()
     {
         var builder = CreateBuilder(isRunMode: true);
 
@@ -90,24 +90,116 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Collection(changeContextCommand.Arguments,
             input =>
             {
+                Assert.Equal("tenantId", input.Name);
+                Assert.True(input.Required);
+                Assert.Equal(InputType.Choice, input.InputType);
+                Assert.True(input.AllowCustomChoice);
+                Assert.NotNull(input.DynamicLoading);
+            },
+            input =>
+            {
                 Assert.Equal("subscriptionId", input.Name);
                 Assert.True(input.Required);
+                Assert.Equal(InputType.Choice, input.InputType);
+                Assert.True(input.AllowCustomChoice);
+                Assert.True(input.Disabled);
+                Assert.NotNull(input.DynamicLoading);
+                Assert.Equal(["tenantId"], input.DynamicLoading.DependsOnInputs);
             },
             input =>
             {
                 Assert.Equal("resourceGroup", input.Name);
                 Assert.True(input.Required);
+                Assert.Equal(InputType.Choice, input.InputType);
+                Assert.True(input.AllowCustomChoice);
+                Assert.NotNull(input.DynamicLoading);
+                Assert.Equal(["subscriptionId"], input.DynamicLoading.DependsOnInputs);
             },
             input =>
             {
                 Assert.Equal(AzureBicepResource.KnownParameters.Location, input.Name);
                 Assert.True(input.Required);
-            },
-            input =>
-            {
-                Assert.Equal("tenantId", input.Name);
-                Assert.False(input.Required);
+                Assert.Equal(InputType.Choice, input.InputType);
+                Assert.True(input.AllowCustomChoice);
+                Assert.NotNull(input.DynamicLoading);
+                Assert.Equal(["subscriptionId", "resourceGroup"], input.DynamicLoading.DependsOnInputs);
             });
+    }
+
+    [Fact]
+    public async Task ChangeAzureContextCommand_DynamicArgumentsLoadAzureContextOptions()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+
+        builder.Configuration["Azure:TenantId"] = "87654321-4321-4321-4321-210987654321";
+        builder.Configuration["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        builder.Configuration["Azure:ResourceGroup"] = "rg-test-2";
+        builder.Configuration["Azure:Location"] = "eastus";
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<IArmClientProvider>();
+        builder.Services.RemoveAll<ITokenCredentialProvider>();
+        builder.Services.AddSingleton<IArmClientProvider>(ProvisioningTestHelpers.CreateArmClientProvider());
+        builder.Services.AddSingleton<ITokenCredentialProvider>(ProvisioningTestHelpers.CreateTokenCredentialProvider());
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var environmentResource = Assert.Single(model.Resources.OfType<AzureEnvironmentResource>());
+        var changeContextCommand = Assert.Single(environmentResource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.ChangeAzureContextCommandName);
+        var inputs = CloneInputs(changeContextCommand.Arguments);
+
+        var tenantInput = inputs["tenantId"];
+        await tenantInput.DynamicLoading!.LoadCallback(new LoadInputContext
+        {
+            AllInputs = inputs,
+            CancellationToken = CancellationToken.None,
+            Input = tenantInput,
+            Services = app.Services
+        });
+
+        Assert.Contains(tenantInput.Options!, option => option.Key == "87654321-4321-4321-4321-210987654321");
+        Assert.Equal("87654321-4321-4321-4321-210987654321", tenantInput.Value);
+
+        var subscriptionInput = inputs["subscriptionId"];
+        await subscriptionInput.DynamicLoading!.LoadCallback(new LoadInputContext
+        {
+            AllInputs = inputs,
+            CancellationToken = CancellationToken.None,
+            Input = subscriptionInput,
+            Services = app.Services
+        });
+
+        Assert.False(subscriptionInput.Disabled);
+        Assert.Contains(subscriptionInput.Options!, option => option.Key == "12345678-1234-1234-1234-123456789012");
+        Assert.Equal("12345678-1234-1234-1234-123456789012", subscriptionInput.Value);
+
+        var resourceGroupInput = inputs["resourceGroup"];
+        await resourceGroupInput.DynamicLoading!.LoadCallback(new LoadInputContext
+        {
+            AllInputs = inputs,
+            CancellationToken = CancellationToken.None,
+            Input = resourceGroupInput,
+            Services = app.Services
+        });
+
+        Assert.False(resourceGroupInput.Disabled);
+        Assert.Contains(resourceGroupInput.Options!, option => option.Key == "rg-test-2");
+        Assert.Equal("rg-test-2", resourceGroupInput.Value);
+
+        var locationInput = inputs[AzureBicepResource.KnownParameters.Location];
+        await locationInput.DynamicLoading!.LoadCallback(new LoadInputContext
+        {
+            AllInputs = inputs,
+            CancellationToken = CancellationToken.None,
+            Input = locationInput,
+            Services = app.Services
+        });
+
+        Assert.True(locationInput.Disabled);
+        Assert.Equal("westus", locationInput.Value);
+        Assert.Equal([KeyValuePair.Create("westus", "westus")], locationInput.Options);
     }
 
     [Fact]
@@ -2736,6 +2828,26 @@ public class AzureEnvironmentResourceExtensionsTests
             Name = value.Name,
             InputType = InputType.Text,
             Value = value.Value
+        })]);
+    }
+
+    private static InteractionInputCollection CloneInputs(IReadOnlyList<InteractionInput> inputs)
+    {
+        return new InteractionInputCollection([.. inputs.Select(static input => new InteractionInput
+        {
+            Name = input.Name,
+            Label = input.Label,
+            Description = input.Description,
+            EnableDescriptionMarkdown = input.EnableDescriptionMarkdown,
+            InputType = input.InputType,
+            Required = input.Required,
+            Options = input.Options,
+            DynamicLoading = input.DynamicLoading,
+            Value = input.Value,
+            Placeholder = input.Placeholder,
+            AllowCustomChoice = input.AllowCustomChoice,
+            Disabled = input.Disabled,
+            MaxLength = input.MaxLength
         })]);
     }
 

@@ -230,19 +230,47 @@ internal sealed class AzureProvisioningController(
     [
         new()
         {
+            Name = TenantIdArgumentName,
+            Label = AzureProvisioningStrings.TenantLabel,
+            Placeholder = AzureProvisioningStrings.TenantPlaceholder,
+            InputType = InputType.Choice,
+            Required = true,
+            AllowCustomChoice = true,
+            DynamicLoading = new InputLoadOptions
+            {
+                AlwaysLoadOnStart = true,
+                LoadCallback = LoadTenantArgumentOptionsAsync
+            }
+        },
+        new()
+        {
             Name = SubscriptionIdArgumentName,
             Label = AzureProvisioningStrings.SubscriptionIdLabel,
             Placeholder = AzureProvisioningStrings.SubscriptionIdPlaceholder,
-            InputType = InputType.Text,
-            Required = true
+            InputType = InputType.Choice,
+            Required = true,
+            AllowCustomChoice = true,
+            Disabled = true,
+            DynamicLoading = new InputLoadOptions
+            {
+                LoadCallback = LoadSubscriptionArgumentOptionsAsync,
+                DependsOnInputs = [TenantIdArgumentName]
+            }
         },
         new()
         {
             Name = ResourceGroupArgumentName,
             Label = AzureProvisioningStrings.ResourceGroupLabel,
             Placeholder = AzureProvisioningStrings.ResourceGroupPlaceholder,
-            InputType = InputType.Text,
-            Required = true
+            InputType = InputType.Choice,
+            Required = true,
+            AllowCustomChoice = true,
+            DynamicLoading = new InputLoadOptions
+            {
+                AlwaysLoadOnStart = true,
+                LoadCallback = LoadResourceGroupArgumentOptionsAsync,
+                DependsOnInputs = [SubscriptionIdArgumentName]
+            }
         },
         new()
         {
@@ -256,16 +284,8 @@ internal sealed class AzureProvisioningController(
             {
                 AlwaysLoadOnStart = true,
                 LoadCallback = LoadLocationArgumentOptionsAsync,
-                DependsOnInputs = [SubscriptionIdArgumentName]
+                DependsOnInputs = [SubscriptionIdArgumentName, ResourceGroupArgumentName]
             }
-        },
-        new()
-        {
-            Name = TenantIdArgumentName,
-            Label = AzureProvisioningStrings.TenantLabel,
-            Placeholder = AzureProvisioningStrings.TenantPlaceholder,
-            InputType = InputType.Text,
-            Required = false
         }
     ];
 
@@ -287,12 +307,92 @@ internal sealed class AzureProvisioningController(
         }
     ];
 
+    private static async Task LoadTenantArgumentOptionsAsync(LoadInputContext context)
+    {
+        var controller = context.Services.GetRequiredService<AzureProvisioningController>();
+        var currentContext = await controller.GetCurrentAzureContextAsync(context.CancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrEmpty(context.Input.Value))
+        {
+            context.Input.Value = currentContext.TenantId;
+        }
+
+        var tenantOptions = await controller.GetTenantOptionsAsync(context.CancellationToken).ConfigureAwait(false);
+        if (tenantOptions.Count > 0)
+        {
+            context.Input.Options = tenantOptions;
+        }
+    }
+
+    private static async Task LoadSubscriptionArgumentOptionsAsync(LoadInputContext context)
+    {
+        var controller = context.Services.GetRequiredService<AzureProvisioningController>();
+        var currentContext = await controller.GetCurrentAzureContextAsync(context.CancellationToken).ConfigureAwait(false);
+        var tenantId = context.AllInputs.TryGetByName(TenantIdArgumentName, out var tenantInput) && !string.IsNullOrWhiteSpace(tenantInput.Value)
+            ? tenantInput.Value
+            : currentContext.TenantId;
+
+        if (string.IsNullOrEmpty(context.Input.Value))
+        {
+            context.Input.Value = currentContext.SubscriptionId;
+        }
+
+        var subscriptionOptions = await controller.GetSubscriptionOptionsAsync(tenantId, context.CancellationToken).ConfigureAwait(false);
+        if (subscriptionOptions.Count > 0)
+        {
+            context.Input.Options = subscriptionOptions;
+        }
+
+        context.Input.Disabled = false;
+    }
+
+    private static async Task LoadResourceGroupArgumentOptionsAsync(LoadInputContext context)
+    {
+        var controller = context.Services.GetRequiredService<AzureProvisioningController>();
+        var currentContext = await controller.GetCurrentAzureContextAsync(context.CancellationToken).ConfigureAwait(false);
+        var subscriptionId = context.AllInputs.TryGetByName(SubscriptionIdArgumentName, out var subscriptionInput) && !string.IsNullOrWhiteSpace(subscriptionInput.Value)
+            ? subscriptionInput.Value
+            : currentContext.SubscriptionId;
+
+        if (string.IsNullOrEmpty(context.Input.Value))
+        {
+            context.Input.Value = currentContext.ResourceGroup;
+        }
+
+        var resourceGroupOptions = await controller.GetResourceGroupOptionsAsync(subscriptionId, context.CancellationToken).ConfigureAwait(false);
+        context.Input.Options = resourceGroupOptions.Select(static rg => KeyValuePair.Create(rg.Name, rg.Name)).ToList();
+        context.Input.Disabled = false;
+    }
+
     private static async Task LoadLocationArgumentOptionsAsync(LoadInputContext context)
     {
         var controller = context.Services.GetRequiredService<AzureProvisioningController>();
-        var subscriptionId = context.AllInputs.TryGetByName(SubscriptionIdArgumentName, out var subscriptionInput)
+        var currentContext = await controller.GetCurrentAzureContextAsync(context.CancellationToken).ConfigureAwait(false);
+        var subscriptionId = context.AllInputs.TryGetByName(SubscriptionIdArgumentName, out var subscriptionInput) && !string.IsNullOrWhiteSpace(subscriptionInput.Value)
             ? subscriptionInput.Value
+            : currentContext.SubscriptionId;
+        var resourceGroupName = context.AllInputs.TryGetByName(ResourceGroupArgumentName, out var resourceGroupInput) && !string.IsNullOrWhiteSpace(resourceGroupInput.Value)
+            ? resourceGroupInput.Value
             : null;
+
+        if (!string.IsNullOrWhiteSpace(resourceGroupName))
+        {
+            var resourceGroupOptions = await controller.GetResourceGroupOptionsAsync(subscriptionId, context.CancellationToken).ConfigureAwait(false);
+            var (_, resourceGroupLocation) = resourceGroupOptions.FirstOrDefault(rg => rg.Name.Equals(resourceGroupName, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(resourceGroupLocation))
+            {
+                context.Input.Options = [KeyValuePair.Create(resourceGroupLocation, resourceGroupLocation)];
+                context.Input.Value = resourceGroupLocation;
+                context.Input.Disabled = true;
+                return;
+            }
+        }
+
+        if (string.IsNullOrEmpty(context.Input.Value))
+        {
+            context.Input.Value = currentContext.Location;
+        }
+
         var locationOptions = await controller.GetLocationOptionsAsync(subscriptionId, context.CancellationToken).ConfigureAwait(false);
         if (locationOptions.Count == 0)
         {
@@ -300,6 +400,7 @@ internal sealed class AzureProvisioningController(
         }
 
         context.Input.Options = locationOptions;
+        context.Input.Disabled = false;
     }
 
     private static Task ValidateAzureContextCommandArguments(InputsDialogValidationContext validationContext)
@@ -1912,6 +2013,85 @@ internal sealed class AzureProvisioningController(
     private async Task<IReadOnlyList<KeyValuePair<string, string>>> GetLocationOptionsAsync(CancellationToken cancellationToken)
     {
         return await GetLocationOptionsAsync(subscriptionId: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<KeyValuePair<string, string>>> GetTenantOptionsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var armClientProvider = serviceProvider.GetRequiredService<IArmClientProvider>();
+            var tokenCredentialProvider = serviceProvider.GetRequiredService<ITokenCredentialProvider>();
+            var armClient = armClientProvider.GetArmClient(tokenCredentialProvider.TokenCredential);
+
+            return [.. (await armClient.GetAvailableTenantsAsync(cancellationToken).ConfigureAwait(false))
+                .Select(static tenant =>
+                {
+                    var tenantId = tenant.TenantId?.ToString() ?? "";
+                    var displayName = !string.IsNullOrEmpty(tenant.DisplayName)
+                        ? tenant.DisplayName
+                        : !string.IsNullOrEmpty(tenant.DefaultDomain)
+                            ? tenant.DefaultDomain
+                            : "Unknown";
+
+                    var description = displayName;
+                    if (!string.IsNullOrEmpty(tenant.DefaultDomain) &&
+                        !string.Equals(tenant.DisplayName, tenant.DefaultDomain, StringComparison.Ordinal))
+                    {
+                        description += $" ({tenant.DefaultDomain})";
+                    }
+
+                    return KeyValuePair.Create(tenantId, $"{description} — {tenantId}");
+                })
+                .OrderBy(static option => option.Value)];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate Azure tenants for context selection.");
+            return [];
+        }
+    }
+
+    private async Task<IReadOnlyList<KeyValuePair<string, string>>> GetSubscriptionOptionsAsync(string? tenantId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var armClientProvider = serviceProvider.GetRequiredService<IArmClientProvider>();
+            var tokenCredentialProvider = serviceProvider.GetRequiredService<ITokenCredentialProvider>();
+            var armClient = armClientProvider.GetArmClient(tokenCredentialProvider.TokenCredential);
+
+            return [.. (await armClient.GetAvailableSubscriptionsAsync(tenantId, cancellationToken).ConfigureAwait(false))
+                .Select(static subscription => KeyValuePair.Create(
+                    subscription.Id.SubscriptionId ?? "",
+                    $"{subscription.DisplayName ?? subscription.Id.SubscriptionId} ({subscription.Id.SubscriptionId})"))
+                .OrderBy(static option => option.Value)];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate Azure subscriptions for context selection.");
+            return [];
+        }
+    }
+
+    private async Task<IReadOnlyList<(string Name, string Location)>> GetResourceGroupOptionsAsync(string? subscriptionId, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(subscriptionId, out _))
+        {
+            return [];
+        }
+
+        try
+        {
+            var armClientProvider = serviceProvider.GetRequiredService<IArmClientProvider>();
+            var tokenCredentialProvider = serviceProvider.GetRequiredService<ITokenCredentialProvider>();
+            var armClient = armClientProvider.GetArmClient(tokenCredentialProvider.TokenCredential);
+
+            return [.. await armClient.GetAvailableResourceGroupsWithLocationAsync(subscriptionId, cancellationToken).ConfigureAwait(false)];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate Azure resource groups for context selection.");
+            return [];
+        }
     }
 
     private async Task<IReadOnlyList<KeyValuePair<string, string>>> GetLocationOptionsAsync(string? subscriptionId, CancellationToken cancellationToken)
