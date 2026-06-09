@@ -54,7 +54,7 @@ public static class AzureEnvironmentResourceExtensions
                 resourceBuilder.WithCommand(
                     command.Name,
                     command.DisplayName,
-                    executeCommand: context => context.ServiceProvider.GetRequiredService<AzureProvisioningController>().ExecuteEnvironmentCommandAsync(command.Command, context),
+                    executeCommand: context => command.ExecuteCommand(context.ServiceProvider.GetRequiredService<AzureProvisioningController>(), context),
                     commandOptions: new CommandOptions
                     {
                         Description = command.Description,

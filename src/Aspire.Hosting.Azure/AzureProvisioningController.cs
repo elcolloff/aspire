@@ -94,6 +94,8 @@ internal sealed class AzureProvisioningController(
     internal const string LocationOverrideKey = "LocationOverride";
     internal const string MissingInAzureState = "Missing in Azure";
     internal const string DriftedState = "Drifted";
+    internal const string CreatingArmDeploymentState = "Creating ARM Deployment";
+    internal const string WaitingForDeploymentState = "Waiting for Deployment";
     private const string SubscriptionIdArgumentName = "subscriptionId";
     private const string ResourceGroupArgumentName = "resourceGroup";
     private const string LocationArgumentName = "location";
@@ -125,6 +127,8 @@ internal sealed class AzureProvisioningController(
     // command execution and background drift probing share the same serialized control loop.
     internal TimeSpan DriftCheckInterval { get; set; } = TimeSpan.FromSeconds(30);
 
+    // The dashboard uses declaration order when rendering commands. Highlighted commands are promoted ahead of
+    // the remaining command list, so keep each definition list ordered by the desired fallback display order.
     internal static ImmutableArray<EnvironmentCommandDefinition> EnvironmentCommandDefinitions { get; } =
     [
         new(
@@ -135,7 +139,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.ResetProvisioningStateCommandConfirmation,
             "ArrowSync",
             IconVariant.Regular,
-            IsHighlighted: true),
+            IsHighlighted: true,
+            ExecuteCommand: static (controller, context) => controller.ExecuteResetProvisioningStateCommandAsync(context)),
         new(
             AzureEnvironmentCommand.ChangeAzureContext,
             ChangeAzureContextCommandName,
@@ -145,6 +150,7 @@ internal sealed class AzureProvisioningController(
             "Edit",
             IconVariant.Regular,
             IsHighlighted: true,
+            ExecuteCommand: static (controller, context) => controller.ExecuteChangeAzureContextCommandAsync(context),
             Arguments: CreateAzureContextCommandArguments(),
             ValidateArguments: ValidateAzureContextCommandArguments),
         new(
@@ -155,7 +161,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.ReprovisionAllCommandConfirmation,
             "ArrowSync",
             IconVariant.Regular,
-            IsHighlighted: true),
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, context) => controller.ExecuteReprovisionAllCommandAsync(context)),
         new(
             AzureEnvironmentCommand.DeleteAzureResources,
             DeleteAzureResourcesCommandName,
@@ -164,9 +171,11 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.DeleteAzureResourcesCommandConfirmation,
             "Delete",
             IconVariant.Regular,
-            IsHighlighted: true)
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, context) => controller.ExecuteDeleteAzureResourcesCommandAsync(context))
     ];
 
+    // Keep this in the desired dashboard command order; see EnvironmentCommandDefinitions for ordering rules.
     internal static ImmutableArray<ResourceCommandDefinition> ResourceCommandDefinitions { get; } =
     [
         new(
@@ -178,7 +187,8 @@ internal sealed class AzureProvisioningController(
             "Location",
             IconVariant.Regular,
             IsHighlighted: false,
-            Arguments: CreateChangeLocationCommandArguments()),
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteChangeResourceLocationCommandAsync(resourceName, context),
+            Arguments: CreateChangeLocationCommandArguments(deploymentStateResourceName: null)),
         new(
             AzureResourceCommand.GetAzureResource,
             GetAzureResourceCommandName,
@@ -187,7 +197,8 @@ internal sealed class AzureProvisioningController(
             ConfirmationMessage: null,
             "Info",
             IconVariant.Regular,
-            IsHighlighted: false),
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteGetAzureResourceCommandAsync(resourceName, context)),
         new(
             AzureResourceCommand.CancelDeployment,
             CancelDeploymentCommandName,
@@ -196,7 +207,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.CancelDeploymentCommandConfirmation,
             "Stop",
             IconVariant.Regular,
-            IsHighlighted: false),
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteCancelResourceDeploymentCommandAsync(resourceName, context)),
         new(
             AzureResourceCommand.DeleteAzureResource,
             DeleteAzureResourceCommandName,
@@ -205,7 +217,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.DeleteAzureResourceCommandConfirmation,
             "Delete",
             IconVariant.Regular,
-            IsHighlighted: false),
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteDeleteAzureResourceCommandAsync(resourceName, context)),
         new(
             AzureResourceCommand.ForgetState,
             ForgetStateCommandName,
@@ -214,7 +227,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.ForgetStateCommandConfirmation,
             "ArrowReset",
             IconVariant.Regular,
-            IsHighlighted: false),
+            IsHighlighted: false,
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteForgetStateCommandAsync(resourceName, context)),
         new(
             AzureResourceCommand.Reprovision,
             ReprovisionResourceCommandName,
@@ -223,7 +237,8 @@ internal sealed class AzureProvisioningController(
             AzureProvisioningStrings.ReprovisionResourceCommandConfirmation,
             "ArrowSync",
             IconVariant.Regular,
-            IsHighlighted: true)
+            IsHighlighted: true,
+            ExecuteCommand: static (controller, resourceName, context) => controller.ExecuteReprovisionResourceCommandAsync(resourceName, context))
     ];
 
     private static IReadOnlyList<InteractionInput> CreateAzureContextCommandArguments() =>
@@ -283,13 +298,13 @@ internal sealed class AzureProvisioningController(
             DynamicLoading = new InputLoadOptions
             {
                 AlwaysLoadOnStart = true,
-                LoadCallback = LoadLocationArgumentOptionsAsync,
+                LoadCallback = context => LoadLocationArgumentOptionsAsync(context),
                 DependsOnInputs = [SubscriptionIdArgumentName, ResourceGroupArgumentName]
             }
         }
     ];
 
-    private static IReadOnlyList<InteractionInput> CreateChangeLocationCommandArguments() =>
+    internal static IReadOnlyList<InteractionInput> CreateChangeLocationCommandArguments(string? deploymentStateResourceName) =>
     [
         new()
         {
@@ -302,7 +317,7 @@ internal sealed class AzureProvisioningController(
             DynamicLoading = new InputLoadOptions
             {
                 AlwaysLoadOnStart = true,
-                LoadCallback = LoadLocationArgumentOptionsAsync
+                LoadCallback = context => LoadLocationArgumentOptionsAsync(context, deploymentStateResourceName)
             }
         }
     ];
@@ -364,7 +379,7 @@ internal sealed class AzureProvisioningController(
         context.Input.Disabled = false;
     }
 
-    private static async Task LoadLocationArgumentOptionsAsync(LoadInputContext context)
+    private static async Task LoadLocationArgumentOptionsAsync(LoadInputContext context, string? deploymentStateResourceName = null)
     {
         var controller = context.Services.GetRequiredService<AzureProvisioningController>();
         var currentContext = await controller.GetCurrentAzureContextAsync(context.CancellationToken).ConfigureAwait(false);
@@ -390,7 +405,9 @@ internal sealed class AzureProvisioningController(
 
         if (string.IsNullOrEmpty(context.Input.Value))
         {
-            context.Input.Value = currentContext.Location;
+            context.Input.Value = !string.IsNullOrEmpty(deploymentStateResourceName)
+                ? await controller.GetEffectiveResourceLocationAsync(deploymentStateResourceName, context.CancellationToken).ConfigureAwait(false)
+                : currentContext.Location;
         }
 
         var locationOptions = await controller.GetLocationOptionsAsync(subscriptionId, context.CancellationToken).ConfigureAwait(false);
@@ -589,69 +606,130 @@ internal sealed class AzureProvisioningController(
         return await RunOperationAsync<bool>(model, new ChangeResourceLocationIntent(resourceName, location), cancellationToken).ConfigureAwait(false);
     }
 
-    internal Task<ExecuteCommandResult> ExecuteEnvironmentCommandAsync(AzureEnvironmentCommand command, ExecuteCommandContext context)
+    private Task<ExecuteCommandResult> ExecuteResetProvisioningStateCommandAsync(ExecuteCommandContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
 
-        return command switch
-        {
-            AzureEnvironmentCommand.ResetProvisioningState => ExecuteCommandAsync(
-                () => ResetStateAsync(model, context.CancellationToken),
-                AzureProvisioningStrings.ResetProvisioningStateCommandSuccess,
-                () => CreateEnvironmentCommandResultDataAsync(ResetProvisioningStateCommandName, model, context.CancellationToken)),
-            AzureEnvironmentCommand.ChangeAzureContext => ExecuteCommandAsync(
-                () => ChangeAzureContextCommandAsync(model, context.Arguments, context.CancellationToken),
-                AzureProvisioningStrings.ChangeAzureContextCommandSuccess,
-                () => CreateEnvironmentCommandResultDataAsync(ChangeAzureContextCommandName, model, context.CancellationToken)),
-            AzureEnvironmentCommand.ReprovisionAll => ExecuteCommandAsync(
-                () => ReprovisionAllAsync(model, context.CancellationToken),
-                AzureProvisioningStrings.ReprovisionAllCommandSuccess,
-                () => CreateEnvironmentCommandResultDataAsync(ReprovisionAllCommandName, model, context.CancellationToken)),
-            AzureEnvironmentCommand.DeleteAzureResources => ExecuteCommandAsync(
-                () => DeleteAzureResourcesAsync(model, context.CancellationToken),
-                AzureProvisioningStrings.DeleteAzureResourcesCommandSuccess,
-                () => CreateEnvironmentCommandResultDataAsync(DeleteAzureResourcesCommandName, model, context.CancellationToken)),
-            _ => throw new ArgumentOutOfRangeException(nameof(command))
-        };
+        return ExecuteCommandAsync(
+            () => ResetStateAsync(model, context.CancellationToken),
+            AzureProvisioningStrings.ResetProvisioningStateCommandSuccess,
+            () => CreateEnvironmentCommandResultDataAsync(ResetProvisioningStateCommandName, model, context.CancellationToken));
     }
 
-    internal Task<ExecuteCommandResult> ExecuteResourceCommandAsync(AzureResourceCommand command, string resourceName, ExecuteCommandContext context)
+    private Task<ExecuteCommandResult> ExecuteChangeAzureContextCommandAsync(ExecuteCommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => ChangeAzureContextCommandAsync(model, context.Arguments, context.CancellationToken),
+            AzureProvisioningStrings.ChangeAzureContextCommandSuccess,
+            () => CreateEnvironmentCommandResultDataAsync(ChangeAzureContextCommandName, model, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteReprovisionAllCommandAsync(ExecuteCommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => ReprovisionAllAsync(model, context.CancellationToken),
+            AzureProvisioningStrings.ReprovisionAllCommandSuccess,
+            () => CreateEnvironmentCommandResultDataAsync(ReprovisionAllCommandName, model, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteDeleteAzureResourcesCommandAsync(ExecuteCommandContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => DeleteAzureResourcesAsync(model, context.CancellationToken),
+            AzureProvisioningStrings.DeleteAzureResourcesCommandSuccess,
+            () => CreateEnvironmentCommandResultDataAsync(DeleteAzureResourcesCommandName, model, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteChangeResourceLocationCommandAsync(string resourceName, ExecuteCommandContext context)
     {
         ArgumentException.ThrowIfNullOrEmpty(resourceName);
         ArgumentNullException.ThrowIfNull(context);
 
         var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
 
-        return command switch
-        {
-            AzureResourceCommand.ChangeLocation => ExecuteCommandAsync(
-                () => ChangeResourceLocationCommandAsync(model, resourceName, context.Arguments, context.CancellationToken),
-                AzureProvisioningStrings.ChangeResourceLocationCommandSuccess,
-                () => CreateResourceCommandResultDataAsync(ChangeResourceLocationCommandName, model, resourceName, context.CancellationToken)),
-            AzureResourceCommand.GetAzureResource => ExecuteCommandAsync(
-                () => Task.CompletedTask,
-                AzureProvisioningStrings.GetAzureResourceCommandSuccess,
-                () => CreateAzureResourceInfoCommandResultDataAsync(model, resourceName, context.CancellationToken)),
-            AzureResourceCommand.CancelDeployment => ExecuteCommandAsync(
-                () => CancelResourceDeploymentAsync(model, resourceName, context.CancellationToken),
-                AzureProvisioningStrings.CancelDeploymentCommandSuccess,
-                () => CreateResourceCommandResultDataAsync(CancelDeploymentCommandName, model, resourceName, context.CancellationToken)),
-            AzureResourceCommand.DeleteAzureResource => ExecuteCommandAsync(
-                () => RunOperationAsync<DeleteAzureResourceResult>(model, new DeleteAzureResourceIntent(resourceName), context.CancellationToken),
-                AzureProvisioningStrings.DeleteAzureResourceCommandSuccess,
-                result => CreateDeleteAzureResourceCommandResultDataAsync(model, resourceName, result, context.CancellationToken)),
-            AzureResourceCommand.ForgetState => ExecuteCommandAsync(
-                () => ForgetResourceStateAsync(model, resourceName, context.CancellationToken),
-                AzureProvisioningStrings.ForgetStateCommandSuccess,
-                () => CreateResourceCommandResultDataAsync(ForgetStateCommandName, model, resourceName, context.CancellationToken)),
-            AzureResourceCommand.Reprovision => ExecuteCommandAsync(
-                () => ReprovisionResourceAsync(model, resourceName, context.CancellationToken),
-                AzureProvisioningStrings.ReprovisionResourceCommandSuccess,
-                () => CreateResourceCommandResultDataAsync(ReprovisionResourceCommandName, model, resourceName, context.CancellationToken)),
-            _ => throw new ArgumentOutOfRangeException(nameof(command))
-        };
+        return ExecuteCommandAsync(
+            () => ChangeResourceLocationCommandAsync(model, resourceName, context.Arguments, context.CancellationToken),
+            AzureProvisioningStrings.ChangeResourceLocationCommandSuccess,
+            () => CreateResourceCommandResultDataAsync(ChangeResourceLocationCommandName, model, resourceName, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteGetAzureResourceCommandAsync(string resourceName, ExecuteCommandContext context)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => Task.CompletedTask,
+            AzureProvisioningStrings.GetAzureResourceCommandSuccess,
+            () => CreateAzureResourceInfoCommandResultDataAsync(model, resourceName, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteCancelResourceDeploymentCommandAsync(string resourceName, ExecuteCommandContext context)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => CancelResourceDeploymentAsync(model, resourceName, context.CancellationToken),
+            AzureProvisioningStrings.CancelDeploymentCommandSuccess,
+            () => CreateResourceCommandResultDataAsync(CancelDeploymentCommandName, model, resourceName, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteDeleteAzureResourceCommandAsync(string resourceName, ExecuteCommandContext context)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => RunOperationAsync<DeleteAzureResourceResult>(model, new DeleteAzureResourceIntent(resourceName), context.CancellationToken),
+            AzureProvisioningStrings.DeleteAzureResourceCommandSuccess,
+            result => CreateDeleteAzureResourceCommandResultDataAsync(model, resourceName, result, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteForgetStateCommandAsync(string resourceName, ExecuteCommandContext context)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => ForgetResourceStateAsync(model, resourceName, context.CancellationToken),
+            AzureProvisioningStrings.ForgetStateCommandSuccess,
+            () => CreateResourceCommandResultDataAsync(ForgetStateCommandName, model, resourceName, context.CancellationToken));
+    }
+
+    private Task<ExecuteCommandResult> ExecuteReprovisionResourceCommandAsync(string resourceName, ExecuteCommandContext context)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(resourceName);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var model = context.ServiceProvider.GetRequiredService<DistributedApplicationModel>();
+
+        return ExecuteCommandAsync(
+            () => ReprovisionResourceAsync(model, resourceName, context.CancellationToken),
+            AzureProvisioningStrings.ReprovisionResourceCommandSuccess,
+            () => CreateResourceCommandResultDataAsync(ReprovisionResourceCommandName, model, resourceName, context.CancellationToken));
     }
 
     private async Task<bool> ChangeAzureContextCommandAsync(DistributedApplicationModel model, InteractionInputCollection arguments, CancellationToken cancellationToken)
@@ -715,19 +793,27 @@ internal sealed class AzureProvisioningController(
                     return ResourceCommandState.Enabled;
                 }
 
-                return currentOperation.IsAllResources || currentOperation.ResourceNames.Contains(resourceName)
+                var currentOperationAffectsResource = currentOperation.IsAllResources || currentOperation.ResourceNames.Contains(resourceName);
+                if (command == AzureResourceCommand.CancelDeployment)
+                {
+                    return currentOperationAffectsResource && IsCancelableDeploymentState(context.ResourceSnapshot)
+                        ? ResourceCommandState.Enabled
+                        : ResourceCommandState.Disabled;
+                }
+
+                return currentOperationAffectsResource
                     ? ResourceCommandState.Disabled
                     : ResourceCommandState.Enabled;
             }
         }
 
-        return command == AzureResourceCommand.CancelDeployment && !IsWaitingForDeployment(context.ResourceSnapshot)
+        return command == AzureResourceCommand.CancelDeployment && !IsCancelableDeploymentState(context.ResourceSnapshot)
             ? ResourceCommandState.Disabled
             : ResourceCommandState.Enabled;
     }
 
-    private static bool IsWaitingForDeployment(CustomResourceSnapshot snapshot)
-        => string.Equals(snapshot.State?.Text, "Waiting for Deployment", StringComparison.Ordinal);
+    private static bool IsCancelableDeploymentState(CustomResourceSnapshot snapshot)
+        => snapshot.State?.Text is CreatingArmDeploymentState or WaitingForDeploymentState;
 
     private async Task RunOperationAsync(DistributedApplicationModel model, AzureIntent intent, CancellationToken cancellationToken)
     {
@@ -887,8 +973,8 @@ internal sealed class AzureProvisioningController(
     {
         var azureResources = GetProvisionableAzureResources(model);
         var targetResource = azureResources.SingleOrDefault(resource =>
-            string.Equals(resource.Resource.Name, resourceName, StringComparison.Ordinal) ||
-            string.Equals(resource.AzureResource.Name, resourceName, StringComparison.Ordinal));
+            string.Equals(resource.Resource.Name, resourceName, StringComparisons.ResourceName) ||
+            string.Equals(resource.AzureResource.Name, resourceName, StringComparisons.ResourceName));
 
         if (targetResource == default)
         {
@@ -896,12 +982,15 @@ internal sealed class AzureProvisioningController(
         }
 
         var parentChildLookup = model.Resources.OfType<IResourceWithParent>().ToLookup(r => r.Parent);
-        var visitedResources = new HashSet<string>(StringComparer.Ordinal);
+        var visitedResources = new HashSet<string>(StringComparers.ResourceName);
         var queue = new Queue<(IResource Resource, IAzureResource AzureResource)>();
         var targetResources = new List<(IResource Resource, IAzureResource AzureResource)>();
 
         Enqueue(targetResource);
 
+        // Per-resource operations need to include any provisionable Azure resource owned by the
+        // selected resource, including children attached through the Aspire resource graph or
+        // RoleAssignment annotations, so dependent resources stay in sync with the target.
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
@@ -1001,29 +1090,23 @@ internal sealed class AzureProvisioningController(
 
         _ = Task.Run(async () =>
         {
-            try
+            // Delay before each check so the gap between drift checks is constant regardless of how long
+            // the previous check ran. PeriodicTimer would fire back-to-back if a check exceeded the interval.
+            while (!stoppingToken.IsCancellationRequested)
             {
-                // Delay before each check so the gap between drift checks is constant regardless of how long
-                // the previous check ran. PeriodicTimer would fire back-to-back if a check exceeded the interval.
-                while (!stoppingToken.IsCancellationRequested)
+                try
                 {
-                    try
-                    {
-                        await Task.Delay(DriftCheckInterval, timeProvider, stoppingToken).ConfigureAwait(false);
-                        await CheckForDriftAsync(model, stoppingToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Azure drift check failed.");
-                    }
+                    await Task.Delay(DriftCheckInterval, timeProvider, stoppingToken).ConfigureAwait(false);
+                    await CheckForDriftAsync(model, stoppingToken).ConfigureAwait(false);
                 }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Azure drift check failed.");
+                }
             }
         }, stoppingToken);
     }
@@ -1033,7 +1116,18 @@ internal sealed class AzureProvisioningController(
         if (Interlocked.CompareExchange(ref _operationLoopStarted, 1, 0) == 0)
         {
             var stoppingToken = serviceProvider.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None;
-            _ = Task.Run(() => ProcessOperationLoopAsync(stoppingToken), stoppingToken);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ProcessOperationLoopAsync(stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Azure operation processing failed.");
+                    CancelPendingOperations(stoppingToken);
+                }
+            }, stoppingToken);
         }
     }
 
@@ -1129,7 +1223,7 @@ internal sealed class AzureProvisioningController(
             CancelResourceDeploymentIntent cancelResourceDeployment => await ExecuteCancelResourceDeploymentAsync(model, cancelResourceDeployment, cancellationToken).ConfigureAwait(false),
             DeleteAzureResourceIntent deleteAzureResource => await ExecuteDeleteAzureResourceAsync(model, deleteAzureResource, cancellationToken).ConfigureAwait(false),
             DetectDriftIntent => await ExecuteDetectDriftAsync(model, cancellationToken).ConfigureAwait(false),
-            _ => throw new ArgumentOutOfRangeException(nameof(intent))
+            _ => throw new ArgumentOutOfRangeException(nameof(intent), intent, "Unexpected Azure intent.")
         };
     }
 
@@ -1532,7 +1626,7 @@ internal sealed class AzureProvisioningController(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        return CreateJsonResultData(json);
+        return CreateJsonResultData(json, displayImmediately: true);
     }
 
     private async Task<JsonObject> CreateCachedDeploymentStateInfoAsync(AzureBicepResource resource, AzureContextState context, CancellationToken cancellationToken)
@@ -1630,11 +1724,9 @@ internal sealed class AzureProvisioningController(
 
         try
         {
-            // Deployment state stores JSON payloads as strings, for example:
-            //   Outputs = { "id": { "type": "String", "value": "/subscriptions/..." } }
             // Keep parse failures in the command payload instead of throwing so a diagnostic
             // command can still show the rest of the cached state.
-            return JsonNode.Parse(json);
+            return AzureProvisioningJsonHelpers.ParseDeploymentStateJson(json);
         }
         catch (JsonException ex)
         {
@@ -1682,11 +1774,12 @@ internal sealed class AzureProvisioningController(
         return json;
     }
 
-    private static CommandResultData CreateJsonResultData(JsonObject json) =>
+    private static CommandResultData CreateJsonResultData(JsonObject json, bool displayImmediately = false) =>
         new()
         {
-            Value = json.ToJsonString(),
-            Format = CommandResultFormat.Json
+            Value = AzureProvisioningJsonHelpers.ToCommandResultJsonString(json),
+            Format = CommandResultFormat.Json,
+            DisplayImmediately = displayImmediately
         };
 
     private async Task ApplyResourceOverridesAsync(IAzureResource azureResource, CancellationToken cancellationToken)
@@ -1946,7 +2039,7 @@ internal sealed class AzureProvisioningController(
 
         try
         {
-            var persistedLocation = JsonNode.Parse(parametersJson)?[AzureBicepResource.KnownParameters.Location]?["value"]?.GetValue<string>();
+            var persistedLocation = AzureProvisioningJsonHelpers.ParseDeploymentStateJson(parametersJson)?[AzureBicepResource.KnownParameters.Location]?["value"]?.GetValue<string>();
             if (string.IsNullOrWhiteSpace(persistedLocation))
             {
                 return null;
@@ -1955,6 +2048,9 @@ internal sealed class AzureProvisioningController(
             if (string.IsNullOrWhiteSpace(environmentLocation) ||
                 !string.Equals(persistedLocation, environmentLocation, StringComparison.OrdinalIgnoreCase))
             {
+                // A resource can intentionally live in a different Azure region than the environment.
+                // Preserve that persisted per-resource value across reprovisioning instead of replacing
+                // it with the current environment location.
                 return persistedLocation;
             }
         }
@@ -2162,7 +2258,7 @@ internal sealed class AzureProvisioningController(
 
         try
         {
-            return JsonNode.Parse(outputsJson)?["id"]?["value"]?.GetValue<string>();
+            return AzureProvisioningJsonHelpers.ParseDeploymentStateJson(outputsJson)?["id"]?["value"]?.GetValue<string>();
         }
         catch (Exception ex)
         {
@@ -2237,7 +2333,7 @@ internal sealed class AzureProvisioningController(
 
         try
         {
-            return JsonNode.Parse(parametersJson)?[AzureBicepResource.KnownParameters.Location]?["value"]?.GetValue<string>();
+            return AzureProvisioningJsonHelpers.ParseDeploymentStateJson(parametersJson)?[AzureBicepResource.KnownParameters.Location]?["value"]?.GetValue<string>();
         }
         catch (Exception ex)
         {
@@ -2734,11 +2830,11 @@ internal sealed class AzureProvisioningController(
         public bool IsAllResources { get; } = isAllResources;
         public IReadOnlySet<string> ResourceNames { get; } = resourceNames;
 
-        public static AzureOperationState None { get; } = new(string.Empty, false, new HashSet<string>(StringComparer.Ordinal));
+        public static AzureOperationState None { get; } = new(string.Empty, false, new HashSet<string>(StringComparers.ResourceName));
 
-        public static AzureOperationState All(string displayName) => new(displayName, true, new HashSet<string>(StringComparer.Ordinal));
+        public static AzureOperationState All(string displayName) => new(displayName, true, new HashSet<string>(StringComparers.ResourceName));
 
-        public static AzureOperationState Resource(string resourceName, string displayName) => new(displayName, false, new HashSet<string>([resourceName], StringComparer.Ordinal));
+        public static AzureOperationState Resource(string resourceName, string displayName) => new(displayName, false, new HashSet<string>([resourceName], StringComparers.ResourceName));
     }
 
     private sealed record AzureControllerState(AzureControllerStatus Status)
@@ -2777,6 +2873,7 @@ internal sealed class AzureProvisioningController(
         string IconName,
         IconVariant IconVariant,
         bool IsHighlighted,
+        Func<AzureProvisioningController, ExecuteCommandContext, Task<ExecuteCommandResult>> ExecuteCommand,
         IReadOnlyList<InteractionInput>? Arguments = null,
         Func<InputsDialogValidationContext, Task>? ValidateArguments = null);
 
@@ -2789,6 +2886,7 @@ internal sealed class AzureProvisioningController(
         string IconName,
         IconVariant IconVariant,
         bool IsHighlighted,
+        Func<AzureProvisioningController, string, ExecuteCommandContext, Task<ExecuteCommandResult>> ExecuteCommand,
         IReadOnlyList<InteractionInput>? Arguments = null,
         Func<InputsDialogValidationContext, Task>? ValidateArguments = null);
 

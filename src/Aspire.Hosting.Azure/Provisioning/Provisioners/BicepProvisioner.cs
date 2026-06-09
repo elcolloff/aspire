@@ -213,7 +213,7 @@ internal sealed class BicepProvisioner(
         {
             return state with
             {
-                State = new("Creating ARM Deployment", KnownResourceStateStyles.Info),
+                State = new(AzureProvisioningController.CreatingArmDeploymentState, KnownResourceStateStyles.Info),
                 Properties = state.Properties.SetResourceProperty(CustomResourceKnownProperties.Source, deploymentId.ToString()),
             };
         })
@@ -270,7 +270,7 @@ internal sealed class BicepProvisioner(
         {
             return state with
             {
-                State = new("Waiting for Deployment", KnownResourceStateStyles.Info),
+                State = new(AzureProvisioningController.WaitingForDeploymentState, KnownResourceStateStyles.Info),
                 Urls = [.. state.Urls, new(Name: "deployment", Url: url, IsInternal: false)],
                 Properties = state.Properties.SetResourceProperty(CustomResourceKnownProperties.Source, deploymentId.ToString()),
             };

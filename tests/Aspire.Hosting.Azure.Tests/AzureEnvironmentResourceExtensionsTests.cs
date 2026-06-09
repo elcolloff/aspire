@@ -77,6 +77,39 @@ public class AzureEnvironmentResourceExtensionsTests
     }
 
     [Fact]
+    public void AddAzureEnvironment_InRunMode_AddsCommandsInDefinitionOrder()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+
+        builder.AddAzureEnvironment();
+
+        var environmentResource = Assert.Single(builder.Resources.OfType<AzureEnvironmentResource>());
+        var commands = environmentResource.Annotations.OfType<ResourceCommandAnnotation>().ToArray();
+
+        Assert.Collection(commands,
+            command =>
+            {
+                Assert.Equal(AzureProvisioningController.ResetProvisioningStateCommandName, command.Name);
+                Assert.True(command.IsHighlighted);
+            },
+            command =>
+            {
+                Assert.Equal(AzureProvisioningController.ChangeAzureContextCommandName, command.Name);
+                Assert.True(command.IsHighlighted);
+            },
+            command =>
+            {
+                Assert.Equal(AzureProvisioningController.ReprovisionAllCommandName, command.Name);
+                Assert.False(command.IsHighlighted);
+            },
+            command =>
+            {
+                Assert.Equal(AzureProvisioningController.DeleteAzureResourcesCommandName, command.Name);
+                Assert.False(command.IsHighlighted);
+            });
+    }
+
+    [Fact]
     public void AddAzureEnvironment_InRunMode_AddsSelectableArgumentsToChangeAzureContextCommand()
     {
         var builder = CreateBuilder(isRunMode: true);
@@ -412,7 +445,14 @@ public class AzureEnvironmentResourceExtensionsTests
         using var app = builder.Build();
 
         var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
-        storageSection.Data["Outputs"] = """{"id":{"value":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage"}}""";
+        storageSection.Data["Outputs"] = """
+            {
+              // Cached output IDs are used to decide whether provisioning can be skipped.
+              "id": {
+                "value": "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
+              },
+            }
+            """;
         await deploymentStateManager.SaveSectionAsync(storageSection);
 
         var model = app.Services.GetRequiredService<DistributedApplicationModel>();
@@ -542,24 +582,29 @@ public class AzureEnvironmentResourceExtensionsTests
 
         var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
         storageSection.Data["Id"] = deploymentId;
-        storageSection.Data["Parameters"] = """{"location":{"value":"westus2"}}""";
-        storageSection.Data["Outputs"] = new JsonObject
-        {
-            ["id"] = new JsonObject
+        storageSection.Data["Parameters"] = """
             {
-                ["type"] = "String",
-                ["value"] = resourceId
-            },
-            ["blobEndpoint"] = new JsonObject
-            {
-                ["type"] = "String",
-                ["value"] = "https://storage.blob.core.windows.net/"
+              // Cached deployment state can be hand-edited while recovering local state.
+              "location": { "value": "westus2", },
             }
-        }.ToJsonString();
-        storageSection.Data["Scope"] = new JsonObject
-        {
-            ["resourceGroup"] = resourceGroup
-        }.ToJsonString();
+            """;
+        storageSection.Data["Outputs"] = $$"""
+            {
+              "id": {
+                "type": "String",
+                "value": "{{resourceId}}",
+              },
+              "blobEndpoint": {
+                "type": "String",
+                "value": "https://storage.blob.core.windows.net/",
+              },
+            }
+            """;
+        storageSection.Data["Scope"] = $$"""
+            {
+              "resourceGroup": "{{resourceGroup}}",
+            }
+            """;
         storageSection.Data["CheckSum"] = "checksum";
         storageSection.Data[BicepProvisioner.DeploymentStateProvisioningStateKey] = BicepProvisioner.DeploymentStateProvisioningStateRunning;
         storageSection.Data[AzureProvisioningController.LocationOverrideKey] = "westus3";
@@ -583,6 +628,8 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Equal(AzureProvisioningController.GetAzureResourceCommandName, data["command"]?.GetValue<string>());
         Assert.Equal("storage", data["resourceName"]?.GetValue<string>());
         Assert.Equal("westus3", data["location"]?.GetValue<string>());
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data!.DisplayImmediately);
 
         var deployment = Assert.IsType<JsonObject>(data["deployment"]);
         Assert.True(deployment["hasState"]?.GetValue<bool>());
@@ -596,6 +643,10 @@ public class AzureEnvironmentResourceExtensionsTests
 
         var outputs = Assert.IsType<JsonObject>(deployment["outputs"]);
         Assert.Equal("https://storage.blob.core.windows.net/", outputs["blobEndpoint"]?["value"]?.GetValue<string>());
+        var parameters = Assert.IsType<JsonObject>(deployment["parameters"]);
+        Assert.Equal("westus2", parameters["location"]?["value"]?.GetValue<string>());
+        var scope = Assert.IsType<JsonObject>(deployment["scope"]);
+        Assert.Equal(resourceGroup, scope["resourceGroup"]?.GetValue<string>());
 
         var live = Assert.IsType<JsonObject>(data["live"]);
         Assert.True(live["checked"]?.GetValue<bool>());
@@ -665,6 +716,59 @@ public class AzureEnvironmentResourceExtensionsTests
 
         Assert.True(notifications.TryGetCurrentState(storage.Resource.Name, out var storageEvent));
         Assert.Equal("Canceled", storageEvent.Snapshot.State?.Text);
+    }
+
+    [Fact]
+    public async Task CancelDeploymentCommand_IsEnabledDuringActiveDeploymentOperation()
+    {
+        var builder = CreateBuilder(isRunMode: true);
+        var deploymentStateManager = new TestDeploymentStateManager();
+        var testBicepProvisioner = new BlockingTestBicepProvisioner();
+        var testProvisioningContextProvider = new TestProvisioningContextProvider();
+
+        builder.Configuration["Azure:SubscriptionId"] = "12345678-1234-1234-1234-123456789012";
+        builder.Configuration["Azure:Location"] = "westus2";
+        builder.Configuration["Azure:ResourceGroup"] = "test-rg";
+        builder.Services.AddSingleton<IDeploymentStateManager>(deploymentStateManager);
+        builder.AddAzureProvisioning();
+        builder.Services.RemoveAll<AzureProvisioningController>();
+        builder.Services.AddSingleton(sp => new AzureProvisioningController(
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<IOptions<AzureProvisionerOptions>>(),
+            sp,
+            testBicepProvisioner,
+            deploymentStateManager,
+            sp.GetRequiredService<IDistributedApplicationEventing>(),
+            testProvisioningContextProvider,
+            sp.GetRequiredService<IAzureProvisioningOptionsManager>(),
+            sp.GetRequiredService<ResourceNotificationService>(),
+            sp.GetRequiredService<ResourceLoggerService>(),
+            sp.GetRequiredService<ILogger<AzureProvisioningController>>()));
+
+        var storage = builder.AddBicepTemplateString("storage", "resource storage 'Microsoft.Storage/storageAccounts@2024-01-01' = {}");
+
+        using var app = builder.Build();
+
+        var model = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var notifications = app.Services.GetRequiredService<ResourceNotificationService>();
+        var preparer = new AzureResourcePreparer(
+            app.Services.GetRequiredService<IOptions<AzureProvisioningOptions>>(),
+            app.Services.GetRequiredService<DistributedApplicationExecutionContext>());
+        var controller = app.Services.GetRequiredService<AzureProvisioningController>();
+
+        await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
+
+        var provisioningTask = controller.EnsureProvisionedAsync(model, CancellationToken.None);
+
+        await testBicepProvisioner.FirstProvisionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await notifications.PublishUpdateAsync(storage.Resource, state => state with { State = new("Creating ARM Deployment", KnownResourceStateStyles.Info) });
+
+        Assert.True(notifications.TryGetCurrentState(storage.Resource.Name, out var storageEvent));
+        var cancelCommand = Assert.Single(storageEvent.Snapshot.Commands, c => c.Name == AzureProvisioningController.CancelDeploymentCommandName);
+        Assert.Equal(ResourceCommandState.Enabled, cancelCommand.State);
+
+        testBicepProvisioner.AllowFirstProvisionToComplete.TrySetResult();
+        await provisioningTask;
     }
 
     [Fact]
@@ -1283,9 +1387,25 @@ public class AzureEnvironmentResourceExtensionsTests
         azureSection.Data["ResourceGroup"] = "test-rg";
         await deploymentStateManager.SaveSectionAsync(azureSection);
 
+        var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
+        storageSection.Data[AzureProvisioningController.LocationOverrideKey] = "westus3";
+        await deploymentStateManager.SaveSectionAsync(storageSection);
+
         await notifications.PublishUpdateAsync(storage.Resource, state => state with { State = KnownResourceStates.Running });
 
         var changeLocationCommand = Assert.Single(storage.Resource.Annotations.OfType<ResourceCommandAnnotation>(), c => c.Name == AzureProvisioningController.ChangeResourceLocationCommandName);
+        var commandInputs = CloneInputs(changeLocationCommand.Arguments);
+        var commandLocationInput = commandInputs[AzureBicepResource.KnownParameters.Location];
+
+        await commandLocationInput.DynamicLoading!.LoadCallback(new LoadInputContext
+        {
+            AllInputs = commandInputs,
+            CancellationToken = CancellationToken.None,
+            Input = commandLocationInput,
+            Services = app.Services
+        });
+
+        Assert.Equal("westus3", commandLocationInput.Value);
 
         var executionTask = changeLocationCommand.ExecuteCommand(new ExecuteCommandContext
         {
@@ -1302,6 +1422,7 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Equal(InputType.Choice, locationInput.InputType);
         var options = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, string>>>(locationInput.Options);
         Assert.Contains(options, option => option.Key == "westus2");
+        Assert.Equal("westus3", locationInput.Value);
 
         locationInput.Value = "westus2";
         interaction.CompletionTcs.SetResult(InteractionResult.Ok(interaction.Inputs));
@@ -1437,8 +1558,21 @@ public class AzureEnvironmentResourceExtensionsTests
         await preparer.OnBeforeStartAsync(new BeforeStartEvent(app.Services, model), CancellationToken.None);
 
         var storageSection = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage");
-        storageSection.Data["Parameters"] = """{"location":{"value":"westus2"}}""";
-        storageSection.Data["Outputs"] = """{"id":{"value":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/storage26wmkwq4f4li52"}}""";
+        storageSection.Data["Parameters"] = """
+            {
+              // The cached deployment location is used when the resource snapshot has not been published yet.
+              "location": {
+                "value": "westus2",
+              },
+            }
+            """;
+        storageSection.Data["Outputs"] = $$"""
+            {
+              "id": {
+                "value": "{{resourceId}}",
+              },
+            }
+            """;
         await deploymentStateManager.SaveSectionAsync(storageSection);
 
         await notifications.PublishUpdateAsync(storage.Resource, state => state with { State = KnownResourceStates.Running });
@@ -1742,7 +1876,7 @@ public class AzureEnvironmentResourceExtensionsTests
             Logger = NullLogger.Instance,
             Arguments = CreateArguments(
                 ("subscriptionId", "12345678-1234-1234-1234-123456789012"),
-                ("resourceGroup", "cli-rg"),
+                ("resourceGroup", "cli-rg-é"),
                 (AzureBicepResource.KnownParameters.Location, "West US 3"),
                 ("tenantId", "87654321-4321-4321-4321-210987654321"))
         });
@@ -1755,7 +1889,7 @@ public class AzureEnvironmentResourceExtensionsTests
         var azureSection = await deploymentStateManager.AcquireSectionAsync("Azure");
         Assert.Equal("12345678-1234-1234-1234-123456789012", azureSection.Data["SubscriptionId"]?.GetValue<string>());
         Assert.Equal("westus3", azureSection.Data["Location"]?.GetValue<string>());
-        Assert.Equal("cli-rg", azureSection.Data["ResourceGroup"]?.GetValue<string>());
+        Assert.Equal("cli-rg-é", azureSection.Data["ResourceGroup"]?.GetValue<string>());
         Assert.Equal("87654321-4321-4321-4321-210987654321", azureSection.Data["TenantId"]?.GetValue<string>());
 
         var data = AssertCommandJsonData(result);
@@ -1763,14 +1897,17 @@ public class AzureEnvironmentResourceExtensionsTests
         Assert.Equal(AzureProvisioningController.ChangeAzureContextCommandName, data["command"]?.GetValue<string>());
         Assert.Equal("12345678-1234-1234-1234-123456789012", data["subscriptionId"]?.GetValue<string>());
         Assert.Equal("87654321-4321-4321-4321-210987654321", data["tenantId"]?.GetValue<string>());
-        Assert.Equal("cli-rg", data["resourceGroup"]?.GetValue<string>());
+        Assert.Equal("cli-rg-é", data["resourceGroup"]?.GetValue<string>());
         Assert.Equal("westus3", data["azureLocation"]?.GetValue<string>());
+        Assert.Contains("cli-rg-é", result.Data!.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u00E9", result.Data.Value, StringComparison.OrdinalIgnoreCase);
+
         Assert.Equal(1, data["resourceCount"]?.GetValue<int>());
 
         Assert.True(notifications.TryGetCurrentState(environmentResource.Name, out var environmentEvent));
         Assert.Equal(KnownResourceStates.Running, environmentEvent.Snapshot.State?.Text);
         Assert.Equal("12345678-1234-1234-1234-123456789012", environmentEvent.Snapshot.Properties.Single(p => p.Name == "azure.subscription.id").Value?.ToString());
-        Assert.Equal("cli-rg", environmentEvent.Snapshot.Properties.Single(p => p.Name == "azure.resource.group").Value?.ToString());
+        Assert.Equal("cli-rg-é", environmentEvent.Snapshot.Properties.Single(p => p.Name == "azure.resource.group").Value?.ToString());
         Assert.Equal("westus3", environmentEvent.Snapshot.Properties.Single(p => p.Name == "azure.location").Value?.ToString());
         Assert.Equal("87654321-4321-4321-4321-210987654321", environmentEvent.Snapshot.Properties.Single(p => p.Name == "azure.tenant.id").Value?.ToString());
     }
@@ -2022,7 +2159,12 @@ public class AzureEnvironmentResourceExtensionsTests
         await deploymentStateManager.SaveSectionAsync(azureSection);
 
         var storage2Section = await deploymentStateManager.AcquireSectionAsync("Azure:Deployments:storage2");
-        storage2Section.Data["Parameters"] = """{"location":{"value":"westus3"}}""";
+        storage2Section.Data["Parameters"] = """
+            {
+              // Preserve resource-specific locations from cached deployment parameters.
+              "location": { "value": "westus3", },
+            }
+            """;
         await deploymentStateManager.SaveSectionAsync(storage2Section);
 
         await controller.ReprovisionAllAsync(model);

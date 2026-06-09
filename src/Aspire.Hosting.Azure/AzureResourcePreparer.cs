@@ -76,7 +76,7 @@ internal sealed class AzureResourcePreparer(
                     resource.Resource,
                     command.Name,
                     command.DisplayName,
-                    executeCommand: context => context.ServiceProvider.GetRequiredService<AzureProvisioningController>().ExecuteResourceCommandAsync(command.Command, resource.Resource.Name, context),
+                    executeCommand: context => command.ExecuteCommand(context.ServiceProvider.GetRequiredService<AzureProvisioningController>(), resource.Resource.Name, context),
                     new CommandOptions
                     {
                         Description = command.Description,
@@ -84,13 +84,18 @@ internal sealed class AzureResourcePreparer(
                         IconName = command.IconName,
                         IconVariant = command.IconVariant,
                         IsHighlighted = command.IsHighlighted,
-                        Arguments = command.Arguments ?? [],
+                        Arguments = command.Command == AzureProvisioningController.AzureResourceCommand.ChangeLocation
+                            ? AzureProvisioningController.CreateChangeLocationCommandArguments(GetDeploymentStateResourceName(resource))
+                            : command.Arguments ?? [],
                         ValidateArguments = command.ValidateArguments,
                         UpdateState = context => context.ServiceProvider.GetRequiredService<AzureProvisioningController>().GetResourceCommandState(resource.Resource.Name, command.Command, context)
                     });
             }
         }
     }
+
+    private static string GetDeploymentStateResourceName((IResource Resource, IAzureResource AzureResource) resource)
+        => resource.AzureResource is AzureBicepResource bicepResource ? bicepResource.Name : resource.Resource.Name;
 
     private static void AddOrReplaceCommand(
         IResource resource,
